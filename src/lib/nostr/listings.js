@@ -1,0 +1,80 @@
+// Listings are NIP-99 classified listings (kind 30402), tagged `xbt-market`
+// so any Nostr client can see them and this app can find them.
+
+import * as nip19 from 'nostr-tools/nip19';
+import { MARKET_TAG } from '../../config.js';
+import { tag, tags } from './pool.js';
+
+export const LISTING_KIND = 30402;
+
+export const CATEGORIES = [
+  'clothing', 'shoes', 'bags', 'electronics', 'computers', 'phones', 'bitcoin-hardware', 'books', 'music',
+  'games', 'toys', 'kids', 'home', 'garden', 'sports', 'bikes', 'collectibles', 'art', 'beauty', 'tools', 'auto', 'other',
+];
+
+export const CONDITIONS = ['new', 'like-new', 'good', 'fair', 'for-parts'];
+
+export function listingTemplate(l) {
+  const t = [
+    ['d', l.d],
+    ['title', l.title],
+    ['summary', l.summary || l.content.slice(0, 140)],
+    ['published_at', String(l.publishedAt || Math.floor(Date.now() / 1000))],
+    ['price', String(l.price), l.currency],
+    ['t', MARKET_TAG],
+    ['t', 'btcb2'],
+    ['status', l.status || 'active'],
+  ];
+  if (l.category) t.push(['t', l.category]);
+  if (l.condition) t.push(['condition', l.condition]);
+  if (l.location) t.push(['location', l.location]);
+  if (l.shippingCost != null && l.shippingCost !== '') t.push(['shipping_cost', String(l.shippingCost), l.currency]);
+  if (l.shipsTo) t.push(['ships_to', l.shipsTo]);
+  if (l.sellerDepositPct != null) t.push(['seller_deposit_pct', String(l.sellerDepositPct)]);
+  for (const img of l.images || []) if (img) t.push(['image', img]);
+  if (l.source) t.push(['r', l.source]);
+  if (l.importedFrom) t.push(['imported_from', l.importedFrom]);
+  return { kind: LISTING_KIND, tags: t, content: l.content || '' };
+}
+
+export function parseListing(e) {
+  const d = tag(e, 'd');
+  if (!d || !tags(e, 't').includes(MARKET_TAG)) return null;
+  const priceTag = e.tags.find((x) => x[0] === 'price');
+  const price = Number(priceTag?.[1]);
+  if (!(price > 0)) return null;
+  const known = new Set([MARKET_TAG, 'btcb2']);
+  const httpUrl = (u) => (/^https?:\/\/[^\s"'<>]+$/i.test(u || '') ? u : '');
+  return {
+    id: e.id,
+    pubkey: e.pubkey,
+    d,
+    coord: `${LISTING_KIND}:${e.pubkey}:${d}`,
+    naddr: nip19.naddrEncode({ kind: LISTING_KIND, pubkey: e.pubkey, identifier: d }),
+    title: tag(e, 'title') || '(untitled)',
+    summary: tag(e, 'summary') || '',
+    content: e.content,
+    price,
+    currency: (priceTag[2] || 'EUR').toUpperCase(),
+    images: tags(e, 'image').map(httpUrl).filter(Boolean),
+    category: tags(e, 't').find((x) => !known.has(x)) || 'other',
+    condition: tag(e, 'condition') || '',
+    location: tag(e, 'location') || '',
+    shippingCost: tag(e, 'shipping_cost') != null ? Number(tag(e, 'shipping_cost')) : null,
+    shipsTo: tag(e, 'ships_to') || '',
+    sellerDepositPct: tag(e, 'seller_deposit_pct') != null ? Number(tag(e, 'seller_deposit_pct')) : null,
+    status: tag(e, 'status') || 'active',
+    source: httpUrl(tag(e, 'r')),
+    importedFrom: tag(e, 'imported_from') || '',
+    createdAt: e.created_at,
+    event: e,
+  };
+}
+
+export function decodeListingRef(naddr) {
+  const d = nip19.decode(naddr);
+  if (d.type !== 'naddr' || d.data.kind !== LISTING_KIND) throw new Error('not a listing address');
+  return d.data;
+}
+
+export const newListingId = () => 'l-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);

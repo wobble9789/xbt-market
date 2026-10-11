@@ -1,0 +1,35 @@
+{
+  "name": "xbt-market",
+  "version": "0.1.0",
+  "description": "Peer-to-peer marketplace on Nostr, paid in Bitcoin BLAKE2b (BTCB2/XBT) through 2-of-3 multisig escrow with arbiters",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/build-bookmarklet.mjs && node node_modules/vite/bin/vite.js",
+    "build": "node scripts/build-bookmarklet.mjs && node node_modules/vite/bin/vite.js build",
+    "preview": "node node_modules/vite/bin/vite.js preview",
+    "test": "node --test test/*.test.js",
+    "test:regtest": "node test/regtest.integration.mjs",
+    "test:e2e": "node test/e2e/trade.e2e.mjs",
+    "test:import": "node test/e2e/import.e2e.mjs",
+    "relay": "node dev/relay.mjs 7777",
+    "shim": "node dev/esplora-shim.mjs --port 3006 --rpc http://u:p@127.0.0.1:18443",
+    "fixtures": "node test/e2e/shop-fixtures.mjs"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@scure/base": "^2.4.0",
+    "nostr-tools": "^2.25.2",
+    "preact": "^11.0.0",
+    "qrcode-generator": "^2.0.4"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "esbuild": "^0.28.2",
+    "puppeteer-core": "^25.12.0",
+    "vite": "^8.3.3",
+    "ws": "^8.22.0"
+  }
+}
