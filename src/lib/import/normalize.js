@@ -3,8 +3,8 @@
 // listing drafts.
 
 const CONDITION_WORDS = [
+  ['like-new', /very good|zeer goed|sehr gut|très bon|ottimo|like new|als nieuw|wie neu|comme neuf|refurbished/i],
   ['new', /new with tags|nieuw met|neu mit|neuf avec|nuovo con|new without|nieuw zonder|^new|nieuw|neu|neuf|nuovo|brand ?new|newcondition/i],
-  ['like-new', /very good|zeer goed|sehr gut|très bon|ottimo|like new|als nieuw|refurbished/i],
   ['good', /good|goed|gut|bon|buono|used|gebruikt|usedcondition/i],
   ['fair', /satisfactory|redelijk|zufriedenstellend|satisfaisant|discreto|acceptable|fair/i],
   ['for-parts', /parts|onderdelen|defect|damaged/i],
@@ -31,23 +31,75 @@ function cleanText(s, max) {
   return String(s ?? '').replace(/\s+\n/g, '\n').trim().slice(0, max);
 }
 
+// A stable identity for a listing on its original platform, so a re-import
+// recognises what is already here even if the URL slug or domain changed.
+export function sourceKey(url) {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    const h = u.hostname.replace(/^www\./, '');
+    let m;
+    if (/marktplaats\.|2dehands\.|2ememain\./.test(h) && (m = u.pathname.match(/\/(m\d{6,})/))) return 'mp:' + m[1];
+    if (/vinted\./.test(h) && (m = u.pathname.match(/\/items\/(\d+)/))) return 'vinted:' + m[1];
+    if (/ebay\./.test(h) && (m = u.pathname.match(/\/itm\/(?:[^/]+\/)?(\d{6,})/))) return 'ebay:' + m[1];
+    return h + u.pathname.replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+export const titleKey = (title, price) =>
+  String(title || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim() + '|' + Math.round(Number(price) || 0);
+
+// 'mp:m123' -> 'mp'; 'shop.example/item/1' -> 'shop.example'
+const platformOf = (key) => (/^[a-z]+:/.test(key) ? key.split(':')[0] : key.split('/')[0]);
+
+// Compares imported items with the user's existing listings.
+//   status: 'new' | 'same' | 'changed'   (+ match: the existing listing)
+// gone: existing listings from the same platform missing from a complete import.
+export function classifyImport(items, existing, { complete = false } = {}) {
+  const live = existing.filter((l) => l.status !== 'deleted');
+  const bySource = new Map();
+  const byTitle = new Map();
+  for (const l of live) {
+    const k = sourceKey(l.source);
+    if (k) bySource.set(k, l);
+    byTitle.set(titleKey(l.title, l.price), l);
+  }
+  const matched = new Set();
+  const out = items.map((it) => {
+    const key = sourceKey(it.source);
+    const match = (key && bySource.get(key)) || byTitle.get(titleKey(it.title, it.price));
+    if (!match) return { ...it, key, status: 'new' };
+    matched.add(match.coord);
+    const changed = (it.price > 0 && Math.abs(match.price - it.price) > 0.001) || match.title !== it.title;
+    return { ...it, key, status: changed ? 'changed' : 'same', match };
+  });
+  const platforms = new Set(out.map((i) => platformOf(i.key)).filter(Boolean));
+  const gone = complete
+    ? live.filter((l) => l.status === 'active' && !matched.has(l.coord) && platforms.has(platformOf(sourceKey(l.source))))
+    : [];
+  return { items: out, gone };
+}
+
 export function normalizeItem(raw, importedFrom = '') {
   const title = cleanText(raw.title ?? raw.name, 200);
-  const price = Number(raw.price);
-  if (!title || !(price > 0)) return null;
+  const price = Number(raw.price) > 0 ? Number(raw.price) : 0;
+  if (!title) return null;
   const extras = [raw.brand && `Brand: ${raw.brand}`, raw.size && `Size: ${raw.size}`].filter(Boolean).join('\n');
   const description = cleanText([raw.description, extras].filter(Boolean).join('\n\n'), 8000);
   const images = [...new Set((raw.images || []).filter((u) => /^https?:\/\//.test(u)))].slice(0, 12);
   return {
     title,
     content: description,
-    price: Math.round(price * 100) / 100,
+    price: price ? Math.round(price * 100) / 100 : '',
     currency: String(raw.currency || 'EUR').toUpperCase().slice(0, 5),
     images,
     condition: guess(CONDITION_WORDS, String(raw.condition || ''), ''),
     category: guess(CATEGORY_WORDS, `${title} ${raw.category || ''}`, 'other'),
     source: /^https?:\/\//.test(raw.url || '') ? raw.url : '',
     importedFrom: importedFrom || raw.source || '',
+    location: cleanText(raw.location, 100),
   };
 }
 
@@ -56,7 +108,9 @@ export function fromPayload(payload) {
   const items = Array.isArray(p) ? p : p.items;
   if (!Array.isArray(items)) throw new Error('No items in this data');
   const src = (p.source || '').replace(/^www\./, '');
-  return items.map((i) => normalizeItem(i, src)).filter(Boolean);
+  const list = items.map((i) => normalizeItem(i, src)).filter(Boolean);
+  list.complete = !!p.complete;
+  return list;
 }
 
 // RFC 4180-ish CSV with auto-detected separator.

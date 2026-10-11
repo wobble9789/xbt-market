@@ -43,5 +43,49 @@ for (const [url, expect] of [
   await imp.close();
   await shop.close();
 }
+
+// Marktplaats profile: first import, re-import (all recognised), then changes.
+async function runMp(label) {
+  const shop = await browser.newPage();
+  await shop.goto('http://127.0.0.1:4300/u/test-seller/123456/', { waitUntil: 'load' });
+  const popup = new Promise((resolve) => browser.once('targetcreated', (t) => resolve(t.page())));
+  shop.on('dialog', (d) => { console.log('  dialog:', d.message()); d.dismiss(); });
+  await shop.evaluate(BOOKMARKLET + ';0');
+  const imp = await popup;
+  await imp.waitForSelector('.import-summary', { timeout: 20000 });
+  await sleep(500);
+  const rows = await imp.evaluate(() => [...document.querySelectorAll('.import-row')].map((r) => ({
+    title: r.querySelector('input:not([type=checkbox]):not(.price-in)').value,
+    price: r.querySelector('.price-in').value,
+    checked: r.querySelector('input[type=checkbox]').checked,
+    badge: r.querySelector('.badge')?.textContent,
+  })));
+  const summary = await imp.evaluate(() => document.querySelector('.import-summary').innerText.replace(/\n/g, ' '));
+  const goneText = await imp.evaluate(() => document.querySelector('.notice.warn')?.innerText.split('\n')[0] || '');
+  console.log(`  ${label}: ${summary} ${goneText ? '| ' + goneText : ''}`);
+  for (const r of rows) console.log(`    [${r.checked ? 'x' : ' '}] ${r.title} €${r.price} ${r.badge}`);
+  return { shop, imp, rows, summary, goneText };
+}
+await fetch('http://127.0.0.1:4300/__variant?v=1');
+let r = await runMp('first import');
+const check = (cond, msg) => { if (!cond) { failures++; console.log('FAIL', msg); } };
+check(r.rows.length === 5 && r.rows.filter((x) => x.badge.match(/Nieuw/)).length === 5, 'all 5 new');
+check(r.rows.find((x) => x.title === 'MP item 5').checked === false, 'price-less item not preselected');
+check(r.rows.find((x) => x.title === 'MP item 1').price === '10', 'price parsed');
+await r.imp.evaluate(() => [...document.querySelectorAll('button')].find((b) => /publiceren/.test(b.textContent)).click());
+await r.imp.waitForFunction(() => /4 staan al/.test(document.querySelector('.import-summary')?.innerText || ''), { timeout: 30000 });
+await r.imp.close(); await r.shop.close();
+
+r = await runMp('re-import, nothing changed');
+check(/1 nieuw/.test(r.summary) && /4 staan al/.test(r.summary), 'everything recognised on re-import (only the unpriced one is new)');
+check(r.rows.every((x) => !x.checked || x.title === 'MP item 5'), 'nothing preselected');
+await r.imp.close(); await r.shop.close();
+
+await fetch('http://127.0.0.1:4300/__variant?v=2');
+r = await runMp('re-import after changes on Marktplaats');
+check(/1 gewijzigd/.test(r.summary), 'price change detected');
+check(/MP item 3/.test(r.goneText) && !/MP item [1245]/.test(r.goneText), 'removed listing detected');
+await r.imp.close(); await r.shop.close();
+
 await browser.close();
 console.log(failures ? 'IMPORT FAILED' : 'IMPORT PASSED');

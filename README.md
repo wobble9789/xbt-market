@@ -5,7 +5,7 @@ A peer-to-peer marketplace paid in **Bitcoin BLAKE2b** (XBT / BTCB2), the chain 
 - **No server, no app store.** It is a static web app (PWA) you can install on phone or desktop from any URL. Listings, profiles, reviews and encrypted trade chat live on **Nostr** relays.
 - **Bisq-style escrow.** Every trade uses a **2-of-3 P2WSH multisig** between buyer, seller and a community **arbiter**. Both sides post a deposit. Buyer and seller release together; in a dispute the arbiter signs with one of them. Nobody can move the coins alone.
 - **Replay-safe.** Every escrow spend is signed with `SIGHASH_ALL|SIGHASH_UNIFIED` (0x21), so it is valid on the BLAKE2b chain only.
-- **Import from Vinted / eBay.** A bookmark button reads your own listings from the page you are logged into and copies them over. An eBay Seller Hub CSV works too.
+- **Import from Marktplaats / 2dehands / Vinted / eBay.** A bookmark button reads your own listings from your profile page and copies them over. An eBay Seller Hub CSV works too. Re-importing recognises what is already here (by Marktplaats ad number, Vinted item id or eBay item number, falling back to title + price). It only adds what is new, updates listings whose price or title changed, and offers to mark listings as sold that disappeared from your profile there.
 - **Ship however you like.** PostNL, DHL, InPost, Mondial Relay, Packlink, Sendcloud… The seller adds the tracking code.
 
 > **Snel aan de slag (NL):** zet de app online (zie *Deploy*), maak in de app een account, zet jouw npub als `VITE_ADMIN_NPUB` en bouw opnieuw. Vraag een paar bekende community-leden om zich onder *Arbiter* aan te melden en keur ze goed onder *Admin*. Daarna kan iedereen handelen.
@@ -76,7 +76,7 @@ The browser console exposes `window.xbt` (stores and relay pool) for debugging.
 | `npm test` | All 166 Knots `unified_sighash.json` vectors; address encoding; 2-of-3 plan/sign/verify/finalize; the protocol reducer, including forged messages, a fake arbiter key, wrong-key signatures and backdated cancels/rejects; import parsing |
 | `npm run test:regtest` | A real Knots BLAKE2b node accepts and mines escrow payouts signed buyer+seller, arbiter+seller and arbiter+buyer, all with sighash 0x21 |
 | `npm run test:e2e` | The whole flow through the UI in Firefox: an arbiter announces, a seller lists, a buyer offers, the seller accepts, both fund on regtest, the seller ships, the buyer releases, the seller co-signs and broadcasts, the node confirms the payout, reviews become "verified". Then a dispute where the arbiter rules a refund and the buyer co-signs |
-| `npm run test:import` | The bookmarklet against fake Vinted wardrobe, eBay list and JSON-LD product pages, through the real popup/postMessage handshake |
+| `npm run test:import` | The bookmarklet against fake Vinted wardrobe, eBay list, JSON-LD product and paginated Marktplaats profile pages, through the real popup/postMessage handshake. Then a Marktplaats re-import (everything recognised) and a re-import after a price change and a removed ad |
 
 Setup for the regtest and e2e tests:
 
@@ -92,7 +92,7 @@ The e2e tests use `puppeteer-core` with a local Firefox (`FIREFOX=/path/to/firef
 
 ## Known limitations
 
-- The Vinted import uses Vinted's internal wardrobe API (`/api/v2/wardrobe/{id}/items`) as the logged-in user, with a DOM fallback. It is tested against a mock, not the live site. If Vinted changes its site, the button may need an update (`src/bookmarklet/source.js`). eBay list scraping is similarly best-effort; single item pages use schema.org data and are the most robust.
+- The Marktplaats import reads the Next.js data on your public seller page (`/u/<name>/<id>/`, paginated as `/p/2/`); it was tested against real saved Marktplaats pages (55 ads over two pages). Ads priced as "bieden" or "zie omschrijving" come in without a price for you to fill in. The Vinted import uses Vinted's internal wardrobe API (`/api/v2/wardrobe/{id}/items`) as the logged-in user, with a DOM fallback. It is tested against a mock, not the live site. If Vinted changes its site, the button may need an update (`src/bookmarklet/source.js`). eBay list scraping is similarly best-effort; single item pages use schema.org data and are the most robust.
 - Imported photos stay hosted on Vinted/eBay. If you delete the item there, re-upload the photos.
 - NIP-07 browser extensions are not supported, because the app needs the key to sign escrow payouts.
 - Gift-wrapped messages rely on relays keeping them. Use *Account → Trade backup* for important trades.

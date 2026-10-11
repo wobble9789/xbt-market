@@ -23,10 +23,57 @@
   window.addEventListener('message', (ev) => { if (ev.data === 'xbt-import-ready') { ready = true; send(); } });
 
   const items = [];
+  let platform = '';
+  let complete = false;
+
+  // Marktplaats / 2dehands (Adevinta): search and seller pages carry their
+  // listings in Next.js data; seller pages paginate as /p/2/, /p/3/, ...
+  const nextData = (html) => { const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/); try { return m ? JSON.parse(m[1]) : null; } catch { return null; } };
+  const mpResults = (d) => d?.props?.pageProps?.searchRequestAndResponse;
+  const fromMp = (l) => {
+    const pt = l.priceInfo?.priceType;
+    const cents = l.priceInfo?.priceCents || 0;
+    const attr = (k) => (l.attributes || []).find((a) => a.key === k)?.value || '';
+    const pics = (l.pictures || []).map((p) => p.url && p.url.replace('$_#', '$_85')).filter(Boolean);
+    return {
+      id: l.itemId,
+      title: l.title,
+      price: (pt === 'FIXED' || pt === 'MIN_BID') && cents > 0 ? cents / 100 : 0,
+      currency: 'EUR',
+      images: pics.length ? pics : (l.imageUrls || []).map((u) => (u.startsWith('//') ? 'https:' + u : u)),
+      description: l.categorySpecificDescription || l.description || '',
+      condition: attr('condition'),
+      location: l.location?.cityName || '',
+      url: abs(l.vipUrl || ''),
+    };
+  };
+  try {
+    let own = null;
+    try { own = JSON.parse(document.getElementById('__NEXT_DATA__')?.textContent || 'null'); } catch { /* none */ }
+    const first = mpResults(own);
+    if (first?.listings?.length) {
+      platform = 'marktplaats';
+      first.listings.forEach((l) => items.push(fromMp(l)));
+      const seller = location.pathname.match(/^(\/u\/[^/]+\/\d+)/);
+      const total = first.totalResultCount || 0;
+      if (seller) {
+        for (let page = 2; items.length < total && page <= 40; page++) {
+          const r = await fetch(`${seller[1]}/p/${page}/`, { credentials: 'include' });
+          if (!r.ok) break;
+          const res = mpResults(nextData(await r.text()));
+          if (!res?.listings?.length) break;
+          res.listings.forEach((l) => items.push(fromMp(l)));
+        }
+        complete = items.length >= total;
+      }
+    }
+  } catch (e) { console.warn('xbt import: marktplaats', e); }
+
   const fromVinted = (it) => ({
     title: it.title,
     price: num(it.price?.amount ?? it.price_numeric ?? it.price),
     currency: it.price?.currency_code || it.currency || 'EUR',
+    id: String(it.id ?? ''),
     images: (it.photos?.length ? it.photos : [it.photo]).filter(Boolean).map((p) => p.full_size_url || p.url).filter(Boolean),
     description: it.description || '',
     brand: it.brand_title || it.brand || '',
@@ -35,14 +82,15 @@
     url: abs(it.url || it.path || `/items/${it.id}`),
   });
   try {
-    const m = location.pathname.match(/\/member\/(\d+)/);
+    const m = !items.length && location.pathname.match(/\/member\/(\d+)/);
     if (m) {
       for (let page = 1; page <= 30; page++) {
         const r = await fetch(`/api/v2/wardrobe/${m[1]}/items?page=${page}&per_page=96&order=relevance`, { credentials: 'include', headers: { accept: 'application/json' } });
         if (!r.ok) break;
         const j = await r.json();
         (j.items || []).forEach((it) => items.push(fromVinted(it)));
-        if (!j.pagination || page >= (j.pagination.total_pages || 1)) break;
+        platform = 'vinted';
+        if (!j.pagination || page >= (j.pagination.total_pages || 1)) { complete = true; break; }
       }
     }
   } catch (e) { console.warn('xbt import: vinted api', e); }
@@ -80,13 +128,13 @@
   }
 
   const seen = new Set();
-  const clean = items.filter((i) => i.title && i.price > 0 && !seen.has(i.url + i.title) && seen.add(i.url + i.title));
+  const clean = items.filter((i) => i.title && !seen.has(i.url + i.title) && seen.add(i.url + i.title));
   if (!clean.length) {
     win?.close();
-    alert('XBT Market: no listings found here. Open your own Vinted profile (vinted.xx/member/…), an eBay seller or search page, or a single item page, then click the bookmark again.');
+    alert('XBT Market: no listings found here. Open your own Marktplaats profile (marktplaats.nl/u/…), Vinted profile (vinted.xx/member/…), an eBay seller page, or a single item page, then click the bookmark again.');
     return;
   }
-  payload = { v: 1, source: host, page: location.href, at: Date.now(), items: clean };
+  payload = { v: 1, source: host, platform: platform || host.replace(/^www\./, ''), complete, page: location.href, at: Date.now(), items: clean };
   send();
   try { await navigator.clipboard.writeText(JSON.stringify(payload)); } catch { /* not allowed without focus */ }
   setTimeout(() => {

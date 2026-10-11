@@ -13,8 +13,27 @@ const pages = {
     <li class="s-item"><a href="/itm/3"><img data-src="https://i.ebayimg.com/3.jpg"></a><div class="s-item__title">Bitaxe Gamma 601</div><span class="s-item__price">€ 1.150,00</span></li>
   </ul></body></html>`,
 };
+// Marktplaats-style seller profile: Next.js data, 3 + 2 listings over two pages.
+// GET /__variant?v=2 removes one listing and changes a price, to test re-imports.
+let variant = 1;
+const mpListing = (n, price) => ({
+  itemId: `m21000000${n}`, title: `MP item ${n}`, description: `Beschrijving ${n}`, priceInfo: { priceCents: price * 100, priceType: n === 5 ? 'SEE_DESCRIPTION' : 'FIXED' },
+  location: { cityName: 'Utrecht' }, attributes: [{ key: 'condition', value: n === 1 ? 'Zo goed als nieuw' : 'Gebruikt' }],
+  pictures: [{ url: `https://images.marktplaats.com/api/v1/x/images/${n}?rule=ecg_mp_eps$_#.jpg` }], vipUrl: `/v/cat/sub/m21000000${n}-mp-item-${n}`,
+});
+function mpPage(page) {
+  let all = [mpListing(1, 10), mpListing(2, 20), mpListing(3, 30), mpListing(4, 40), mpListing(5, 0)];
+  if (variant === 2) all = all.filter((l) => l.itemId !== 'm210000003').map((l) => (l.itemId === 'm210000002' ? { ...l, priceInfo: { ...l.priceInfo, priceCents: 1500 } } : l));
+  const slice = page === 1 ? all.slice(0, 3) : all.slice(3 * (page - 1), 3 * page);
+  const data = { props: { pageProps: { searchRequestAndResponse: { listings: slice, totalResultCount: all.length } } } };
+  return `<html><body><h1>Profiel</h1><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script></body></html>`;
+}
+
 http.createServer((req, res) => {
   const p = new URL(req.url, 'http://x').pathname;
+  if (p === '/__variant') { variant = Number(new URL(req.url, 'http://x').searchParams.get('v')); return res.end('ok'); }
+  const mp = p.match(/^\/u\/test-seller\/123456\/(?:p\/(\d+)\/)?$/);
+  if (mp) { res.setHeader('Content-Type', 'text/html'); return res.end(mpPage(Number(mp[1] || 1))); }
   const body = pages[p];
   if (!body) { res.statusCode = 404; return res.end(); }
   res.setHeader('Content-Type', p.startsWith('/api') ? 'application/json' : 'text/html');
