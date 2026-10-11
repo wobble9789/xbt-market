@@ -10,6 +10,12 @@ A peer-to-peer marketplace paid in **Bitcoin BLAKE2b** (XBT / BTCB2), the chain 
 
 > **Snel aan de slag (NL):** zet de app online (zie *Deploy*), maak in de app een account, zet jouw npub als `VITE_ADMIN_NPUB` en bouw opnieuw. Vraag een paar bekende community-leden om zich onder *Arbiter* aan te melden en keur ze goed onder *Admin*. Daarna kan iedereen handelen.
 
+## Documentation
+
+- [docs/PROTOCOL.md](docs/PROTOCOL.md): the wire protocol, keys, escrow and state rules (enough to write a compatible client)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): module layout, invariants and which test guards each one
+- `<app>/testplan.html`: a checklist for manual testing with real coins and real shop pages; tick tests off and copy the results
+
 ## How a trade works
 
 1. **Offer.** The buyer offers an XBT amount (suggested from the SafeTrade XBT/USDT rate), picks an arbiter and sends the shipping address. Everything is NIP-17 encrypted to seller and arbiter.
@@ -78,7 +84,9 @@ The browser console exposes `window.xbt` (stores and relay pool) for debugging.
 | `npm run test:e2e` | The whole flow through the UI in Firefox: an arbiter announces, a seller lists, a buyer offers, the seller accepts, both fund on regtest, the seller ships, the buyer releases, the seller co-signs and broadcasts, the node confirms the payout, reviews become "verified". Then a dispute where the arbiter rules a refund and the buyer co-signs |
 | `npm run test:import` | The bookmarklet against fake Vinted wardrobe, eBay list, JSON-LD product and paginated Marktplaats profile pages, through the real popup/postMessage handshake. Then a Marktplaats re-import (everything recognised) and a re-import after a price change and a removed ad |
 
-Setup for the regtest and e2e tests:
+CI (`.github/workflows/pages.yml`) runs all four on every push, against a checksum-verified Knots release in headless Firefox, and deploys only when they pass. Screenshots and logs are uploaded as the `e2e-output` artifact.
+
+To run them locally:
 
 ```sh
 bitcoind -regtest -testactivationheight=blake2b@1 -rpcuser=u -rpcpassword=p -fallbackfee=0.0001 -txindex=1 -daemon

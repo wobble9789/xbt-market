@@ -22,6 +22,8 @@ export function Help() {
         <li>{T('Never accept an offer whose arbiter is not marked as approved.', 'Accepteer nooit een bod waarvan de arbiter niet als goedgekeurd is gemarkeerd.')}</li>
         <li>{T('New accounts have a trade limit that grows with verified trades.', 'Nieuwe accounts hebben een handelslimiet die groeit met geverifieerde trades.')}</li>
       </ul>
+      <h3>{T('Testing', 'Testen')}</h3>
+      <p><a href="./testplan.html" target="_blank" rel="noopener">{T('Open the test plan', 'Open het testplan')}</a> {T('to check everything works, step by step.', 'om stap voor stap te controleren of alles werkt.')}</p>
       <h3>{T('Fees', 'Kosten')}</h3>
       <p>{T('The app takes no fee. You pay the network fee of the payout transaction, shared in proportion to what each side receives. Arbiters state their own fee policy.', 'De app rekent geen kosten. Je betaalt de netwerkkosten van de uitbetaling, verdeeld naar verhouding van wat elke partij ontvangt. Arbiters vermelden zelf hun vergoeding.')}</p>
     </div>
