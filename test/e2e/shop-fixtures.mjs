@@ -17,7 +17,7 @@ const pages = {
 // GET /__variant?v=2 removes one listing and changes a price, to test re-imports.
 let variant = 1;
 const mpListing = (n, price) => ({
-  itemId: `m21000000${n}`, title: `MP item ${n}`, description: `Beschrijving ${n}`, priceInfo: { priceCents: price * 100, priceType: n === 5 ? 'SEE_DESCRIPTION' : 'FIXED' },
+  itemId: `m21000000${n}`, title: `MP item ${n}`, description: `Beschrijving ${n}`, priceInfo: { priceCents: price * 100, priceType: n === 5 ? 'FAST_BID' : n === 4 ? 'MIN_BID' : 'FIXED' },
   location: { cityName: 'Utrecht' }, attributes: [{ key: 'condition', value: n === 1 ? 'Zo goed als nieuw' : 'Gebruikt' }],
   pictures: [{ url: `https://images.marktplaats.com/api/v1/x/images/${n}?rule=ecg_mp_eps$_#.jpg` }], vipUrl: `/v/cat/sub/m21000000${n}-mp-item-${n}`,
 });

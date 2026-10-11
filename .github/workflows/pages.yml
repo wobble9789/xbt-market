@@ -1,11 +1,15 @@
-# Builds the app and publishes it on GitHub Pages on every push to main.
+# On every push: unit tests, then the full end-to-end suite against a real
+# Bitcoin Knots (BLAKE2b) regtest node in headless Firefox, and only if all of
+# that passes, build and publish on GitHub Pages.
+#
 # Set the repository variable VITE_ADMIN_NPUB (Settings → Secrets and variables
 # → Actions → Variables) to the npub that approves arbiters.
-name: Deploy to GitHub Pages
+name: Test and deploy
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -14,11 +18,14 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  KNOTS_VERSION: 29.4.2.knots20260508
+
 jobs:
-  build:
+  unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,12 +35,95 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Install Bitcoin Knots (checksum verified)
+        run: |
+          base=https://github.com/bitcoinknots/bitcoin/releases/download/v$KNOTS_VERSION
+          file=bitcoin-$KNOTS_VERSION-x86_64-linux-gnu.tar.gz
+          curl -sSfLO $base/$file
+          curl -sSfLO $base/SHA256SUMS
+          grep " $file\$" SHA256SUMS | sha256sum -c -
+          tar xzf $file
+          echo "$PWD/bitcoin-$KNOTS_VERSION/bin" >> $GITHUB_PATH
+
+      - name: Start regtest node with BLAKE2b active from block 1
+        run: |
+          mkdir -p $RUNNER_TEMP/regtest
+          bitcoind -regtest -datadir=$RUNNER_TEMP/regtest -testactivationheight=blake2b@1 \
+            -rpcuser=u -rpcpassword=p -fallbackfee=0.0001 -txindex=1 -daemon
+          for i in $(seq 30); do bitcoin-cli -regtest -datadir=$RUNNER_TEMP/regtest -rpcuser=u -rpcpassword=p getblockcount && break; sleep 1; done
+
+      - name: Build app and start relay, Esplora shim, shop fixtures, preview
+        run: |
+          npm run build
+          nohup npm run relay > relay.log 2>&1 &
+          nohup npm run shim > shim.log 2>&1 &
+          nohup npm run fixtures > fixtures.log 2>&1 &
+          nohup npm run preview -- --port 4173 --strictPort > preview.log 2>&1 &
+          for url in http://127.0.0.1:4173/ http://127.0.0.1:3006/api/blocks/tip/height; do
+            for i in $(seq 30); do curl -sf $url > /dev/null && break; sleep 1; done
+          done
+
+      - name: Escrow against the real node
+        env:
+          KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
+        run: npm run test:regtest
+
+      - name: Full trade and dispute through the UI
+        env:
+          KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
+          PROFILE_DIR: ${{ runner.temp }}
+          SHOTS: ${{ runner.temp }}/shots
+        run: |
+          mkdir -p $SHOTS
+          export FIREFOX=$(which firefox)
+          npm run test:e2e
+
+      - name: Import button against Marktplaats / Vinted / eBay fixtures
+        env:
+          PROFILE_DIR: ${{ runner.temp }}
+        run: |
+          export FIREFOX=$(which firefox)
+          npm run test:import
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-output
+          path: |
+            ${{ runner.temp }}/shots
+            *.log
+
+  build:
+    needs: [unit, e2e]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - run: npm run build
         env:
           VITE_ADMIN_NPUB: ${{ vars.VITE_ADMIN_NPUB }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+
   deploy:
     needs: build
     runs-on: ubuntu-latest

@@ -6,7 +6,7 @@ import { newListingId, parseListing, CATEGORIES, LISTING_KIND } from '../../lib/
 import { fromPayload, fromCsv, classifyImport } from '../../lib/import/normalize.js';
 import { settings } from '../../lib/settings.js';
 import { MARKET_TAG } from '../../config.js';
-import { BOOKMARKLET_SOURCE } from '../../generated/bookmarklet.js';
+import { BOOKMARKLET_SOURCE, BOOKMARKLET_VERSION } from '../../generated/bookmarklet.js';
 import { T, CATEGORY_LABELS, label } from '../i18n.js';
 import { Action, Field, Img, toast, toastError, Copy, Spinner } from '../components.jsx';
 import { publishListing } from './Sell.jsx';
@@ -54,7 +54,7 @@ export function ImportPage({ query: q }) {
   }, [raw, mine]);
 
   const load = (list) => {
-    setRaw({ items: list, complete: !!list.complete });
+    setRaw({ items: list, complete: !!list.complete, version: list.version });
     toast(T(`${list.length} listings read`, `${list.length} advertenties ingelezen`), 'ok');
   };
 
@@ -150,6 +150,13 @@ export function ImportPage({ query: q }) {
               <button class="btn small" disabled={!paste} onClick={() => { try { load(paste.trim().startsWith('{') || paste.trim().startsWith('[') ? fromPayload(paste) : fromCsv(paste)); setPaste(''); } catch (e) { toastError(e); } }}>{T('Read', 'Inlezen')}</button>
             </Field>
           </div>
+        </div>
+      )}
+      {raw?.version && raw.version < BOOKMARKLET_VERSION && (
+        <div class="notice danger">
+          <b>{T('Your import button is out of date.', 'Je importknop is verouderd.')}</b>{' '}
+          {T('Bookmarks never update themselves, so it may miss or misread listings. Delete the old bookmark and drag this one to your bookmarks bar, then click it again on your shop page:', 'Bladwijzers werken zichzelf nooit bij, dus hij kan advertenties missen of verkeerd lezen. Verwijder de oude bladwijzer, sleep deze naar je bladwijzerbalk en klik er opnieuw op op je winkelpagina:')}{' '}
+          <a class="btn small primary bookmarklet" href={bookmarklet} onClick={(e) => e.preventDefault()}>⇪ {T('To XBT Market', 'Naar XBT Market')}</a>
         </div>
       )}
       {raw && !mine && <div class="card"><Spinner /> {T('Comparing with your listings…', 'Vergelijken met je advertenties…')}</div>}

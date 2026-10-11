@@ -110,6 +110,7 @@ export function fromPayload(payload) {
   const src = (p.source || '').replace(/^www\./, '');
   const list = items.map((i) => normalizeItem(i, src)).filter(Boolean);
   list.complete = !!p.complete;
+  list.version = Number(p.v) || 1;
   return list;
 }
 

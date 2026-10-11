@@ -17,9 +17,9 @@ await app.evaluate((p) => {
 await app.close();
 let failures = 0;
 for (const [url, expect] of [
-  ['http://127.0.0.1:4300/member/123-fred', ["Levi’s 501 jeans W32", 'Nike hoodie']],
-  ['http://127.0.0.1:4300/itm/999', ['Coldcard Mk4']],
-  ['http://127.0.0.1:4300/sch/i.html', ['Raspberry Pi 4 4GB', 'Bitaxe Gamma 601']],
+  ['http://localhost:4300/member/123-fred', ["Levi’s 501 jeans W32", 'Nike hoodie']],
+  ['http://localhost:4300/itm/999', ['Coldcard Mk4']],
+  ['http://localhost:4300/sch/i.html', ['Raspberry Pi 4 4GB', 'Bitaxe Gamma 601']],
 ]) {
   const shop = await browser.newPage();
   await shop.goto(url, { waitUntil: 'load' });
@@ -72,6 +72,8 @@ const check = (cond, msg) => { if (!cond) { failures++; console.log('FAIL', msg)
 check(r.rows.length === 5 && r.rows.filter((x) => x.badge.match(/Nieuw/)).length === 5, 'all 5 new');
 check(r.rows.find((x) => x.title === 'MP item 5').checked === false, 'price-less item not preselected');
 check(r.rows.find((x) => x.title === 'MP item 1').price === '10', 'price parsed');
+check(r.rows.find((x) => x.title === 'MP item 4').price === '40', 'MIN_BID price parsed');
+check(!r.goneText, 'other platforms are never reported as gone');
 await r.imp.evaluate(() => [...document.querySelectorAll('button')].find((b) => /publiceren/.test(b.textContent)).click());
 await r.imp.waitForFunction(() => /4 staan al/.test(document.querySelector('.import-summary')?.innerText || ''), { timeout: 30000 });
 await r.imp.close(); await r.shop.close();
@@ -84,8 +86,21 @@ await r.imp.close(); await r.shop.close();
 await fetch('http://127.0.0.1:4300/__variant?v=2');
 r = await runMp('re-import after changes on Marktplaats');
 check(/1 gewijzigd/.test(r.summary), 'price change detected');
-check(/MP item 3/.test(r.goneText) && !/MP item [1245]/.test(r.goneText), 'removed listing detected');
+check(/^1 van je advertenties/.test(r.goneText) && /MP item 3/.test(r.goneText), 'exactly the removed listing detected');
 await r.imp.close(); await r.shop.close();
+
+// An old (v1) bookmark must trigger the "out of date" warning.
+{
+  const imp = await browser.newPage();
+  await imp.goto((process.env.APP_URL || 'http://127.0.0.1:4173/') + '#/import', { waitUntil: 'load' });
+  await sleep(1500);
+  await imp.evaluate(() => window.postMessage({ type: 'xbt-import', payload: { v: 1, source: 'www.marktplaats.nl', at: 1, page: 'x', items: [{ title: 'ITW', price: 1, url: 'https://www.marktplaats.nl/u/itw/1/' }] } }, '*'));
+  await sleep(2500);
+  const warned = await imp.evaluate(() => /verouderd|out of date/.test(document.body.innerText));
+  check(warned, 'outdated bookmark warning shown');
+  console.log(warned ? 'ok   outdated bookmark warning' : 'FAIL outdated bookmark warning');
+  await imp.close();
+}
 
 await browser.close();
 console.log(failures ? 'IMPORT FAILED' : 'IMPORT PASSED');
