@@ -248,6 +248,12 @@ try {
 } catch (e) {
   console.error('\nE2E FAILED:', e.message);
   process.exitCode = 1;
+  if (current) {
+    try {
+      console.error(`[${current.who}] at ${await current.evaluate(() => location.hash)}:\n` + (await current.evaluate(() => document.body.innerText)).slice(0, 2000));
+      if (SHOTS) await current.screenshot({ path: `${SHOTS}/failure.png`, fullPage: true });
+    } catch (err) { console.error('could not capture failure state', err.message); }
+  }
 } finally {
   await browser.close();
 }

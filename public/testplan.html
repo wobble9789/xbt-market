@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>XBT Market testplan</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:" />
+<style>
+  :root { --bg:#f6f6f4; --card:#fff; --text:#1b1c1e; --muted:#6b6f76; --line:#e3e3df; --accent:#f7931a; --ok:#1f8a4c; --okbg:#e6f5ec; --bad:#c0392b; --badbg:#fdeceb; --skip:#7a7f87; --skipbg:#eef0f2; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111214; --card:#1b1c1f; --text:#ececec; --muted:#9a9ea6; --line:#2c2e33; --ok:#4cc27f; --okbg:#12301f; --bad:#ef6b5e; --badbg:#3a1714; --skipbg:#25272b; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  header { position:sticky; top:0; z-index:5; background:var(--card); border-bottom:1px solid var(--line); padding:10px 16px; }
+  .wrap { max-width:900px; margin:0 auto; padding:0 16px; }
+  h1 { font-size:1.25rem; margin:0; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px; }
+  .progress { flex:1; min-width:160px; height:8px; background:var(--line); border-radius:99px; overflow:hidden; }
+  .progress i { display:block; height:100%; background:var(--ok); width:0; transition:width .2s; }
+  .stats { font-size:.85rem; color:var(--muted); white-space:nowrap; }
+  button, .btn { font:inherit; font-weight:600; border:1px solid var(--line); background:var(--card); color:var(--text); border-radius:8px; padding:6px 12px; cursor:pointer; text-decoration:none; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; margin:16px 0; padding:4px 16px 12px; }
+  section > h2 { font-size:1.05rem; margin:12px 0 4px; }
+  section > p.who { margin:0 0 8px; color:var(--muted); font-size:.85rem; }
+  .test { border-top:1px solid var(--line); padding:10px 0; }
+  .test:first-of-type { border-top:0; }
+  .head { display:flex; gap:10px; align-items:flex-start; }
+  .id { font:600 .78rem ui-monospace, Menlo, monospace; color:var(--muted); padding-top:3px; min-width:34px; }
+  .title { font-weight:600; flex:1; }
+  .states { display:flex; gap:4px; flex-shrink:0; }
+  .states button { padding:3px 9px; font-size:.8rem; }
+  .test[data-s=pass] .states .pass { background:var(--okbg); color:var(--ok); border-color:var(--ok); }
+  .test[data-s=fail] .states .fail { background:var(--badbg); color:var(--bad); border-color:var(--bad); }
+  .test[data-s=skip] .states .skip { background:var(--skipbg); color:var(--skip); border-color:var(--skip); }
+  .test[data-s=pass] .title { color:var(--ok); }
+  .test[data-s=fail] .title { color:var(--bad); }
+  .body { margin:4px 0 0 44px; font-size:.92rem; }
+  .body ol { margin:4px 0; padding-left:20px; }
+  .expect { color:var(--muted); }
+  .expect b { color:var(--text); }
+  textarea { width:100%; font:inherit; font-size:.88rem; margin-top:6px; padding:6px 8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); min-height:34px; display:none; }
+  .test[data-s=fail] textarea, textarea.has { display:block; }
+  .note-toggle { font-size:.78rem; color:var(--muted); background:none; border:0; padding:0; text-decoration:underline; margin-top:4px; }
+  .intro { color:var(--muted); font-size:.9rem; margin:12px 0; }
+  .intro code { font-size:.85rem; }
+  @media (max-width:560px) { .head { flex-wrap:wrap; } .body { margin-left:0; } .states { width:100%; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>XBT Market — testplan</h1>
+    <div class="bar">
+      <div class="progress"><i id="bar"></i></div>
+      <span class="stats" id="stats"></span>
+      <button class="primary" id="copy">Kopieer resultaten</button>
+      <button id="reset">Wis alles</button>
+    </div>
+  </div>
+</header>
+<main class="wrap">
+  <p class="intro">
+    Vink per test <b>✓ Werkt</b>, <b>✗ Fout</b> of <b>— Overslaan</b> aan. Bij een fout opent een notitieveld: schrijf kort wat je zag.
+    Je vinkjes worden in deze browser bewaard. Klaar of halverwege? <b>Kopieer resultaten</b> en plak ze in de chat.
+    Gebruik drie identiteiten: <b>A</b> = jij (beheerder + arbiter, pc-browser), <b>B</b> = verkoper (tweede browser),
+    <b>C</b> = koper (telefoon). Bewaar van alle drie de nsec.
+  </p>
+  <div id="plan"></div>
+</main>
+<script>
+const PLAN = [
+  ['Installatie en account', 'A, B en C', [
+    ['ACC-1', 'Account aanmaken', ['Open de app, klik Inloggen → Nieuw account aanmaken.'], 'Je komt op Account met een melding om je nsec te back-uppen.'],
+    ['ACC-2', 'Back-up van de sleutel', ['Klik "Toon mijn nsec", bewaar hem, klik "Ik heb hem opgeschreven".'], 'De oranje rand rond het back-upblok verdwijnt.'],
+    ['ACC-3', 'Wachtwoord en vergrendelen', ['Account → Wachtwoord: stel er een in (8+ tekens).', 'Klik Vergrendelen, herlaad de pagina.', 'Ontgrendel met een fout en daarna met het goede wachtwoord.'], 'Fout wachtwoord geeft een melding; het goede ontgrendelt en alles is er nog.'],
+    ['ACC-4', 'Inloggen met bestaande nsec op ander apparaat', ['Open de app in een andere browser, log in met de nsec van B.'], 'Je ziet dezelfde advertenties onder Verkopen en dezelfde trades.'],
+    ['ACC-5', 'Taal wisselen', ['Account → Taal: Nederlands, daarna English, daarna weer terug.'], 'Alle teksten wisselen meteen.'],
+    ['ACC-6', 'Installeren als app (telefoon)', ['Open de link op je telefoon, kies "Toevoegen aan beginscherm" / "App installeren".', 'Open hem vanaf het beginscherm.'], 'Opent zonder adresbalk, met het oranje ₿²-icoon. Onderin staat de navigatie.'],
+    ['ACC-7', 'Profiel bewerken', ['Account → Mijn profiel → Bewerken: naam, over jou, Marktplaats/Vinted-naam, land. Opslaan.'], 'Naam verschijnt bij je advertenties en in trades (kan een halve minuut duren).'],
+  ]],
+  ['Beheer en arbiters', 'A', [
+    ['ARB-1', 'Admin-menu zichtbaar', ['Herlaad de app (Ctrl+F5) als A.'], 'Menu toont "Admin". B en C zien het niet.'],
+    ['ARB-2', 'Aanmelden als arbiter', ['Arbiter → naam, talen, vergoeding invullen → Arbiterprofiel publiceren.'], 'Melding dat je nog niet goedgekeurd bent.'],
+    ['ARB-3', 'Arbiter goedkeuren', ['Admin → vink jezelf aan → Lijst publiceren.', 'Ga naar Arbiter.'], 'Geen "nog niet goedgekeurd"-melding meer; je ziet "Open geschillen".'],
+    ['ARB-4', 'Niet-goedgekeurde arbiter wordt geweigerd', ['Laat B zich als arbiter aanmelden zonder goedkeuring.', 'C doet een bod; controleer de arbiterkeuze.'], 'B staat niet in de keuzelijst van C.'],
+  ]],
+  ['Advertenties', 'B', [
+    ['LST-1', 'Nieuwe advertentie met foto', ['Verkopen → Nieuwe advertentie: titel, beschrijving, prijs €2, categorie, staat, locatie, verzendkosten.', 'Upload 2 foto\'s vanaf je pc/telefoon.', 'Publiceren.'], 'Staat onder Verkopen en op Zoeken, met foto\'s.'],
+    ['LST-2', 'Foto via URL', ['Bewerk de advertentie, plak een afbeeldings-URL, Toevoegen, Opslaan.'], 'Extra foto zichtbaar.'],
+    ['LST-3', 'Bewerken', ['Wijzig de prijs naar €3 en sla op.'], 'Nieuwe prijs zichtbaar op de advertentie en bij C (na herladen).'],
+    ['LST-4', 'Als verkocht markeren en heractiveren', ['Bewerken → Markeer als verkocht. Daarna Opnieuw activeren.'], 'Verkocht: verdwijnt van Zoeken. Heractiveren: weer zichtbaar.'],
+    ['LST-5', 'Verwijderen', ['Maak een testadvertentie en verwijder hem.'], 'Verdwijnt van Zoeken en van Verkopen.'],
+    ['LST-6', 'Zoeken en filteren', ['Als C: zoek op een woord uit de titel, kies een categorie, sorteer op prijs.'], 'Alleen passende advertenties; sortering klopt.'],
+    ['LST-7', 'Prijs in XBT', ['Open een advertentie in euro.'], 'Toont "€x ≈ 0.00… XBT" volgens de actuele koers.'],
+  ]],
+  ['Importeren', 'A of B', [
+    ['IMP-1', 'Importknop installeren', ['Verkopen → Importeren. Verwijder een eventuele oude XBT-bladwijzer. Sleep de nieuwe knop naar je bladwijzerbalk.'], 'Bladwijzer "Naar XBT Market" staat in je balk.'],
+    ['IMP-2', 'Marktplaats-profiel (marktplaats.nl/u/itw/48763914/)', ['Open je Marktplaats-profiel, klik de bladwijzer.'], '<b>7 gevonden</b>: gordijn €8, vaasjes €10, kunstbloemen €7,50, kistjes €10, nachtkijker €840 aangevinkt; de 2 "bieden"-advertenties zonder prijs (rood, niet aangevinkt).'],
+    ['IMP-3', 'Publiceren', ['Vul eventueel prijzen in, klik publiceren.'], 'Lijst toont daarna "staan al op je profiel"; advertenties staan onder Verkopen.'],
+    ['IMP-4', 'Duplicaten herkennen', ['Klik de bladwijzer nogmaals op hetzelfde profiel.'], '"0 nieuw" (of alleen de prijsloze), alle andere "Staat al op je profiel", niets aangevinkt.'],
+    ['IMP-5', 'Gewijzigde prijs', ['Verander op Marktplaats de prijs van één advertentie. Importeer opnieuw.'], 'Die advertentie staat als "Gewijzigd (was €…)". Aanvinken + publiceren werkt de bestaande bij (geen dubbele).'],
+    ['IMP-6', 'Nieuwe advertentie op Marktplaats', ['Plaats een nieuwe advertentie op Marktplaats. Importeer opnieuw.'], 'Alleen de nieuwe is "Nieuw" en aangevinkt.'],
+    ['IMP-7', 'Verwijderd/verkocht op Marktplaats', ['Verwijder of markeer een advertentie als verkocht op Marktplaats. Importeer opnieuw.'], 'Melding "1 van je advertenties hier staan niet meer op dat profiel" met knop Markeer als verkocht; die knop werkt.'],
+    ['IMP-8', 'Losse advertentiepagina', ['Open één advertentie op Marktplaats (of een webshop-productpagina), klik de bladwijzer.'], '1 gevonden met titel, prijs en foto.'],
+    ['IMP-9', 'Vinted-profiel', ['Open je Vinted-profiel (vinted.nl/member/…), klik de bladwijzer.'], 'Alle kledingkast-items met prijs en foto\'s.'],
+    ['IMP-10', 'eBay', ['Open je eBay-verkoperspagina of een eBay-item, klik de bladwijzer.'], 'Items met titel en prijs; geen "Shop on eBay"-regel.'],
+    ['IMP-11', 'Op de telefoon', ['Kopieer de bladwijzercode (Importeren → "Op je telefoon…"), maak er een bladwijzer van, gebruik hem op je Marktplaats-profiel.'], 'Zelfde resultaat als IMP-2.'],
+  ]],
+  ['Trade: normale koop (kleine bedragen, echte XBT)', 'B verkoopt, C koopt, A is arbiter', [
+    ['TRD-1', 'Bod doen', ['C: open de €2-advertentie → Kopen met XBT.', 'Controleer voorgestelde XBT-prijs, kies arbiter A, vul je XBT-adres (BLAKE2b-wallet) en verzendadres in → Bod versturen.'], 'Trade-pagina "Bod verstuurd"; samenvatting toont prijs + 15% borg.'],
+    ['TRD-2', 'Bod ontvangen', ['B: Trades → open het bod.'], 'Toont koper, bedrag, verzendadres en "✓ goedgekeurd" bij de arbiter.'],
+    ['TRD-3', 'Accepteren', ['B: vul je XBT-uitbetaaladres in → Accepteren.'], 'Bij B én C verschijnt hetzelfde escrow-adres met QR-code.'],
+    ['TRD-4', 'Escrow betalen', ['C stuurt "Koper betaalt" naar het escrow-adres, B stuurt "Verkoper betaalt" (Sparrow BLAKE2b / Knots / Shrike).', 'Wacht 3 bevestigingen, druk Vernieuwen.'], '"Nu in escrow" loopt op; na 3 bevestigingen verdwijnen QR en betaalinstructies, stap 3 is groen.'],
+    ['TRD-5', 'Verzenden', ['B: vervoerder + track & trace → Markeer als verzonden.'], 'Bij C: "Verzonden met …" met trackingcode en kopieerknop.'],
+    ['TRD-6', 'Vrijgeven', ['C: "Alles in orde: betaling vrijgeven" → bevestigen.'], 'Voorstel "Vrijgeven aan verkoper", getekend door Koper; bedragen kloppen.'],
+    ['TRD-7', 'Meetekenen en verzenden', ['B: Akkoord en tekenen.'], '"✅ Verzonden: <txid>"; status Uitbetaald.'],
+    ['TRD-8', 'Geld ontvangen', ['Controleer beide wallets na 1 bevestiging.'], 'B kreeg prijs + borg minus zijn deel van de fee; C kreeg zijn borg terug.'],
+    ['TRD-9', 'Reviews', ['B en C: sterren + tekst → Review publiceren. Open daarna elkaars profiel.'], 'Review zichtbaar met "✓ geverifieerde trade"; profiel toont 1 geverifieerde trade.'],
+    ['TRD-10', 'Chat', ['Stuur berichten heen en weer (ook A kijkt mee).'], 'Berichten komen binnen 1 minuut aan bij alle drie.'],
+    ['TRD-11', 'Herstel vanaf relays', ['Log als C in een andere browser in met dezelfde nsec, open Trades.'], 'Dezelfde trade met volledige geschiedenis.'],
+  ]],
+  ['Trade: geschil', 'B, C en A', [
+    ['DSP-1', 'Geschil openen', ['Doe een nieuwe trade tot en met betalen (niet verzenden). C: Open een geschil met reden.'], 'Rode melding "Geschil geopend door koper" bij B, C en A.'],
+    ['DSP-2', 'Arbiter ziet het geschil', ['A: Arbiter-menu.'], 'Trade staat onder "Open geschillen".'],
+    ['DSP-3', 'Uitspraak doen', ['A: open de trade → Doe een uitspraak → "Verkoper ontvangt" = zijn borg → toelichting → Tekenen en voorstellen.'], 'C en B zien "Uitspraak arbiter" met bedragen en toelichting.'],
+    ['DSP-4', 'Meetekenen', ['C: Akkoord en tekenen.'], 'Uitbetaling verzonden; C krijgt prijs + borg terug, B zijn borg (minus fee-aandeel).'],
+    ['DSP-5', 'Samen oplossen zonder arbiter', ['Nieuwe trade, na betalen: B stelt via "Stel uitbetaling of terugbetaling voor" een eigen verdeling voor; C tekent.'], 'Uitbetaling zonder tussenkomst van A.'],
+  ]],
+  ['Trade: annuleren en randgevallen', 'B en C', [
+    ['EDG-1', 'Bod intrekken', ['C doet een bod en klikt "Bod intrekken".'], 'Status Geannuleerd bij beide.'],
+    ['EDG-2', 'Bod afwijzen', ['C doet een bod, B wijst af met reden.'], 'C ziet "De verkoper heeft dit bod afgewezen" + reden.'],
+    ['EDG-3', 'Annuleren vóór betalen', ['Na accepteren, zonder te betalen: "Trade annuleren (nog niets betaald)".'], 'Status Geannuleerd.'],
+    ['EDG-4', 'Ongeldig adres', ['Vul bij een bod een ongeldig of testnet-adres in.'], 'Veld rood, Bod versturen uitgeschakeld.'],
+    ['EDG-5', 'Eigen advertentie', ['Open als B je eigen advertentie.'], 'Geen koopknop, wel "Advertentie bewerken".'],
+    ['EDG-6', 'Handelslimiet nieuw account', ['Nieuw account biedt meer dan 0.2 XBT.'], 'Waarschuwing over de limiet; versturen uitgeschakeld.'],
+  ]],
+  ['Instellingen en back-up', 'willekeurig', [
+    ['SET-1', 'Trade-back-up', ['Account → Back-up van trades → Downloaden. Daarna Herstellen met dat bestand.'], 'JSON-bestand gedownload; herstellen meldt het aantal berichten.'],
+    ['SET-2', 'Handmatige koers', ['Account → Handmatige koers: vul 500 in. Bekijk een advertentie.'], 'XBT-bedrag gebaseerd op 500; leegmaken zet de marktkoers terug.'],
+    ['SET-3', 'Uitloggen en opnieuw inloggen', ['Uitloggen, daarna inloggen met dezelfde nsec.'], 'Alles terug: advertenties, trades, profiel.'],
+  ]],
+];
+
+const KEY = 'xbt-testplan-v1';
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { state = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} render(); };
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+const plan = document.getElementById('plan');
+for (const [section, who, tests] of PLAN) {
+  const el = document.createElement('section');
+  el.innerHTML = `<h2>${esc(section)}</h2><p class="who">Wie: ${esc(who)}</p>` + tests.map(([id, title, steps, expect]) => `
+    <div class="test" data-id="${id}">
+      <div class="head">
+        <span class="id">${id}</span><span class="title">${esc(title)}</span>
+        <span class="states"><button class="pass" data-v="pass">✓ Werkt</button><button class="fail" data-v="fail">✗ Fout</button><button class="skip" data-v="skip">—</button></span>
+      </div>
+      <div class="body">
+        <ol>${steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
+        <div class="expect">Verwacht: ${expect}</div>
+        <button class="note-toggle">notitie</button>
+        <textarea placeholder="Wat zag je?"></textarea>
+      </div>
+    </div>`).join('');
+  plan.appendChild(el);
+}
+
+plan.addEventListener('click', (e) => {
+  const t = e.target.closest('.test');
+  if (!t) return;
+  const id = t.dataset.id;
+  if (e.target.dataset.v) {
+    const v = e.target.dataset.v;
+    state[id] = { ...(state[id] || {}), s: state[id]?.s === v ? '' : v, at: new Date().toISOString().slice(0, 16).replace('T', ' ') };
+    save();
+  } else if (e.target.classList.contains('note-toggle')) {
+    t.querySelector('textarea').classList.add('has');
+    t.querySelector('textarea').focus();
+  }
+});
+plan.addEventListener('input', (e) => {
+  if (e.target.tagName !== 'TEXTAREA') return;
+  const id = e.target.closest('.test').dataset.id;
+  state[id] = { ...(state[id] || {}), note: e.target.value };
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {}
+});
+
+const all = PLAN.flatMap(([, , tests]) => tests);
+function render() {
+  let pass = 0, fail = 0, skip = 0;
+  document.querySelectorAll('.test').forEach((t) => {
+    const st = state[t.dataset.id] || {};
+    t.dataset.s = st.s || '';
+    const ta = t.querySelector('textarea');
+    if (document.activeElement !== ta) ta.value = st.note || '';
+    ta.classList.toggle('has', !!st.note);
+    if (st.s === 'pass') pass++; else if (st.s === 'fail') fail++; else if (st.s === 'skip') skip++;
+  });
+  const done = pass + fail + skip;
+  document.getElementById('bar').style.width = (100 * done / all.length) + '%';
+  document.getElementById('stats').textContent = `${done}/${all.length} · ✓ ${pass} · ✗ ${fail} · — ${skip}`;
+}
+render();
+
+document.getElementById('copy').onclick = async () => {
+  const lines = ['XBT Market testresultaten ' + new Date().toISOString().slice(0, 10), ''];
+  for (const [section, , tests] of PLAN) {
+    lines.push('## ' + section);
+    for (const [id, title] of tests) {
+      const st = state[id] || {};
+      const mark = st.s === 'pass' ? '✓' : st.s === 'fail' ? '✗' : st.s === 'skip' ? '—' : '·';
+      lines.push(`${mark} ${id} ${title}${st.note ? ' — ' + st.note.replace(/\n/g, ' ') : ''}`);
+    }
+    lines.push('');
+  }
+  const text = lines.join('\n');
+  try { await navigator.clipboard.writeText(text); document.getElementById('copy').textContent = 'Gekopieerd ✓'; }
+  catch { prompt('Kopieer:', text); }
+  setTimeout(() => { document.getElementById('copy').textContent = 'Kopieer resultaten'; }, 2000);
+};
+document.getElementById('reset').onclick = () => { if (confirm('Alle vinkjes en notities wissen?')) { state = {}; save(); } };
+</script>
+</body>
+</html>
