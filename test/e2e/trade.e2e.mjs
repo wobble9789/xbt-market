@@ -71,6 +71,11 @@ async function waitText(page, t, timeout = 30000) {
   const diag = await page.evaluate(() => JSON.stringify({ n: Object.keys(window.xbt.inbox.get().rumors).length, syncing: window.xbt.inbox.get().syncing, conn: [...window.xbt.pool.listConnectionStatus()], hash: location.hash }));
   throw new Error(`[${page.who}] timed out waiting for "${t}". diag ${diag} Page:\n${(await text(page)).slice(0, 1500)}`);
 }
+async function waitNoText(page, t, timeout = 30000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) { if (!(await text(page)).includes(t)) return; await sleep(400); }
+  throw new Error(`[${page.who}] "${t}" did not go away`);
+}
 async function click(page, label) {
   console.log(`  [${page.who}] click ${label}`);
   const el = await page.waitForSelector(`::-p-xpath(//button[normalize-space(.)="${label}"] | //a[normalize-space(.)="${label}"])`, { timeout: 30000 });
@@ -182,8 +187,10 @@ try {
   await shot(await as('buyer'), '5-closed');
   await waitText(await as('buyer'), 'Leave a review', 30000);
   await click(await as('buyer'), 'Publish review');
+  await waitNoText(await as('buyer'), 'Leave a review');
   await waitText(await as('seller'), 'Leave a review', 30000);
   await click(await as('seller'), 'Publish review');
+  await waitNoText(await as('seller'), 'Leave a review');
   await sleep(1500);
   await go(await as('buyer'), `#/u/${people.seller.pk}`);
   await waitText(await as('buyer'), '1 verified trades', 20000);
@@ -213,6 +220,7 @@ try {
   await waitText(await as('seller'), 'New offer');
   await fillPh(await as('seller'), 'bc1q…', sellerAddr);
   await click(await as('seller'), 'Accept');
+  await waitText(await as('seller'), 'Total needed', 30000); // accept sent before closing this browser
   await waitText(await as('buyer'), 'Total needed', 30000);
   const esc3 = await escrowAddress(await as('buyer'));
   cli('sendtoaddress', esc3, '0.00023'); // 0.0002 + 15%
@@ -238,6 +246,7 @@ try {
   await fill(await as('arbiter'), 'Note', 'No shipment within the deadline: refund to buyer, seller keeps own deposit.');
   await shot(await as('arbiter'), '7-arbiter-ruling');
   await click(await as('arbiter'), 'Sign and propose');
+  await waitText(await as('arbiter'), 'Arbiter ruling', 30000); // sent before closing this browser
   await waitText(await as('buyer'), 'Arbiter ruling', 30000);
   await click(await as('buyer'), 'Agree and sign');
   await waitText(await as('buyer'), 'Broadcast:', 40000);
