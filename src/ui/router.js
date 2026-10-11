@@ -11,6 +11,8 @@ export function useRoute() {
   useEffect(() => {
     const f = () => { setR(parse()); window.scrollTo(0, 0); };
     addEventListener('hashchange', f);
+    // The hash may have changed between the first render and this effect.
+    setR(parse());
     return () => removeEventListener('hashchange', f);
   }, []);
   return r;
