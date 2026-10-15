@@ -103,11 +103,24 @@ jobs:
 
       - name: Direct Lightning purchase through the UI
         env:
+          KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
           PROFILE_DIR: ${{ runner.temp }}
           SHOTS: ${{ runner.temp }}/shots
         run: |
           export FIREFOX=$(which firefox)
           npm run test:direct
+
+      - name: Settings, node picker, AI assistant, escrow advice through the UI
+        env:
+          PROFILE_DIR: ${{ runner.temp }}
+          SHOTS: ${{ runner.temp }}/shots
+        run: |
+          export FIREFOX=$(which firefox)
+          npm run test:extras
+
+      - name: Screenshot report
+        if: always()
+        run: node scripts/proof-report.mjs ${{ runner.temp }}/shots ${{ runner.temp }}/shots/report.html || true
 
       - name: Upload screenshots and logs
         if: always()

@@ -38,7 +38,15 @@ async function utxos(address) {
 const routes = [
   ['GET', /^\/api\/blocks\/tip\/height$/, async () => String(await rpc('getblockcount'))],
   ['GET', /^\/api\/address\/([^/]+)\/utxo$/, (m) => utxos(m[1])],
-  ['GET', /^\/api\/tx\/([0-9a-f]{64})$/, async (m) => { const t = await rpc('getrawtransaction', [m[1], true]); return { txid: t.txid, status: { confirmed: !!t.blockhash } }; }],
+  ['GET', /^\/api\/tx\/([0-9a-f]{64})$/, async (m) => {
+    const t = await rpc('getrawtransaction', [m[1], true]);
+    const height = t.blockhash ? (await rpc('getblockheader', [t.blockhash])).height : undefined;
+    return {
+      txid: t.txid,
+      vout: t.vout.map((o) => ({ scriptpubkey_address: o.scriptPubKey.address, value: sats(o.value) })),
+      status: { confirmed: !!t.blockhash, ...(height != null ? { block_height: height, block_hash: t.blockhash } : {}) },
+    };
+  }],
   ['GET', /^\/api\/tx\/([0-9a-f]{64})\/status$/, async (m) => { const t = await rpc('getrawtransaction', [m[1], true]); return { confirmed: !!t.blockhash }; }],
   ['GET', /^\/api\/v1\/fees\/recommended$/, async () => ({ fastestFee: 2, halfHourFee: 2, hourFee: 1, economyFee: 1, minimumFee: 1 })],
   ['POST', /^\/api\/tx$/, async (m, body) => rpc('sendrawtransaction', [body.trim()])],

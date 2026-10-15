@@ -6,6 +6,7 @@ import puppeteer from 'puppeteer-core';
 import { execSync } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
+import { proof } from './proof.mjs';
 
 const APP = process.env.APP_URL || (process.env.APP_URL || 'http://127.0.0.1:4173/');
 const CLI = process.env.KNOTS_CLI;
@@ -15,13 +16,7 @@ const hex = (b) => Buffer.from(b).toString('hex');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const step = (s) => console.log(`\n== ${s}`);
 const SHOTS = process.env.SHOTS;
-async function shot(page, name, mobile = false) {
-  if (!SHOTS) return;
-  await page.setViewport(mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 });
-  await sleep(600);
-  await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true });
-  await page.setViewport({ width: 1280, height: 900 });
-}
+const shot = (page, caption, mobile = false) => proof(page, 'escrow', caption, { mobile });
 
 const people = {};
 for (const who of ['arbiter', 'seller', 'buyer']) { const sk = generateSecretKey(); people[who] = { sk: hex(sk), pk: getPublicKey(sk) }; }
@@ -133,8 +128,8 @@ try {
   await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
   await fill(await as('buyer'), 'Shipping address', 'Bob Buyer\nKerkstraat 1\n1234 AB Amsterdam');
   const priceVal = await (await as('buyer')).$eval('.offer input[inputmode="decimal"]', (e) => e.value);
-  await shot(await as('buyer'), '1-offer-form');
-  await shot(await as('buyer'), '1-offer-form-mobile', true);
+  await shot(await as('buyer'), 'Koper: bestelformulier met bezorgoptie, "Met escrow" gekozen, arbiter en verzendadres');
+  await shot(await as('buyer'), 'Koper: hetzelfde bestelformulier op een telefoon', true);
   console.log('suggested price XBT', priceVal, '(30 EUR at 50000 EUR/XBT = 0.0006)');
   await click(await as('buyer'), 'Send order');
   await (await as('buyer')).waitForFunction(() => location.hash.startsWith('#/trade/'), { timeout: 20000 });
@@ -146,7 +141,7 @@ try {
   await go(await as('seller'), `#/trade/${tid}`);
   await waitText(await as('seller'), 'New offer');
   await waitText(await as('seller'), 'approved');
-  await shot(await as('seller'), '2-offer-review');
+  await shot(await as('seller'), 'Verkoper: nieuw bod met ✓ goedgekeurde arbiter, borg en verzendadres');
   const sellerAddr = cli('getnewaddress', 'seller', 'bech32');
   await fillPh(await as('seller'), 'bc1q…', sellerAddr);
   await click(await as('seller'), 'Accept');
@@ -158,8 +153,8 @@ try {
   const esc2 = await escrowAddress(await as('seller'));
   if (esc !== esc2) throw new Error(`escrow mismatch ${esc} vs ${esc2}`);
   console.log('escrow', esc);
-  await shot(await as('buyer'), '3-escrow');
-  await shot(await as('buyer'), '3-escrow-mobile', true);
+  await shot(await as('buyer'), 'Koper: escrow-adres met QR-code en bedragen na accepteren (zelfde adres als de verkoper)');
+  await shot(await as('buyer'), 'Koper: escrow-betaalscherm op een telefoon', true);
   // amounts: buyer price+15%, seller 15%
   const amounts = await (await as('buyer')).$$eval('table.amounts tr td:last-child', (tds) => tds.map((t) => t.innerText));
   console.log('amount table', amounts);
@@ -168,11 +163,13 @@ try {
   mine(1);
   await click(await as('seller'), 'Refresh');
   await waitText(await as('seller'), 'Ship the item', 40000);
+  await shot(await as('seller'), 'Verkoper: escrow volledig betaald en bevestigd door de node, verzendformulier met vervoerder');
 
   step('seller ships');
   await fill(await as('seller'), 'Tracking code', '3SXBT123');
   await click(await as('seller'), 'Mark as shipped');
   await waitText(await as('seller'), 'Shipped with PostNL');
+  await shot(await as('seller'), 'Verkoper: verzonden met PostNL, trackingcode met Volgen-knop');
 
   step('buyer releases');
   await click(await as('buyer'), 'Refresh');
@@ -182,18 +179,20 @@ try {
 
   step('seller co-signs and broadcasts');
   await waitText(await as('seller'), 'Release to seller', 30000);
-  await shot(await as('seller'), '4-proposal');
+  await shot(await as('seller'), 'Verkoper: vrijgave-voorstel, getekend door de koper, klaar om mee te tekenen');
   await waitText(await as('seller'), 'Release to seller', 30000);
   await click(await as('seller'), 'Agree and sign');
   await waitText(await as('seller'), 'Broadcast:', 40000);
+  await shot(await as('seller'), 'Verkoper: meegetekend en verzonden, uitbetalings-txid zichtbaar');
   mine(1);
   const got = Number(cli('getreceivedbyaddress', sellerAddr, '1'));
   const back = Number(cli('getreceivedbyaddress', buyerAddr, '1'));
   console.log(`seller received ${got} XBT, buyer got back ${back} XBT`);
   if (!(got > 0.00068 && back > 0.00008)) throw new Error('unexpected payout amounts');
+  console.log(`  node check: seller ${got} XBT, buyer ${back} XBT`);
 
   step('reviews');
-  await shot(await as('buyer'), '5-closed');
+  await shot(await as('buyer'), 'Koper: escrow uitbetaald via de echte regtest-node, status Uitbetaald');
   await waitText(await as('buyer'), 'Leave a review', 30000);
   await click(await as('buyer'), 'Publish review');
   await waitNoText(await as('buyer'), 'Leave a review');
@@ -203,11 +202,11 @@ try {
   await sleep(1500);
   await go(await as('buyer'), `#/u/${people.seller.pk}`);
   await waitText(await as('buyer'), '1 verified trades', 20000);
-  await shot(await as('buyer'), '6-profile');
+  await shot(await as('buyer'), 'Profiel verkoper: 1 geverifieerde trade na reviews van beide kanten');
   await go(await as('buyer'), '#/');
   await sleep(1500);
-  await shot(await as('buyer'), '0-browse');
-  await shot(await as('buyer'), '0-browse-mobile', true);
+  await shot(await as('buyer'), 'Zoeken: advertentieoverzicht');
+  await shot(await as('buyer'), 'Zoeken op een telefoon', true);
 
   step('dispute trade: arbiter rules a refund, buyer co-signs');
   await go(await as('seller'), '#/sell/new');
@@ -242,10 +241,12 @@ try {
   await fillPh(await as('buyer'), 'What went wrong?', 'Seller does not ship and does not answer.');
   await click(await as('buyer'), 'Open dispute');
   await waitText(await as('buyer'), 'Dispute opened by buyer');
+  await shot(await as('buyer'), 'Koper: geschil geopend na betalen, rode melding en chat-tijdlijn');
 
   await go(await as('arbiter'), '#/arbiter');
   await waitText(await as('arbiter'), 'Open disputes');
   await waitText(await as('arbiter'), 'Vintage lamp', 30000);
+  await shot(await as('arbiter'), 'Arbiter: het geschil staat onder Open geschillen');
   await go(await as('arbiter'), `#/trade/${tid2}`);
   await waitText(await as('arbiter'), 'Propose a ruling');
   await click(await as('arbiter'), 'Propose a ruling');
@@ -254,12 +255,13 @@ try {
   await sellerField.click({ count: 3 });
   await sellerField.type('0.00003');
   await fill(await as('arbiter'), 'Note', 'No shipment within the deadline: refund to buyer, seller keeps own deposit.');
-  await shot(await as('arbiter'), '7-arbiter-ruling');
+  await shot(await as('arbiter'), 'Arbiter: uitspraak in het geschil (terugbetaling aan koper) met toelichting');
   await click(await as('arbiter'), 'Sign and propose');
   await waitText(await as('arbiter'), 'Arbiter ruling', 30000); // sent before closing this browser
   await waitText(await as('buyer'), 'Arbiter ruling', 30000);
   await click(await as('buyer'), 'Agree and sign');
   await waitText(await as('buyer'), 'Broadcast:', 40000);
+  await shot(await as('buyer'), 'Koper: uitspraak meegetekend, terugbetaling verzonden');
   mine(1);
   console.log('buyer refund total now', cli('getreceivedbyaddress', buyerAddr, '1'));
 

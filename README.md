@@ -114,6 +114,7 @@ The browser console exposes `window.xbt` (stores and relay pool) for debugging.
 | `npm run test:e2e` | The whole flow through the UI in Firefox: an arbiter announces, a seller lists, a buyer offers, the seller accepts, both fund on regtest, the seller ships, the buyer releases, the seller co-signs and broadcasts, the node confirms the payout, reviews become "verified". Then a dispute where the arbiter rules a refund and the buyer co-signs |
 | `npm run test:lightning` | The wallet link over a relay: the seller's wallet makes an invoice for the exact amount, the buyer's wallet pays it, the preimage matches, paying twice is refused |
 | `npm run test:direct` | A direct Lightning purchase through the UI: both connect a wallet, the seller lists with two delivery options, the buyer orders, the seller's wallet invoices, the buyer's wallet pays, the seller ships with a tracking link, the buyer confirms, both reviews become "verified" |
+| `npm run test:extras` | Through the UI: blockchain server picker with connection test, wallet link and AI key stored encrypted, the AI assistant filling in a listing (against an intercepted fake API), escrow preselected above €50 |
 | `npm run test:import` | The bookmarklet against fake Vinted wardrobe, eBay list, JSON-LD product and paginated Marktplaats profile pages, through the real popup/postMessage handshake. Then a Marktplaats re-import (everything recognised) and a re-import after a price change and a removed ad |
 
 CI (`.github/workflows/pages.yml`) runs all four on every push, against a checksum-verified Knots release in headless Firefox, and deploys only when they pass. Screenshots and logs are uploaded as the `e2e-output` artifact.
@@ -125,8 +126,10 @@ bitcoind -regtest -testactivationheight=blake2b@1 -rpcuser=u -rpcpassword=p -fal
 npm run relay & npm run shim & npm run fixtures & npm run wallets &
 npm run build && npm run preview &
 export KNOTS_CLI="bitcoin-cli -regtest -rpcuser=u -rpcpassword=p"
-npm run test:regtest && npm run test:e2e && npm run test:import && npm run test:lightning && npm run test:direct
+npm run test:regtest && npm run test:e2e && npm run test:import && npm run test:lightning && npm run test:direct && npm run test:extras
 ```
+
+With `SHOTS=<dir>` the browser tests save a captioned screenshot after each verified step; `node scripts/proof-report.mjs <dir>` turns them into one HTML page (CI uploads it with the `e2e-output` artifact). `test:direct` also covers a direct on-chain payment when `KNOTS_CLI` is set.
 
 The e2e tests use `puppeteer-core` with a local Firefox (`FIREFOX=/path/to/firefox`, `PROFILE_DIR` for the profile location), or Chromium with `CHROME=/path/to/chrome`. `test:lightning` and `test:direct` need no node, only the relay, the wallets and the preview. They open one browser context at a time, so every page rebuilds its trade state from the relay.
 

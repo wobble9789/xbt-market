@@ -347,6 +347,7 @@ function PaymentBox({ state, role }) {
       <h3>💳 {T('Payment request', 'Betaalverzoek')}: <Coin sats={o.priceSats} /></h3>
       {paid?.verified ? <p class="notice ok">✅ {T('Paid. The Lightning preimage proves it.', 'Betaald. Het Lightning-preimage bewijst het.')}</p>
         : paid ? <p class="notice">{T('The buyer reports a payment', 'De koper meldt een betaling')}{paid.txid && <>: <a href={`${explorer}/tx/${paid.txid}`} target="_blank" rel="noopener noreferrer"><code>{paid.txid.slice(0, 16)}…</code></a></>}
+            {check?.error && <> · <span class="error small">{T('Could not check this transaction', 'Kon deze transactie niet controleren')}: {check.error}</span></>}
             {check && !check.error && <> · {check.enough ? `✓ ${formatCoin(check.paid)}, ${check.confirmations} ${T('confirmations', 'bevestigingen')}` : `⚠ ${T('pays only', 'betaalt maar')} ${formatCoin(check.paid)}`}</>}</p>
         : null}
       {state.paymentConfirmed && <p class="notice ok">✅ {T('The seller confirmed receiving the payment.', 'De verkoper heeft de ontvangst van de betaling bevestigd.')}</p>}
