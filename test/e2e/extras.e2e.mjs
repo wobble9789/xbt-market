@@ -7,7 +7,7 @@ import puppeteer from 'puppeteer-core';
 import { mkdirSync, rmSync } from 'node:fs';
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { proof } from './proof.mjs';
+import { proof, setupPage } from './proof.mjs';
 
 const APP = process.env.APP_URL || 'http://127.0.0.1:4173/';
 const RELAY = process.env.RELAY || 'ws://127.0.0.1:7777';
@@ -32,7 +32,7 @@ const page = await (await browser.createBrowserContext()).newPage();
 page.who = 'seller';
 page.on('pageerror', (e) => { if (!/establish a connection/.test(e.message)) console.log('[pageerror]', e.message); });
 page.on('dialog', (d) => d.accept());
-await page.setViewport({ width: 1280, height: 900 });
+await setupPage(page);
 
 // A fake Anthropic API: records the request and answers with a listing draft.
 const aiCalls = [];
@@ -57,20 +57,24 @@ async function waitText(t, timeout = 30000) {
 async function click(label) {
   console.log(`  click ${label}`);
   const el = await page.waitForSelector(`::-p-xpath(//button[normalize-space(.)="${label}"] | //a[normalize-space(.)="${label}"])`, { timeout: 30000 });
+  await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await el.click();
 }
 async function fill(labelText, value) {
   const el = await page.waitForSelector(`::-p-xpath(//label[span[@class="label" and normalize-space(.)="${labelText}"]]//*[self::input or self::textarea][1])`, { timeout: 15000 });
+  await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await el.click({ count: 3 });
   await el.type(value);
 }
 async function fillPh(ph, value) {
   const el = await page.waitForSelector(`::-p-xpath(//*[(self::input or self::textarea) and @placeholder="${ph}"])`, { timeout: 15000 });
+  await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await el.click({ count: 3 });
   await el.type(value);
 }
 async function choose(labelStart) {
   const el = await page.waitForSelector(`::-p-xpath(//label[contains(@class,"choice")][starts-with(normalize-space(.),"${labelStart}")])`, { timeout: 15000 });
+  await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await el.click();
 }
 const scrollTo = (t) => page.evaluate((t) => [...document.querySelectorAll('h3,h2')].find((h) => h.textContent.includes(t))?.scrollIntoView({ block: 'start' }), t);

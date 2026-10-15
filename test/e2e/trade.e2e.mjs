@@ -6,7 +6,7 @@ import puppeteer from 'puppeteer-core';
 import { execSync } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
-import { proof } from './proof.mjs';
+import { proof, setupPage } from './proof.mjs';
 
 const APP = process.env.APP_URL || (process.env.APP_URL || 'http://127.0.0.1:4173/');
 const CLI = process.env.KNOTS_CLI;
@@ -46,6 +46,7 @@ async function as(who) {
 async function open(who) {
   const ctx = await browser.createBrowserContext();
   const page = await ctx.newPage();
+  await setupPage(page);
   page.on('pageerror', (e) => { if (!/establish a connection/.test(e.message)) console.log(`[${who} pageerror]`, e.message); });
   page.on('console', (m) => { if (m.type() === 'error') console.log(`[${who} console]`, m.text()); });
   page.on('dialog', (d) => d.accept());
@@ -78,21 +79,25 @@ async function waitNoText(page, t, timeout = 30000) {
 async function click(page, label) {
   console.log(`  [${page.who}] click ${label}`);
   const el = await page.waitForSelector(`::-p-xpath(//button[normalize-space(.)="${label}"] | //a[normalize-space(.)="${label}"])`, { timeout: 30000 });
+  await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await el.click();
 }
 async function fill(page, labelText, value) {
   console.log(`  [${page.who}] fill ${labelText}`);
   const el = await page.waitForSelector(`::-p-xpath(//label[span[@class="label" and normalize-space(.)="${labelText}"]]//*[self::input or self::textarea][1])`, { timeout: 15000 });
+  await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await el.click({ count: 3 });
   await el.type(value);
 }
 async function choose(page, labelStart) {
   console.log(`  [${page.who}] choose ${labelStart}`);
   const el = await page.waitForSelector(`::-p-xpath(//label[contains(@class,"choice")][starts-with(normalize-space(.),"${labelStart}")])`, { timeout: 15000 });
+  await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await el.click();
 }
 async function fillPh(page, ph, value) {
   const el = await page.waitForSelector(`::-p-xpath(//*[(self::input or self::textarea) and @placeholder="${ph}"])`, { timeout: 15000 });
+  await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
   await el.click({ count: 3 });
   await el.type(value);
 }

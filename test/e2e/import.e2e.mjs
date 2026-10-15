@@ -1,4 +1,5 @@
 // Bookmarklet import test against local fake shop pages. See README "Testing".
+import { setupPage } from './proof.mjs';
 import puppeteer from 'puppeteer-core';
 import { mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
@@ -12,6 +13,7 @@ const browser = await puppeteer.launch(process.env.CHROME
   : { browser: 'firefox', executablePath: process.env.FIREFOX || '/usr/bin/firefox', headless: true, userDataDir: d, protocolTimeout: 45000 });
 const sk = generateSecretKey();
 const app = await browser.newPage();
+await setupPage(app);
 await app.goto((process.env.APP_URL || 'http://127.0.0.1:4173/'), { waitUntil: 'load' });
 await app.evaluate((p) => {
   localStorage.setItem('xbt:account', JSON.stringify({ pubkey: p.pk, sk: p.sk, backedUp: true }));
