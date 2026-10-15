@@ -1,6 +1,6 @@
 // Esplora-shaped HTTP API over a Bitcoin Knots node's RPC, for regtest
 // development. Serves exactly what the app uses.
-//   node dev/esplora-shim.mjs --port 3006 --rpc http://u:p@127.0.0.1:18443
+//   node dev/esplora-shim.mjs --port 3006 --rpc http://u:p@127.0.0.1:18443 [--host 0.0.0.0]
 import http from 'node:http';
 
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
@@ -73,4 +73,4 @@ http.createServer(async (req, res) => {
   }
   res.statusCode = 404;
   res.end('not found');
-}).listen(port, '127.0.0.1', () => console.log(`esplora shim on http://127.0.0.1:${port}/api -> ${rpcUrl.href}`));
+}).listen(port, arg('host', '127.0.0.1'), () => console.log(`esplora shim on http://${arg('host', '127.0.0.1')}:${port}/api -> ${rpcUrl.href}`));

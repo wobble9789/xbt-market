@@ -14,7 +14,12 @@ import { fakeInvoice } from './fake-invoice.mjs';
 
 const relay = process.argv[2] || 'ws://127.0.0.1:7777';
 const network = process.argv[3] || 'bcrt';
-const pool = new SimplePool();
+// Reconnect and ping so a dropped socket never silently ends the wallets,
+// and keep the process alive even while no socket is open.
+const pool = new SimplePool({ enableReconnect: true, enablePing: true });
+setInterval(() => {}, 60_000);
+process.on('unhandledRejection', (e) => console.error('[wallets] unhandled', e?.message || e));
+process.on('uncaughtException', (e) => console.error('[wallets] error', e?.message || e));
 // Wait for the relay, which may still be starting (CI starts both at once).
 for (let i = 0; ; i++) {
   try { await pool.ensureRelay(relay); break; } catch (e) { if (i > 30) throw e; await new Promise((r) => setTimeout(r, 500)); }

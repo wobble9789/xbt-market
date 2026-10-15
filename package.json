@@ -15,6 +15,8 @@
     "test:lightning": "node test/lightning.integration.mjs",
     "test:direct": "node test/e2e/direct.e2e.mjs",
     "test:extras": "node test/e2e/extras.e2e.mjs",
+    "test:plan": "node test/e2e/testplan.e2e.mjs",
+    "blossom": "node dev/blossom-mock.mjs 3008",
     "proof-report": "node scripts/proof-report.mjs",
     "wallets": "node dev/nwc-mock.mjs",
     "demo": "node scripts/demo.mjs",

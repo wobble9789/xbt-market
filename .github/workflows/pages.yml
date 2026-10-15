@@ -48,7 +48,7 @@ jobs:
           - { browser: firefox, device: phone }
           - { browser: chrome, device: phone }
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 75
     env:
       MOBILE: ${{ matrix.device == 'phone' && '1' || '' }}
     steps:
@@ -90,6 +90,7 @@ jobs:
           nohup npm run shim > shim.log 2>&1 &
           nohup npm run fixtures > fixtures.log 2>&1 &
           nohup npm run wallets > wallets.log 2>&1 &
+          nohup npm run blossom > blossom.log 2>&1 &
           nohup npm run preview -- --port 4173 --strictPort > preview.log 2>&1 &
           for url in http://127.0.0.1:4173/ http://127.0.0.1:3006/api/blocks/tip/height; do
             for i in $(seq 30); do curl -sf $url > /dev/null && break; sleep 1; done
@@ -119,9 +120,18 @@ jobs:
       - name: Settings, node picker, AI assistant, escrow advice through the UI
         run: npm run test:extras
 
+      - name: The manual test plan, walked through automatically
+        env:
+          KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
+        run: |
+          VITE_ADMIN_NPUB=$(node test/e2e/testplan.e2e.mjs --admin-npub) npx vite build --outDir dist-plan
+          nohup npx vite preview --outDir dist-plan --port 4174 --strictPort > preview-plan.log 2>&1 &
+          for i in $(seq 30); do curl -sf http://127.0.0.1:4174/ > /dev/null && break; sleep 1; done
+          APP_URL=http://127.0.0.1:4174/ npm run test:plan
+
       - name: Screenshot report
         if: always()
-        run: node scripts/proof-report.mjs ${{ runner.temp }}/shots ${{ runner.temp }}/shots/report.html || true
+        run: node scripts/proof-report.mjs $SHOTS $SHOTS/report.html || true
 
       - name: Upload screenshots and logs
         if: always()

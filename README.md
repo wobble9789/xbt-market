@@ -99,6 +99,24 @@ npm test             # unit tests (sighash vectors, escrow, protocol, payments, 
 npm run demo         # local relay + pretend Lightning wallets + app, no real money (see below)
 ```
 
+### Try it on your phone
+
+**With pretend money (safe, about 10 minutes).** On a computer on the same Wi-Fi as your phone:
+
+```sh
+npm install
+npm run demo -- --phone
+```
+
+The terminal shows a QR code. Scan it with your phone to open the **helper page**. That page has a QR code to open the app, the connection strings of three pretend Lightning wallets (10,000,000 sats each) to copy, and, if Bitcoin Knots is installed, buttons to send pretend XBT to any address and to mine blocks. Play the seller on the computer and the buyer on the phone (or use two phones).
+
+- Lightning purchase: both connect a pretend wallet (Account → Lightning wallet), list an item with "Direct, Lightning", buy it on the phone, pay with one tap.
+- Escrow: needs Bitcoin Knots (`bitcoind` on the PATH, or `KNOTS_DIR=/path/to/bin`). A third account announces itself as arbiter and both buyer and seller add its npub under Account → Trusted arbiters. Pay into the escrow address with the helper page, then press "Mine 3 blocks".
+- Photos upload to a local pretend photo server; the AI assistant needs your own API key.
+- Over plain http on the local network the phone cannot install the app to the home screen and copying to the clipboard falls back to a text box. Everything else works.
+
+**For real (real coins, real wallet).** Deploy the app (see *Deploy*; with GitHub Pages it is `https://<user>.github.io/<repo>/`), open that address on the phone and use *Add to Home screen* / *Install app*. Use small amounts first, connect your own Lightning wallet with a spending budget, and work through `<app>/testplan.html`.
+
 ### Try it in five minutes (`npm run demo`)
 
 `npm run demo` starts a local relay, three pretend Lightning wallets and the app at http://localhost:5173, and prints a connection string per wallet. Open the app in a normal and a private window, create an account in each, connect the "seller" and "buyer" wallets under *Account → Lightning wallet*, list an item in one window and buy it with "Direct, Lightning" in the other. Escrow and on-chain payments additionally need the regtest node from *Testing*.
@@ -115,6 +133,7 @@ The browser console exposes `window.xbt` (stores and relay pool) for debugging.
 | `npm run test:lightning` | The wallet link over a relay: the seller's wallet makes an invoice for the exact amount, the buyer's wallet pays it, the preimage matches, paying twice is refused |
 | `npm run test:direct` | A direct Lightning purchase through the UI: both connect a wallet, the seller lists with two delivery options, the buyer orders, the seller's wallet invoices, the buyer's wallet pays, the seller ships with a tracking link, the buyer confirms, both reviews become "verified" |
 | `npm run test:extras` | Through the UI: blockchain server picker with connection test, wallet link and AI key stored encrypted, the AI assistant filling in a listing (against an intercepted fake API), escrow preselected above €50 |
+| `npm run test:plan` | Walks through every item of `public/testplan.html` with three people (admin/arbiter, seller, buyer): accounts and password lock, admin approval, listings with photos, search and sorting, an escrow trade with real confirmations, recovery from relays with only the nsec, disputes, cancels, Lightning and on-chain direct payments, the AI assistant, node choice, backup and restore. Items that need real coins, real shop pages or a real phone are reported as "manual" |
 | `npm run test:import` | The bookmarklet against fake Vinted wardrobe, eBay list, JSON-LD product and paginated Marktplaats profile pages, through the real popup/postMessage handshake. Then a Marktplaats re-import (everything recognised) and a re-import after a price change and a removed ad |
 
 CI (`.github/workflows/pages.yml`) runs all four on every push, against a checksum-verified Knots release in headless Firefox, and deploys only when they pass. Screenshots and logs are uploaded as the `e2e-output` artifact.
@@ -131,7 +150,7 @@ npm run test:regtest && npm run test:e2e && npm run test:import && npm run test:
 
 With `SHOTS=<dir>` the browser tests save a captioned screenshot after each verified step; `node scripts/proof-report.mjs <dir>` turns them into one HTML page (CI uploads it with the `e2e-output` artifact). `test:direct` also covers a direct on-chain payment when `KNOTS_CLI` is set.
 
-The e2e tests use `puppeteer-core` with a local Firefox (`FIREFOX=/path/to/firefox`, `PROFILE_DIR` for the profile location), or Chromium with `CHROME=/path/to/chrome`. `test:lightning` and `test:direct` need no node, only the relay, the wallets and the preview. They open one browser context at a time, so every page rebuilds its trade state from the relay.
+The e2e tests use `puppeteer-core` with a local Firefox (`FIREFOX=/path/to/firefox`, `PROFILE_DIR` for the profile location), or Chromium with `CHROME=/path/to/chrome`. `MOBILE=1` runs them as a phone (390×844 screen, touch, phone user agent). CI runs every browser test three times: Firefox desktop, Firefox on a phone-sized screen and Chrome emulating an Android phone. `test:plan` also needs `npm run blossom` and an app build with its admin key: `VITE_ADMIN_NPUB=$(node test/e2e/testplan.e2e.mjs --admin-npub) npx vite build --outDir dist-plan`, served on port 4174. `test:lightning` and `test:direct` need no node, only the relay, the wallets and the preview. They open one browser context at a time, so every page rebuilds its trade state from the relay.
 
 ## Known limitations
 
