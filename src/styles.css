@@ -162,8 +162,9 @@ textarea { resize: vertical; }
 .searchbar select { width: auto; }
 @media (max-width: 600px) { .searchbar { grid-template-columns: 1fr 1fr; } .searchbar input { grid-column: 1 / -1; } .searchbar select { width: 100%; } }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
-@media (max-width: 480px) { .grid { grid-template-columns: 1fr 1fr; gap: 8px; } }
-.listing-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; text-decoration: none; display: flex; flex-direction: column; box-shadow: var(--shadow); }
+/* minmax(0, …): a long title must shorten with an ellipsis, not widen the column past the screen. */
+@media (max-width: 480px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } }
+.listing-card { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; text-decoration: none; display: flex; flex-direction: column; box-shadow: var(--shadow); }
 .listing-card:hover { border-color: var(--muted); }
 .listing-card .thumb { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; background: var(--bg); }
 .listing-card .body { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 2px; }

@@ -7,7 +7,7 @@ import puppeteer from 'puppeteer-core';
 import { mkdirSync, rmSync } from 'node:fs';
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { proof, setupPage } from './proof.mjs';
+import { proof, setupPage, settle, fakeAnthropic } from './proof.mjs';
 
 const APP = process.env.APP_URL || 'http://127.0.0.1:4173/';
 const RELAY = process.env.RELAY || 'ws://127.0.0.1:7777';
@@ -34,19 +34,7 @@ page.on('pageerror', (e) => { if (!/establish a connection/.test(e.message)) con
 page.on('dialog', (d) => d.accept());
 await setupPage(page);
 
-// A fake Anthropic API: records the request and answers with a listing draft.
-const aiCalls = [];
-await page.setRequestInterception(true);
-page.on('request', (req) => {
-  if (!req.url().startsWith('https://api.anthropic.com/')) return req.continue();
-  if (req.method() === 'OPTIONS') return req.respond({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST' } });
-  aiCalls.push({ headers: req.headers(), body: JSON.parse(req.postData()) });
-  const draft = { title: 'Messing bureaulamp, jaren 70', description: 'Werkende bureaulamp van messing met verstelbare arm. Lichte gebruikssporen op de voet, kap zonder deuken. Inclusief snoer met schakelaar.', category: 'home', condition: 'good', price: 35, notes: 'Meet de hoogte van de lamp en vermeld die in de beschrijving.' };
-  req.respond({
-    status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': 'application/json' },
-    body: JSON.stringify({ id: 'msg_test', type: 'message', role: 'assistant', model: 'claude-opus-5-5', stop_reason: 'end_turn', stop_sequence: null, content: [{ type: 'text', text: JSON.stringify(draft) }], usage: { input_tokens: 1, output_tokens: 1 } }),
-  });
-});
+const DRAFT = { title: 'Messing bureaulamp, jaren 70', description: 'Werkende bureaulamp van messing met verstelbare arm. Lichte gebruikssporen op de voet, kap zonder deuken. Inclusief snoer met schakelaar.', category: 'home', condition: 'good', price: 35, notes: 'Meet de hoogte van de lamp en vermeld die in de beschrijving.' };
 
 const text = () => page.evaluate(() => document.querySelector('main').innerText);
 async function waitText(t, timeout = 30000) {
@@ -57,24 +45,24 @@ async function waitText(t, timeout = 30000) {
 async function click(label) {
   console.log(`  click ${label}`);
   const el = await page.waitForSelector(`::-p-xpath(//button[normalize-space(.)="${label}"] | //a[normalize-space(.)="${label}"])`, { timeout: 30000 });
-  await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
+  await settle(el);
   await el.click();
 }
 async function fill(labelText, value) {
   const el = await page.waitForSelector(`::-p-xpath(//label[span[@class="label" and normalize-space(.)="${labelText}"]]//*[self::input or self::textarea][1])`, { timeout: 15000 });
-  await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
+  await settle(el);
   await el.click({ count: 3 });
   await el.type(value);
 }
 async function fillPh(ph, value) {
   const el = await page.waitForSelector(`::-p-xpath(//*[(self::input or self::textarea) and @placeholder="${ph}"])`, { timeout: 15000 });
-  await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
+  await settle(el);
   await el.click({ count: 3 });
   await el.type(value);
 }
 async function choose(labelStart) {
   const el = await page.waitForSelector(`::-p-xpath(//label[contains(@class,"choice")][starts-with(normalize-space(.),"${labelStart}")])`, { timeout: 15000 });
-  await el.evaluate((e) => e.scrollIntoView({ block: 'center' }));
+  await settle(el);
   await el.click();
 }
 const scrollTo = (t) => page.evaluate((t) => [...document.querySelectorAll('h3,h2')].find((h) => h.textContent.includes(t))?.scrollIntoView({ block: 'start' }), t);
@@ -120,10 +108,12 @@ try {
   await waitText('Write listing from photos');
   await fillPh('…or paste an image URL', new URL('icon-512.png', APP).href);
   await click('Add');
+  await fakeAnthropic(page, DRAFT);
   await click('✨ Write listing from photos');
   // The confirmation is a toast outside <main>; wait for the filled-in title instead.
   await page.waitForFunction(() => [...document.querySelectorAll('label.field')].find((l) => l.querySelector('.label')?.textContent === 'Title')?.querySelector('input')?.value, { timeout: 30000 })
-    .catch(async (e) => { throw new Error(`no draft (${aiCalls.length} AI calls). Toasts: ${await page.evaluate(() => document.querySelector('.toasts')?.innerText)}`); });
+    .catch(async () => { throw new Error(`no draft. Toasts: ${await page.evaluate(() => document.querySelector('.toasts')?.innerText)}`); });
+  const aiCalls = await page.evaluate(() => window.__aiCalls);
   const title = await page.$eval('::-p-xpath(//label[span[normalize-space(.)="Title"]]//input)', (e) => e.value);
   if (title !== 'Messing bureaulamp, jaren 70') throw new Error('title not filled: ' + title);
   const call = aiCalls[0];

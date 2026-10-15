@@ -16,7 +16,7 @@ import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import * as nip19 from 'nostr-tools/nip19';
 import { SimplePool } from 'nostr-tools/pool';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { proof, setupPage, DEVICE } from './proof.mjs';
+import { proof, setupPage, settle, fakeAnthropic, DEVICE } from './proof.mjs';
 import { parseNwcUri, nwc } from '../../src/lib/ln/nwc.js';
 
 const hex = (b) => Buffer.from(b).toString('hex');
@@ -102,7 +102,7 @@ async function waitToast(p, t, timeout = 20000) {
 }
 async function el(p, xpath, timeout = 20000) {
   const e = await p.waitForSelector(`::-p-xpath(${xpath})`, { timeout });
-  await e.evaluate((x) => x.scrollIntoView({ block: 'center' }));
+  await settle(e);
   return e;
 }
 // Only inside <main>, so a "Log in" button never matches the "Log in" menu link.
@@ -873,20 +873,13 @@ try {
   });
   await step('AI-2', 'Listing from photos', async () => {
     const p = await B('#/sell/new');
-    await p.setRequestInterception(true);
-    let call;
-    p.on('request', (req) => {
-      if (!req.url().startsWith('https://api.anthropic.com/')) return req.continue();
-      if (req.method() === 'OPTIONS') return req.respond({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } });
-      call = JSON.parse(req.postData());
-      const draft = { title: 'Rode wollen sjaal', description: 'Zachte rode sjaal van wol, zo goed als nieuw. Geen vlekken of gaten zichtbaar.', category: 'clothing', condition: 'like-new', price: 8, notes: 'Vermeld de lengte van de sjaal.' };
-      req.respond({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': 'application/json' }, body: JSON.stringify({ id: 'msg_plan', type: 'message', role: 'assistant', model: 'claude-opus-5-5', stop_reason: 'end_turn', stop_sequence: null, content: [{ type: 'text', text: JSON.stringify(draft) }], usage: { input_tokens: 1, output_tokens: 1 } }) });
-    });
     const input = await p.$('input[type=file]');
     await input.uploadFile('public/icon-512.png');
     await p.waitForFunction(() => document.querySelectorAll('.photos .photo img').length >= 1, { timeout: 30000 });
+    await fakeAnthropic(p, { title: 'Rode wollen sjaal', description: 'Zachte rode sjaal van wol, zo goed als nieuw. Geen vlekken of gaten zichtbaar.', category: 'clothing', condition: 'like-new', price: 8, notes: 'Vermeld de lengte van de sjaal.' });
     await click(p, '✨ Write listing from photos');
     await p.waitForFunction(() => [...document.querySelectorAll('label.field')].find((l) => l.querySelector('.label')?.textContent === 'Title')?.querySelector('input')?.value === 'Rode wollen sjaal', { timeout: 30000 });
+    const call = (await p.evaluate(() => window.__aiCalls))[0]?.body;
     if (!call?.messages?.[0]?.content?.some((c) => c.type === 'image' && c.source.url.startsWith(BLOSSOM))) throw new Error('uploaded photo not sent');
     await waitText(p, 'Vermeld de lengte');
     return 'title, description, category, condition, price and a tip filled in (fake API; the uploaded photo was sent)';
