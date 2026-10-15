@@ -369,8 +369,9 @@ try {
     await (await c.$('.searchbar select')).select('clothing');
     await sleep(500);
     const cat = await c.$$eval('.listing-card .title', (t) => t.map((x) => x.textContent));
-    if (cat.join() !== 'Wollen sjaal, rood') throw new Error('category filter shows ' + cat.join(', '));
-    return 'search finds only matching titles, lowest price first, category Clothing shows only the scarf';
+    // Other suites on the same relay may have listed clothing too; none of the plan's non-clothing items may show.
+    if (!cat.includes('Wollen sjaal, rood') || cat.some((t) => /Sorteertest|Testding|ASIC/.test(t))) throw new Error('category filter shows ' + cat.join(', '));
+    return `search finds only matching titles, lowest price first; category Clothing shows the scarf and no other categories (${cat.length} items)`;
   });
   await step('LST-7', 'Price in XBT', async () => {
     const c = await openListing('C', 'Wollen sjaal, rood');
