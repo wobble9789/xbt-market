@@ -252,3 +252,13 @@ table.amounts tr.total td { font-weight: 700; }
 .prose li { margin: 6px 0; }
 details summary { cursor: pointer; }
 .import-summary { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+
+/* ---- payment and delivery choices ---- */
+.choices { display: flex; flex-direction: column; gap: 6px; }
+.choice { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; background: var(--card); }
+.choice.on { border-color: var(--accent); background: var(--accent-soft); }
+.choice input { width: auto; margin: 0; }
+.choice > span:first-of-type { flex: 1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ship-option select { flex: 2; }
+.ship-option input { flex: 1; min-width: 70px; }
+.msg.system { align-self: center; text-align: center; background: none; border: 1px dashed var(--line); font-size: 0.9em; max-width: 100%; }

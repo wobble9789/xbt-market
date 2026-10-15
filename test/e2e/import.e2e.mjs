@@ -6,7 +6,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const src = readFileSync(new URL('../../src/generated/bookmarklet.js', import.meta.url), 'utf8');
 const BOOKMARKLET = JSON.parse(src.match(/BOOKMARKLET_SOURCE = (".*");/)[1]).replace('__XBT_APP__', (process.env.APP_URL || 'http://127.0.0.1:4173/'));
 const d = (process.env.PROFILE_DIR || process.env.HOME + '/snap/firefox/common') + '/xbt-import'; rmSync(d, { recursive: true, force: true }); mkdirSync(d, { recursive: true });
-const browser = await puppeteer.launch({ browser: 'firefox', executablePath: process.env.FIREFOX || '/usr/bin/firefox', headless: true, userDataDir: d, protocolTimeout: 45000 });
+// Firefox by default (FIREFOX=…), or Chromium with CHROME=/path/to/chrome.
+const browser = await puppeteer.launch(process.env.CHROME
+  ? { browser: 'chrome', executablePath: process.env.CHROME, headless: true, args: ['--no-sandbox'], protocolTimeout: 45000 }
+  : { browser: 'firefox', executablePath: process.env.FIREFOX || '/usr/bin/firefox', headless: true, userDataDir: d, protocolTimeout: 45000 });
 const sk = generateSecretKey();
 const app = await browser.newPage();
 await app.goto((process.env.APP_URL || 'http://127.0.0.1:4173/'), { waitUntil: 'load' });

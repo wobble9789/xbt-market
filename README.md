@@ -4,9 +4,12 @@ A peer-to-peer marketplace paid in **Bitcoin BLAKE2b** (XBT / BTCB2), the chain 
 
 - **No server, no app store.** It is a static web app (PWA) you can install on phone or desktop from any URL. Listings, profiles, reviews and encrypted trade chat live on **Nostr** relays.
 - **Bisq-style escrow.** Every trade uses a **2-of-3 P2WSH multisig** between buyer, seller and a community **arbiter**. Both sides post a deposit. Buyer and seller release together; in a dispute the arbiter signs with one of them. Nobody can move the coins alone.
+- **Or pay directly.** For smaller items the buyer can skip escrow and pay the seller straight away, on chain or over **Lightning**. The app recommends escrow above €50. The seller sends a payment request in the chat; with a connected wallet the buyer pays with one tap, and the Lightning preimage proves the payment to both sides.
+- **Your own Lightning wallet.** Connect any wallet that supports **Nostr Wallet Connect** (NWC): Alby Hub, Zeus, Primal, Coinos and others. A Lightning address works too for receiving.
 - **Replay-safe.** Every escrow spend is signed with `SIGHASH_ALL|SIGHASH_UNIFIED` (0x21), so it is valid on the BLAKE2b chain only.
 - **Import from Marktplaats / 2dehands / Vinted / eBay.** A bookmark button reads your own listings from your profile page and copies them over. An eBay Seller Hub CSV works too. Re-importing recognises what is already here (by Marktplaats ad number, Vinted item id or eBay item number, falling back to title + price). It only adds what is new, updates listings whose price or title changed, and offers to mark listings as sold that disappeared from your profile there.
-- **Ship however you like.** PostNL, DHL, InPost, Mondial Relay, Packlink, Sendcloud… The seller adds the tracking code.
+- **Delivery options.** The seller lists the carriers they offer with a price (PostNL, DHL, DPD, Budbee, InPost, Mondial Relay, pick-up…), the buyer picks one when ordering, and the tracking code becomes a tracking link. Labels are bought on the carrier's site or a label service such as Sendcloud or Packlink.
+- **AI listing assistant.** Upload photos and Claude writes the title, description, category, condition and a price suggestion, like Marktplaats does. Each user brings their own Anthropic API key (see *AI assistant* below).
 
 > **Snel aan de slag (NL):** zet de app online (zie *Deploy*), maak in de app een account, zet jouw npub als `VITE_ADMIN_NPUB` en bouw opnieuw. Vraag een paar bekende community-leden om zich onder *Arbiter* aan te melden en keur ze goed onder *Admin*. Daarna kan iedereen handelen.
 
@@ -45,6 +48,20 @@ The escrow witness script and the three public keys are shown under *Recovery de
 - **Price risk.** The market is thin, so the XBT amount is fixed when the offer is made. Prices in EUR are only a reference.
 - **Young chain.** Hashrate is small and rentable. Raise *minimum confirmations* for larger trades.
 
+### Direct payments (no escrow)
+
+1. **Order.** The buyer picks "Direct, Lightning" or "Direct, on chain" and a delivery option.
+2. **Accept.** The seller accepts.
+3. **Payment request.** The seller sends an invoice for exactly the agreed amount: made by their connected wallet, fetched from their Lightning address, or pasted. On chain, it is an address.
+4. **Pay.** The buyer pays with their connected wallet (one tap), or scans the QR code with any wallet. A Lightning payment through the app includes the preimage, which proves the payment. The seller can also confirm receipt.
+5. **Ship, receive, review.** As with escrow. Reviews name the payment hash or txid.
+
+There is no arbiter: if the item never arrives, the buyer depends on the seller. That is why the app recommends escrow above €50 (`escrowAdviceAbove` in `src/config.js`). Lightning on the BLAKE2b chain uses its own invoice prefix; the app shows the prefix of every invoice, and `lightningNetwork` in `src/config.js` can require one.
+
+### AI assistant
+
+Each user adds their own Anthropic API key under *Account → AI listing assistant*. The key is stored encrypted with the user's Nostr key, on that device only, and is sent only to `api.anthropic.com`. API keys cannot be limited to certain actions, so the advice in the app is: make a separate key in a separate workspace at console.anthropic.com with a low monthly spend limit, and revoke it if in doubt. Photos are sent to Anthropic to be described. The model is set in `src/config.js` (`AI_MODEL`).
+
 ## Deploy
 
 The build is a folder of static files (`dist/`) that works from any path.
@@ -63,15 +80,28 @@ Users install it via the browser's *Add to Home screen* / *Install app*. No stor
 
 ## Configuration
 
-`src/config.js` holds the defaults: relays, Esplora API (`https://mempool.guide/api`), Blossom photo server, deposits, confirmations and trade limits. Users can override most of these under *Account*, including pointing the app at their own node's Esplora/mempool API.
+`src/config.js` holds the defaults: relays, Esplora API (`https://mempool.guide/api`), the list of known servers per chain (`ESPLORA_PRESETS`), Blossom photo server, deposits, confirmations, trade limits, the escrow advice threshold and the AI model. Users can override most of these under *Account*. Like Sparrow, they pick a known server or enter their own node (any Esplora/mempool REST API that follows the BLAKE2b chain, e.g. mempool or electrs on Umbrel or Start9) and test the connection. Browsers cannot talk to Electrum servers directly, so an Electrum-only node needs an Esplora/mempool front end.
+
+Build-time variables:
+
+| Variable | Use |
+|---|---|
+| `VITE_ADMIN_NPUB` | the npub whose arbiter list the app trusts (required for escrow) |
+| `VITE_RELAYS` | comma-separated default relays (used by `npm run demo`) |
+| `VITE_NETWORK` | default chain: `mainnet`, `testnet4` or `regtest` |
 
 ## Develop
 
 ```sh
 npm install          # on a shared folder without symlink support: npm install --no-bin-links
 npm run dev          # http://localhost:5173
-npm test             # unit tests (sighash vectors, escrow, protocol, import)
+npm test             # unit tests (sighash vectors, escrow, protocol, payments, import, AI request)
+npm run demo         # local relay + pretend Lightning wallets + app, no real money (see below)
 ```
+
+### Try it in five minutes (`npm run demo`)
+
+`npm run demo` starts a local relay, three pretend Lightning wallets and the app at http://localhost:5173, and prints a connection string per wallet. Open the app in a normal and a private window, create an account in each, connect the "seller" and "buyer" wallets under *Account → Lightning wallet*, list an item in one window and buy it with "Direct, Lightning" in the other. Escrow and on-chain payments additionally need the regtest node from *Testing*.
 
 The browser console exposes `window.xbt` (stores and relay pool) for debugging.
 
@@ -82,6 +112,8 @@ The browser console exposes `window.xbt` (stores and relay pool) for debugging.
 | `npm test` | All 166 Knots `unified_sighash.json` vectors; address encoding; 2-of-3 plan/sign/verify/finalize; the protocol reducer, including forged messages, a fake arbiter key, wrong-key signatures and backdated cancels/rejects; import parsing |
 | `npm run test:regtest` | A real Knots BLAKE2b node accepts and mines escrow payouts signed buyer+seller, arbiter+seller and arbiter+buyer, all with sighash 0x21 |
 | `npm run test:e2e` | The whole flow through the UI in Firefox: an arbiter announces, a seller lists, a buyer offers, the seller accepts, both fund on regtest, the seller ships, the buyer releases, the seller co-signs and broadcasts, the node confirms the payout, reviews become "verified". Then a dispute where the arbiter rules a refund and the buyer co-signs |
+| `npm run test:lightning` | The wallet link over a relay: the seller's wallet makes an invoice for the exact amount, the buyer's wallet pays it, the preimage matches, paying twice is refused |
+| `npm run test:direct` | A direct Lightning purchase through the UI: both connect a wallet, the seller lists with two delivery options, the buyer orders, the seller's wallet invoices, the buyer's wallet pays, the seller ships with a tracking link, the buyer confirms, both reviews become "verified" |
 | `npm run test:import` | The bookmarklet against fake Vinted wardrobe, eBay list, JSON-LD product and paginated Marktplaats profile pages, through the real popup/postMessage handshake. Then a Marktplaats re-import (everything recognised) and a re-import after a price change and a removed ad |
 
 CI (`.github/workflows/pages.yml`) runs all four on every push, against a checksum-verified Knots release in headless Firefox, and deploys only when they pass. Screenshots and logs are uploaded as the `e2e-output` artifact.
@@ -90,13 +122,13 @@ To run them locally:
 
 ```sh
 bitcoind -regtest -testactivationheight=blake2b@1 -rpcuser=u -rpcpassword=p -fallbackfee=0.0001 -txindex=1 -daemon
-npm run relay & npm run shim & npm run fixtures &
+npm run relay & npm run shim & npm run fixtures & npm run wallets &
 npm run build && npm run preview &
 export KNOTS_CLI="bitcoin-cli -regtest -rpcuser=u -rpcpassword=p"
-npm run test:regtest && npm run test:e2e && npm run test:import
+npm run test:regtest && npm run test:e2e && npm run test:import && npm run test:lightning && npm run test:direct
 ```
 
-The e2e tests use `puppeteer-core` with a local Firefox (`FIREFOX=/path/to/firefox`, `PROFILE_DIR` for the profile location). They open one browser context at a time, so every page rebuilds its trade state from the relay.
+The e2e tests use `puppeteer-core` with a local Firefox (`FIREFOX=/path/to/firefox`, `PROFILE_DIR` for the profile location), or Chromium with `CHROME=/path/to/chrome`. `test:lightning` and `test:direct` need no node, only the relay, the wallets and the preview. They open one browser context at a time, so every page rebuilds its trade state from the relay.
 
 ## Known limitations
 

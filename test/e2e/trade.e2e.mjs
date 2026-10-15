@@ -26,9 +26,13 @@ async function shot(page, name, mobile = false) {
 const people = {};
 for (const who of ['arbiter', 'seller', 'buyer']) { const sk = generateSecretKey(); people[who] = { sk: hex(sk), pk: getPublicKey(sk) }; }
 
+// Firefox by default (FIREFOX=…), or Chromium with CHROME=/path/to/chrome.
+const chrome = process.env.CHROME;
 const browser = await puppeteer.launch({
-  browser: 'firefox', executablePath: process.env.FIREFOX || '/usr/bin/firefox', headless: true, protocolTimeout: 45000,
-  userDataDir: (() => { const d = (process.env.PROFILE_DIR || process.env.HOME + '/snap/firefox/common') + '/xbt-e2e'; rmSync(d, { recursive: true, force: true }); mkdirSync(d, { recursive: true }); return d; })(),
+  browser: chrome ? 'chrome' : 'firefox', executablePath: chrome || process.env.FIREFOX || '/usr/bin/firefox', headless: true, protocolTimeout: 45000,
+  ...(chrome ? { args: ['--no-sandbox'] } : {
+    userDataDir: (() => { const d = (process.env.PROFILE_DIR || process.env.HOME + '/snap/firefox/common') + '/xbt-e2e'; rmSync(d, { recursive: true, force: true }); mkdirSync(d, { recursive: true }); return d; })(),
+  }),
 });
 
 let current = null;
@@ -87,6 +91,11 @@ async function fill(page, labelText, value) {
   await el.click({ count: 3 });
   await el.type(value);
 }
+async function choose(page, labelStart) {
+  console.log(`  [${page.who}] choose ${labelStart}`);
+  const el = await page.waitForSelector(`::-p-xpath(//label[contains(@class,"choice")][starts-with(normalize-space(.),"${labelStart}")])`, { timeout: 15000 });
+  await el.click();
+}
 async function fillPh(page, ph, value) {
   const el = await page.waitForSelector(`::-p-xpath(//*[(self::input or self::textarea) and @placeholder="${ph}"])`, { timeout: 15000 });
   await el.click({ count: 3 });
@@ -109,7 +118,7 @@ try {
   await fill(await as('seller'), 'Title', 'Trezor Model One, sealed');
   await fill(await as('seller'), 'Description', 'Never opened. Ships from Utrecht.');
   await fill(await as('seller'), 'Price', '25');
-  await fill(await as('seller'), 'Shipping cost', '5');
+  await fillPh(await as('seller'), 'Price', '5'); // PostNL delivery option
   await click(await as('seller'), 'Publish');
   await waitText(await as('seller'), 'Trezor Model One, sealed');
 
@@ -117,7 +126,8 @@ try {
   await go(await as('buyer'), '#/');
   await waitText(await as('buyer'), 'Trezor Model One');
   await (await (await as('buyer')).waitForSelector('a.listing-card')).click();
-  await click(await as('buyer'), 'Buy with XBT');
+  await click(await as('buyer'), 'Buy');
+  await choose(await as('buyer'), 'With escrow');
   await (await as('buyer')).waitForFunction(() => document.querySelector('.offer select')?.textContent.includes('Alice Arbiter'), { timeout: 30000 });
   const buyerAddr = cli('getnewaddress', 'buyer', 'bech32');
   await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
@@ -126,7 +136,7 @@ try {
   await shot(await as('buyer'), '1-offer-form');
   await shot(await as('buyer'), '1-offer-form-mobile', true);
   console.log('suggested price XBT', priceVal, '(30 EUR at 50000 EUR/XBT = 0.0006)');
-  await click(await as('buyer'), 'Send offer');
+  await click(await as('buyer'), 'Send order');
   await (await as('buyer')).waitForFunction(() => location.hash.startsWith('#/trade/'), { timeout: 20000 });
   const tid = await tradeId(await as('buyer'));
   console.log('trade', tid);
@@ -160,7 +170,6 @@ try {
   await waitText(await as('seller'), 'Ship the item', 40000);
 
   step('seller ships');
-  await fill(await as('seller'), 'Carrier', 'PostNL');
   await fill(await as('seller'), 'Tracking code', '3SXBT123');
   await click(await as('seller'), 'Mark as shipped');
   await waitText(await as('seller'), 'Shipped with PostNL');
@@ -210,10 +219,11 @@ try {
   await (await as('buyer')).reload({ waitUntil: 'load' });
   await waitText(await as('buyer'), 'Vintage lamp');
   await (await (await as('buyer')).waitForSelector('a.listing-card')).click();
-  await click(await as('buyer'), 'Buy with XBT');
+  await click(await as('buyer'), 'Buy');
+  await choose(await as('buyer'), 'With escrow');
   await (await as('buyer')).waitForFunction(() => document.querySelector('.offer select')?.textContent.includes('Alice Arbiter'), { timeout: 30000 });
   await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
-  await click(await as('buyer'), 'Send offer');
+  await click(await as('buyer'), 'Send order');
   await (await as('buyer')).waitForFunction((t) => location.hash.startsWith('#/trade/') && !location.hash.includes(t), { timeout: 20000 }, tid);
   const tid2 = await tradeId(await as('buyer'));
   await go(await as('seller'), `#/trade/${tid2}`);

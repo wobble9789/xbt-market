@@ -4,6 +4,7 @@
 import * as nip19 from 'nostr-tools/nip19';
 import { MARKET_TAG } from '../../config.js';
 import { tag, tags } from './pool.js';
+import { parseShippingOptions } from '../shipping.js';
 
 export const LISTING_KIND = 30402;
 
@@ -13,6 +14,10 @@ export const CATEGORIES = [
 ];
 
 export const CONDITIONS = ['new', 'like-new', 'good', 'fair', 'for-parts'];
+
+// How a buyer may pay: through 2-of-3 escrow, or directly to the seller on
+// chain or over Lightning. Listings without a `payment` tag accept escrow only.
+export const PAYMENT_METHODS = ['escrow', 'onchain', 'lightning'];
 
 export function listingTemplate(l) {
   const t = [
@@ -30,6 +35,8 @@ export function listingTemplate(l) {
   if (l.location) t.push(['location', l.location]);
   if (l.shippingCost != null && l.shippingCost !== '') t.push(['shipping_cost', String(l.shippingCost), l.currency]);
   if (l.shipsTo) t.push(['ships_to', l.shipsTo]);
+  for (const o of l.shippingOptions || []) t.push(['shipping_option', o.id, String(o.price), o.currency || l.currency]);
+  for (const p of l.payments || []) if (PAYMENT_METHODS.includes(p)) t.push(['payment', p]);
   if (l.sellerDepositPct != null) t.push(['seller_deposit_pct', String(l.sellerDepositPct)]);
   for (const img of l.images || []) if (img) t.push(['image', img]);
   if (l.source) t.push(['r', l.source]);
@@ -62,6 +69,8 @@ export function parseListing(e) {
     location: tag(e, 'location') || '',
     shippingCost: tag(e, 'shipping_cost') != null ? Number(tag(e, 'shipping_cost')) : null,
     shipsTo: tag(e, 'ships_to') || '',
+    shippingOptions: parseShippingOptions(e.tags, (priceTag[2] || 'EUR').toUpperCase()),
+    payments: (() => { const p = tags(e, 'payment').filter((x) => PAYMENT_METHODS.includes(x)); return p.length ? [...new Set(p)] : ['escrow']; })(),
     sellerDepositPct: tag(e, 'seller_deposit_pct') != null ? Number(tag(e, 'seller_deposit_pct')) : null,
     status: tag(e, 'status') || 'active',
     source: httpUrl(tag(e, 'r')),

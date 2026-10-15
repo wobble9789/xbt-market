@@ -7,6 +7,9 @@ import { deriveTradeKey, arbiterTradeKey, arbiterBaseKey, pubkeyOf, planPayout, 
 import { escrowFunding, Esplora } from '../btc/esplora.js';
 import { settings } from '../settings.js';
 import { newTradeId, roleOf } from './protocol.js';
+import { decodeInvoice } from '../ln/bolt11.js';
+import { invoiceFromAddress } from '../ln/lnurl.js';
+import { makeInvoice, payInvoice, walletConnected } from '../ln/wallet.js';
 
 export const PROPOSAL_PURPOSES = ['release', 'refund', 'ruling', 'custom'];
 
@@ -15,7 +18,7 @@ export function esploraFor(network) {
   return new Esplora(s.esploraOverride?.[network] || s.esplora[network]);
 }
 
-const participants = (state) => [state.participants.buyer, state.participants.seller, state.participants.arbiter];
+const participants = (state) => [state.participants.buyer, state.participants.seller, state.participants.arbiter].filter(Boolean);
 const send = (state, type, body) => sendTradeMessage(state.tradeId, type, body, participants(state));
 
 export function myRole(state) {
@@ -33,18 +36,29 @@ export function myEscrowKey(state) {
   return key;
 }
 
-export async function createOffer({ listing, priceSats, buyerDepositSats, sellerDepositSats, arbiter, payoutAddress, shipTo, note, network }) {
+export async function createOffer({ listing, priceSats, buyerDepositSats, sellerDepositSats, arbiter, payoutAddress, shipTo, note, network, payment = 'escrow', method, shipping }) {
   const tradeId = newTradeId();
   const me = account.get().pubkey;
   if (listing.pubkey === me) throw new Error('You cannot buy your own listing');
+  const listingInfo = {
+    coord: listing.coord, sellerPubkey: listing.pubkey, title: listing.title, image: listing.images[0] || '',
+    price: listing.price, currency: listing.currency, shippingCost: listing.shippingCost,
+  };
+  if (payment === 'direct') {
+    const body = {
+      v: 1, tradeId, network, payment: 'direct', method, listing: listingInfo, priceSats,
+      shipping: shipping || null, shipTo: shipTo || '', note: note || '',
+      shipDays: settings.get().shipDays, confirmDays: settings.get().confirmDays,
+    };
+    await sendTradeMessage(tradeId, 'offer', body, [listing.pubkey]);
+    return tradeId;
+  }
   const body = {
     v: 1,
     tradeId,
     network,
-    listing: {
-      coord: listing.coord, sellerPubkey: listing.pubkey, title: listing.title, image: listing.images[0] || '',
-      price: listing.price, currency: listing.currency, shippingCost: listing.shippingCost,
-    },
+    listing: listingInfo,
+    shipping: shipping || null,
     priceSats, buyerDepositSats, sellerDepositSats,
     arbiter: { pubkey: arbiter.pubkey, escrowBase: arbiter.escrowBase },
     buyer: { escrowPubkey: pubkeyOf(deriveTradeKey(secretKey(), tradeId)), payoutAddress: payoutAddress.trim() },
@@ -56,6 +70,7 @@ export async function createOffer({ listing, priceSats, buyerDepositSats, seller
 }
 
 export function acceptOffer(state, payoutAddress) {
+  if (state.payment === 'direct') return send(state, 'accept', {});
   const key = deriveTradeKey(secretKey(), state.tradeId);
   return send(state, 'accept', { seller: { escrowPubkey: pubkeyOf(key), payoutAddress: payoutAddress.trim() } });
 }
@@ -67,6 +82,48 @@ export const markReceived = (state, note) => send(state, 'received', { note });
 export const openDispute = (state, reason) => send(state, 'dispute', { reason });
 export const sendChat = (state, text) => send(state, 'chat', { text });
 export const sendFundedHint = (state, txid) => send(state, 'funded', { txid });
+
+// ---- direct trades ----------------------------------------------------------
+
+// Seller: ask for payment. Lightning invoices come from the connected wallet,
+// a Lightning address, or are pasted; on-chain requests name an address.
+export async function requestLightning(state, { invoice, lightningAddress }) {
+  const sats = state.offer.priceSats;
+  const memo = `XBT Market: ${state.offer.listing.title}`.slice(0, 100);
+  let pr = (invoice || '').trim();
+  if (!pr && lightningAddress) pr = (await invoiceFromAddress(lightningAddress, sats, memo)).invoice;
+  if (!pr && walletConnected()) pr = (await makeInvoice(sats, memo)).invoice;
+  if (!pr) throw new Error('Connect a wallet, enter a Lightning address or paste an invoice');
+  const inv = decodeInvoice(pr);
+  if (inv.amountMsat !== BigInt(sats) * 1000n) throw new Error('The invoice is not for the agreed amount');
+  return send(state, 'request', { method: 'lightning', invoice: inv.invoice });
+}
+
+export const requestOnchain = (state, address) => send(state, 'request', { method: 'onchain', address: address.trim(), amountSats: state.offer.priceSats });
+
+// Buyer: pay the current Lightning request with the connected wallet; the
+// preimage the wallet returns proves the payment to everyone in the trade.
+export async function payWithWallet(state) {
+  const req = state.request;
+  if (!req || req.method !== 'lightning') throw new Error('No Lightning payment request');
+  const res = await payInvoice(req.invoice);
+  return send(state, 'paid', { requestId: req.id, preimage: res.preimage });
+}
+
+export const reportPaid = (state, { preimage, txid }) => send(state, 'paid', { requestId: state.request?.id, ...(preimage ? { preimage: preimage.trim().toLowerCase() } : {}), ...(txid ? { txid: txid.trim().toLowerCase() } : {}) });
+export const confirmPaid = (state) => send(state, 'confirm_paid', {});
+
+// Does this on-chain tx pay at least the requested amount to the address?
+export async function checkOnchainPayment(state) {
+  const req = state.request;
+  const txid = state.paid?.txid;
+  if (!req || req.method !== 'onchain' || !txid) return null;
+  const api = esploraFor(state.offer.network);
+  const [tx, tip] = await Promise.all([api.tx(txid), api.tipHeight()]);
+  const paid = tx.vout.filter((o) => o.scriptpubkey_address === req.address).reduce((s, o) => s + o.value, 0);
+  const confirmations = tx.status?.confirmed ? tip - tx.status.block_height + 1 : 0;
+  return { paid, enough: paid >= req.amountSats, confirmations };
+}
 
 export async function loadFunding(state) {
   const minConf = settings.get().minConfirmations;

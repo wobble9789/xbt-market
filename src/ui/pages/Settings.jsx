@@ -5,7 +5,11 @@ import { settings, updateSettings } from '../../lib/settings.js';
 import { loadDirectory } from '../../lib/nostr/directory.js';
 import { exportTradeData, importTradeData } from '../../lib/nostr/inbox.js';
 import { isValidAddress } from '../../lib/btc/address.js';
-import { DEFAULTS } from '../../config.js';
+import { DEFAULTS, ESPLORA_PRESETS } from '../../config.js';
+import { Esplora } from '../../lib/btc/esplora.js';
+import { secretNames } from '../../lib/secrets.js';
+import { connectWallet, disconnectWallet, walletConnected, walletBalance, walletLud16 } from '../../lib/ln/wallet.js';
+import { aiConfigured, saveAiKey } from '../../lib/ai/listing.js';
 import { T } from '../i18n.js';
 import { Action, Field, Copy, toast, toastError } from '../components.jsx';
 
@@ -23,6 +27,96 @@ function Backup({ highlight }) {
   );
 }
 
+function LightningWallet() {
+  useStore(secretNames);
+  const s = useStore(settings);
+  const [uri, setUri] = useState('');
+  const [balance, setBalance] = useState(null);
+  const connected = walletConnected();
+  return (
+    <div class="card form">
+      <h3>⚡ {T('Lightning wallet', 'Lightning-wallet')}</h3>
+      <p class="hint">{T('Connect your own wallet with Nostr Wallet Connect (NWC) to pay and create invoices from inside a trade. Alby Hub, Zeus, Primal, Coinos and others give you a connection string.', 'Koppel je eigen wallet met Nostr Wallet Connect (NWC) om binnen een trade te betalen en facturen te maken. Alby Hub, Zeus, Primal, Coinos en andere geven je een koppelcode.')}</p>
+      <p class="notice small">{T('Create the connection with a spending budget (for example 50 € per month). Anyone with this string can spend up to that budget. It is stored encrypted with your key on this device only.', 'Maak de koppeling met een uitgavebudget (bijvoorbeeld 50 € per maand). Wie deze code heeft, kan tot dat budget uitgeven. Hij wordt versleuteld met jouw sleutel en alleen op dit apparaat bewaard.')}</p>
+      {connected ? (
+        <div class="row">
+          <span class="badge ok">✓ {T('Connected', 'Gekoppeld')}{walletLud16() && ` · ${walletLud16()}`}</span>
+          <Action class="small" onClick={async () => setBalance((await walletBalance()).balance)}>{T('Balance', 'Saldo')}</Action>
+          {balance != null && <span>{Math.floor(balance / 1000).toLocaleString()} sats</span>}
+          <Action class="small danger ghost" confirm={T('Disconnect this wallet?', 'Deze wallet ontkoppelen?')} onClick={async () => disconnectWallet()}>{T('Disconnect', 'Ontkoppelen')}</Action>
+        </div>
+      ) : (
+        <div class="row">
+          <input type="password" value={uri} onInput={(e) => setUri(e.target.value)} placeholder="nostr+walletconnect://…" autocomplete="off" />
+          <Action class="primary" disabled={!uri.startsWith('nostr+walletconnect:')} onClick={async () => { const info = await connectWallet(uri); setUri(''); toast(`${T('Connected', 'Gekoppeld')}${info.alias ? ': ' + info.alias : ''}`, 'ok'); }}>{T('Connect', 'Koppelen')}</Action>
+        </div>
+      )}
+      <Field label={T('Lightning address for receiving (optional)', 'Lightning-adres om te ontvangen (optioneel)')} hint={T('Used for payment requests when no wallet is connected.', 'Gebruikt voor betaalverzoeken als er geen wallet gekoppeld is.')}>
+        <input value={s.lightningAddress || ''} onChange={(e) => updateSettings({ lightningAddress: e.target.value.trim() })} placeholder="naam@wallet.com" />
+      </Field>
+    </div>
+  );
+}
+
+function NodePicker() {
+  const s = useStore(settings);
+  const cur = s.esploraOverride?.[s.network] || s.esplora[s.network];
+  const presets = ESPLORA_PRESETS[s.network] || [];
+  const isPreset = presets.some((p) => p.url === cur);
+  const [custom, setCustom] = useState(isPreset ? '' : cur);
+  const [status, setStatus] = useState(null);
+  const use = (url) => { updateSettings({ esploraOverride: { ...(s.esploraOverride || {}), [s.network]: url.trim() } }); setStatus(null); };
+  const test = async (url) => {
+    setStatus('…');
+    try { const h = await new Esplora(url).tipHeight(); setStatus(`✓ ${T('block', 'blok')} ${h.toLocaleString()}`); } catch (e) { setStatus(`✗ ${e.message}`); }
+  };
+  return (
+    <Field label={T('Blockchain server', 'Blockchain-server')} hint={T('Like Sparrow: pick a known server or use your own node. It must speak the Esplora/mempool REST API (mempool or electrs on Umbrel, Start9, a VPS…) and follow the BLAKE2b chain. Browsers cannot talk to Electrum servers directly.', 'Net als bij Sparrow: kies een bekende server of gebruik je eigen node. Die moet de Esplora/mempool-REST-API spreken (mempool of electrs op Umbrel, Start9, een VPS…) en de BLAKE2b-chain volgen. Browsers kunnen niet rechtstreeks met Electrum-servers praten.')}>
+      <div class="choices">
+        {presets.map((p) => (
+          <label key={p.url} class={`choice ${cur === p.url ? 'on' : ''}`}>
+            <input type="radio" name="node" checked={cur === p.url} onChange={() => use(p.url)} /><span>{p.name}</span><span class="muted small">{p.url}</span>
+          </label>
+        ))}
+        <label class={`choice ${!isPreset ? 'on' : ''}`}>
+          <input type="radio" name="node" checked={!isPreset} onChange={() => custom && use(custom)} /><span>{T('My own node', 'Mijn eigen node')}</span>
+        </label>
+      </div>
+      <div class="row">
+        <input value={custom} onInput={(e) => setCustom(e.target.value)} placeholder="https://umbrel.local:3006/api" />
+        <button type="button" class="btn" disabled={!/^https?:\/\//.test(custom)} onClick={() => { use(custom); test(custom); }}>{T('Use', 'Gebruiken')}</button>
+        <button type="button" class="btn ghost" onClick={() => test(cur)}>{T('Test connection', 'Verbinding testen')}</button>
+      </div>
+      {status && <span class="small">{status}</span>}
+    </Field>
+  );
+}
+
+function AiKey() {
+  useStore(secretNames);
+  const [key, setKey] = useState('');
+  const on = aiConfigured();
+  return (
+    <div class="card form">
+      <h3>✨ {T('AI listing assistant', 'AI-advertentiehulp')}</h3>
+      <p class="hint">{T('Writes a title, description, category and price suggestion from your photos, like Marktplaats does. It uses your own Anthropic API key, so you only pay for what you use (a few cents per listing).', 'Schrijft uit je foto\'s een titel, beschrijving, categorie en prijsvoorstel, zoals Marktplaats dat doet. Het gebruikt je eigen Anthropic-API-sleutel, dus je betaalt alleen wat je gebruikt (enkele centen per advertentie).')}</p>
+      <ul class="small">
+        <li>{T('Create a separate key in a separate workspace at console.anthropic.com and set a low monthly spend limit there. API keys cannot be limited to certain actions, so the spend limit is your safety net.', 'Maak op console.anthropic.com een aparte sleutel in een aparte workspace en stel daar een lage maandlimiet in. API-sleutels kun je niet beperken tot bepaalde acties, dus de uitgavelimiet is je vangnet.')}</li>
+        <li>{T('The key is stored encrypted with your Nostr key on this device only and is sent only to api.anthropic.com. It is never published.', 'De sleutel wordt versleuteld met je Nostr-sleutel en alleen op dit apparaat bewaard, en gaat alleen naar api.anthropic.com. Hij wordt nooit gepubliceerd.')}</li>
+        <li>{T('Your photos are sent to Anthropic to be described. You can revoke the key at any time in the console.', 'Je foto\'s worden naar Anthropic gestuurd om te beschrijven. Je kunt de sleutel altijd intrekken in de console.')}</li>
+      </ul>
+      {on ? (
+        <div class="row"><span class="badge ok">✓ {T('Key saved', 'Sleutel opgeslagen')}</span><Action class="small danger ghost" onClick={async () => saveAiKey(null)}>{T('Remove', 'Verwijderen')}</Action></div>
+      ) : (
+        <div class="row">
+          <input type="password" value={key} onInput={(e) => setKey(e.target.value)} placeholder="sk-ant-…" autocomplete="off" />
+          <Action class="primary" disabled={!key.startsWith('sk-ant-')} onClick={async () => { saveAiKey(key); setKey(''); toast(T('Saved', 'Opgeslagen'), 'ok'); }}>{T('Save', 'Opslaan')}</Action>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Settings({ query }) {
   const acc = useStore(account);
   const s = useStore(settings);
@@ -31,7 +125,6 @@ export function Settings({ query }) {
   const [arb, setArb] = useState('');
   const [payout, setPayout] = useState(s.payoutAddress || '');
   const set = (k) => (e) => updateSettings({ [k]: e.target.value });
-  const esploraCur = s.esploraOverride?.[s.network] || s.esplora[s.network];
 
   return (
     <div class="settings">
@@ -72,6 +165,8 @@ export function Settings({ query }) {
         <Field label={T('Shipping address (pre-filled in offers)', 'Verzendadres (vooraf ingevuld bij biedingen)')}><textarea rows="2" value={s.shipTo || ''} onInput={set('shipTo')} /></Field>
         <Field label={T('Your location (pre-filled in imports)', 'Jouw locatie (vooraf ingevuld bij import)')}><input value={s.location || ''} onInput={set('location')} /></Field>
       </div>
+      <LightningWallet />
+      <AiKey />
       <div class="card form">
         <h3>{T('Trusted arbiters', 'Vertrouwde arbiters')}</h3>
         <p class="hint">{T('In addition to the community list. Only add people you know.', 'Naast de community-lijst. Voeg alleen mensen toe die je kent.')}</p>
@@ -87,10 +182,8 @@ export function Settings({ query }) {
           <Field label={T('Chain', 'Chain')}>
             <select value={s.network} onChange={set('network')}><option value="mainnet">BLAKE2b mainnet</option><option value="testnet4">BLAKE2b testnet4</option><option value="regtest">regtest</option></select>
           </Field>
-          <Field label={T('Esplora API', 'Esplora-API')} hint={T('Any Esplora/mempool API that follows the BLAKE2b chain, e.g. your own node.', 'Elke Esplora/mempool-API die de BLAKE2b-chain volgt, bijv. je eigen node.')}>
-            <input value={esploraCur} onChange={(e) => updateSettings({ esploraOverride: { ...(s.esploraOverride || {}), [s.network]: e.target.value.trim() } })} />
-          </Field>
         </div>
+        <NodePicker />
         <Field label={T('Minimum confirmations before shipping', 'Minimaal aantal bevestigingen vóór verzending')}>
           <input type="number" min="1" max="100" value={s.minConfirmations} onInput={(e) => updateSettings({ minConfirmations: Math.max(1, Number(e.target.value) || 1) })} />
         </Field>

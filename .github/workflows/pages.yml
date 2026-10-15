@@ -70,6 +70,7 @@ jobs:
           nohup npm run relay > relay.log 2>&1 &
           nohup npm run shim > shim.log 2>&1 &
           nohup npm run fixtures > fixtures.log 2>&1 &
+          nohup npm run wallets > wallets.log 2>&1 &
           nohup npm run preview -- --port 4173 --strictPort > preview.log 2>&1 &
           for url in http://127.0.0.1:4173/ http://127.0.0.1:3006/api/blocks/tip/height; do
             for i in $(seq 30); do curl -sf $url > /dev/null && break; sleep 1; done
@@ -96,6 +97,17 @@ jobs:
         run: |
           export FIREFOX=$(which firefox)
           npm run test:import
+
+      - name: Lightning wallet link (mock NWC wallets)
+        run: npm run test:lightning
+
+      - name: Direct Lightning purchase through the UI
+        env:
+          PROFILE_DIR: ${{ runner.temp }}
+          SHOTS: ${{ runner.temp }}/shots
+        run: |
+          export FIREFOX=$(which firefox)
+          npm run test:direct
 
       - name: Upload screenshots and logs
         if: always()
