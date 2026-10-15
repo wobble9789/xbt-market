@@ -18,6 +18,7 @@ const SUITES = {
   direct: 'Direct betalen: Lightning via gekoppelde wallets, en on-chain (echte node)',
   extras: 'Instellingen, nodekeuze, versleutelde opslag, AI-hulp en escrow-advies',
   plan: 'De handmatige testlijst, stap voor stap',
+  demo: 'De telefoon-demo (npm run demo -- --phone)',
 };
 const groups = Object.keys(DEVICES).flatMap((d) => Object.keys(SUITES).map((k) => [d, k])).filter(([d, k]) => shots.some((s) => s.device === d && s.suite === k));
 const img = (s) => `data:image/jpeg;base64,${readFileSync(`${dir}/${s.file}`).toString('base64')}`;

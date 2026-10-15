@@ -50,12 +50,15 @@ let cli = null;
 const bitcoind = knotsBin('bitcoind');
 if (bitcoind) {
   const datadir = mkdtempSync(join(tmpdir(), 'xbt-demo-'));
-  execFileSync(bitcoind, ['-regtest', `-datadir=${datadir}`, '-testactivationheight=blake2b@1', '-rpcuser=u', '-rpcpassword=p', '-fallbackfee=0.0001', '-txindex=1', '-daemon']);
-  cli = (...a) => execFileSync(knotsBin('bitcoin-cli'), ['-regtest', `-datadir=${datadir}`, '-rpcuser=u', '-rpcpassword=p', ...a], { encoding: 'utf8' }).trim();
-  for (let i = 0; i < 30; i++) { try { cli('getblockcount'); break; } catch { await sleep(1000); } }
-  cli('createwallet', 'demo');
+  // Own ports, so a regtest node you already run is left alone.
+  const ports = ['-port=18544', '-rpcport=18543'];
+  execFileSync(bitcoind, ['-regtest', `-datadir=${datadir}`, ...ports, '-testactivationheight=blake2b@1', '-rpcuser=u', '-rpcpassword=p', '-fallbackfee=0.0001', '-txindex=1', '-daemon']);
+  const rpc = (...a) => execFileSync(knotsBin('bitcoin-cli'), ['-regtest', `-datadir=${datadir}`, '-rpcport=18543', '-rpcuser=u', '-rpcpassword=p', ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  for (let i = 0; i < 30; i++) { try { rpc('getblockcount'); break; } catch { await sleep(1000); } }
+  rpc('createwallet', 'demo');
+  cli = (...a) => (a[0] === 'stop' || a[0] === 'getblockcount' ? rpc(...a) : rpc('-rpcwallet=demo', ...a));
   cli('generatetoaddress', '101', cli('getnewaddress'));
-  run('node', process.execPath, ['dev/esplora-shim.mjs', '--port', '3006', '--rpc', 'http://u:p@127.0.0.1:18443', '--host', BIND]);
+  run('node', process.execPath, ['dev/esplora-shim.mjs', '--port', '3006', '--rpc', 'http://u:p@127.0.0.1:18543', '--host', BIND]);
 }
 
 // ---- relay, wallets, photos, app ----------------------------------------------------
@@ -65,6 +68,7 @@ run('wallets', process.execPath, ['dev/nwc-mock.mjs', RELAY, 'bcrt']);
 run('photos', process.execPath, ['dev/blossom-mock.mjs', '3008', BIND]);
 run('app', process.execPath, ['scripts/build-bookmarklet.mjs']).on('exit', () => {
   run('app', process.execPath, ['node_modules/vite/bin/vite.js', '--port', '5173', '--strictPort', '--host', BIND], {
+    CSP_CONNECT_EXTRA: PHONE ? `http://${HOST}:* ws://${HOST}:*` : '',
     VITE_RELAYS: RELAY, VITE_NETWORK: 'regtest', VITE_BLOSSOM: `http://${HOST}:3008`, VITE_REGTEST_ESPLORA: `http://${HOST}:3006/api`,
   });
 });
