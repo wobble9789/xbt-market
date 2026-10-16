@@ -62,7 +62,9 @@ The fee (`ceil(vsize × feeRate)`, where vsize is estimated with 73-byte signatu
 | `image` | one per photo (http(s) only) |
 | `condition` | `new`, `like-new`, `good`, `fair` or `for-parts` |
 | `location`, `ships_to` | free text |
-| `shipping_cost` | `["shipping_cost", "<amount>", "<currency>"]` |
+| `shipping_cost` | `["shipping_cost", "<amount>", "<currency>"]`: the cheapest paid delivery option, for older clients |
+| `shipping_option` | one per delivery option: `["shipping_option", "<carrier id>", "<price>", "<currency>"]`. Carrier ids are in `src/lib/shipping.js` (`pickup`, `postnl`, `dhl`, …) |
+| `payment` | one per accepted payment method: `escrow`, `onchain` or `lightning`. No `payment` tag means escrow only |
 | `seller_deposit_pct` | number |
 | `r` | source URL, if the listing was imported |
 | `imported_from` | host of the source |
@@ -85,7 +87,7 @@ Tags:
 - `["xbt-trade",<tradeId>]`
 - `["rating","1..5"]`
 - `["role","buyer|seller"]`
-- `["txid",<payout txid>]`
+- `["txid",<proof>]`: the payout txid for escrow trades; for direct trades the payment txid (on chain) or the Lightning payment hash
 
 `content` is the text. A trade is **verified** when both parties reviewed each other with the same `xbt-trade` and `txid`.
 
@@ -112,6 +114,20 @@ Every trade message is a rumor, sealed (kind 13) and gift-wrapped (kind 1059) to
 | `sign` | any of the three | `{ proposalId, sigs }` |
 | `broadcast` | any of the three | `{ proposalId, txid }` |
 
+Both offer types may carry `shipping: { id, price, currency }`, the delivery option the buyer picked (informational; the price is already in `priceSats`).
+
+**Direct trades** (no escrow, no arbiter) use an offer with `payment: "direct"` and `method: "onchain" | "lightning"`, without `arbiter`, `buyer.escrowPubkey` or deposits. They are wrapped to buyer and seller only. Their messages:
+
+| type | from | body |
+|---|---|---|
+| `offer` | buyer | `{ v:1, tradeId, network, payment:"direct", method, listing:{…}, priceSats, shipping, shipTo, note, shipDays, confirmDays }` |
+| `accept` | seller | `{}` |
+| `request` | seller | Lightning: `{ method:"lightning", invoice:<BOLT11> }`; on chain: `{ method:"onchain", address, amountSats }` |
+| `paid` | buyer | `{ requestId, preimage }` (Lightning) or `{ requestId, txid }` (on chain) |
+| `confirm_paid` | seller | `{}` |
+
+`reject`, `cancel`, `shipped`, `received` and chat work as above. `funded`, `dispute`, `proposal`, `sign` and `broadcast` are refused in a direct trade, and the direct-only types are refused in an escrow trade.
+
 ## 5. State rules
 
 The state is a pure function of the set of rumors. Sort by `created_at`, then `id`. Then:
@@ -129,6 +145,14 @@ The state is a pure function of the set of rumors. Sort by `created_at`, then `i
 
    A `sign` is valid when its signatures verify for the signer's key. Two valid signers make a proposal final.
 7. **Status.** In order of precedence: `rejected`, `closed` (any `broadcast`), `cancelled` (cancel before accept), `cancelling`, `disputed`, `shipped`, `accepted`, `offered`. Whether the escrow is funded is read from the chain (Esplora UTXOs with at least N confirmations), not from messages.
+
+8. **Direct trades.**
+   - The offer has no arbiter and no deposits; buyer and seller must differ.
+   - A `request` comes from the seller after the accept and before any payment. A Lightning invoice must be for exactly `priceSats × 1000` msat (an invoice without an amount is refused); a client may pin the expected network prefix (`lightningNetwork` in config). An on-chain request must name a valid address for `network` and `amountSats = priceSats`. The latest valid request is the current one.
+   - A `paid` comes from the buyer. A Lightning `preimage` must hash (SHA-256) to the invoice's payment hash; that makes the payment **verified** for everyone. Without a preimage the payment is only claimed. An on-chain `txid` is a claim; clients check it against the chain.
+   - `confirm_paid` comes from the seller and needs a request.
+   - A `cancel` after a payment or confirmation is refused (agree a refund in the chat).
+   - Status, in order: `rejected`, `cancelled`, `completed` (`received`), `shipped`, `paid` (`paid` or `confirm_paid`), `accepted`, `offered`.
 
 **Before signing, a client must:**
 - check that every proposal input is still an unspent escrow UTXO with the stated value;

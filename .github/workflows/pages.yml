@@ -37,8 +37,20 @@ jobs:
       - run: npm test
 
   e2e:
+    # Every browser test runs three times: Firefox on a desktop screen, Firefox
+    # on a phone-sized screen, and Chrome emulating an Android phone.
+    name: e2e (${{ matrix.browser }}, ${{ matrix.device }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { browser: firefox, device: desktop }
+          - { browser: firefox, device: phone }
+          - { browser: chrome, device: phone }
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
+    env:
+      MOBILE: ${{ matrix.device == 'phone' && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,6 +58,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+
+      - name: Pick the browser
+        run: |
+          echo "PROFILE_DIR=$RUNNER_TEMP" >> $GITHUB_ENV
+          echo "SHOTS=$RUNNER_TEMP/shots" >> $GITHUB_ENV
+          mkdir -p "$RUNNER_TEMP/shots"
+          if [ "${{ matrix.browser }}" = chrome ]; then echo "CHROME=$(which google-chrome)" >> $GITHUB_ENV; else echo "FIREFOX=$(which firefox)" >> $GITHUB_ENV; fi
 
       - name: Install Bitcoin Knots (checksum verified)
         run: |
@@ -70,6 +89,8 @@ jobs:
           nohup npm run relay > relay.log 2>&1 &
           nohup npm run shim > shim.log 2>&1 &
           nohup npm run fixtures > fixtures.log 2>&1 &
+          nohup npm run wallets > wallets.log 2>&1 &
+          nohup npm run blossom > blossom.log 2>&1 &
           nohup npm run preview -- --port 4173 --strictPort > preview.log 2>&1 &
           for url in http://127.0.0.1:4173/ http://127.0.0.1:3006/api/blocks/tip/height; do
             for i in $(seq 30); do curl -sf $url > /dev/null && break; sleep 1; done
@@ -83,32 +104,48 @@ jobs:
       - name: Full trade and dispute through the UI
         env:
           KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
-          PROFILE_DIR: ${{ runner.temp }}
-          SHOTS: ${{ runner.temp }}/shots
-        run: |
-          mkdir -p $SHOTS
-          export FIREFOX=$(which firefox)
-          npm run test:e2e
+        run: npm run test:e2e
 
       - name: Import button against Marktplaats / Vinted / eBay fixtures
+        run: npm run test:import
+
+      - name: Lightning wallet link (mock NWC wallets)
+        run: npm run test:lightning
+
+      - name: Direct Lightning purchase through the UI
         env:
-          PROFILE_DIR: ${{ runner.temp }}
+          KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
+        run: npm run test:direct
+
+      - name: Settings, node picker, AI assistant, escrow advice through the UI
+        run: npm run test:extras
+
+      - name: The manual test plan, walked through automatically
+        env:
+          KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
         run: |
-          export FIREFOX=$(which firefox)
-          npm run test:import
+          VITE_ADMIN_NPUB=$(node test/e2e/testplan.e2e.mjs --admin-npub) npx vite build --outDir dist-plan
+          nohup npx vite preview --outDir dist-plan --port 4174 --strictPort > preview-plan.log 2>&1 &
+          for i in $(seq 30); do curl -sf http://127.0.0.1:4174/ > /dev/null && break; sleep 1; done
+          APP_URL=http://127.0.0.1:4174/ npm run test:plan
+
+      - name: Screenshot report
+        if: always()
+        run: node scripts/proof-report.mjs $SHOTS $SHOTS/report.html || true
 
       - name: Upload screenshots and logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-output
+          name: e2e-output-${{ matrix.browser }}-${{ matrix.device }}
           path: |
             ${{ runner.temp }}/shots
             *.log
 
   build:
     needs: [unit, e2e]
-    if: github.event_name != 'pull_request'
+    # Only main is published; manual runs on other branches just test.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

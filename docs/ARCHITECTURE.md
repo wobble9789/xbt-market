@@ -10,13 +10,19 @@ UI (src/ui)                      Preact pages and components; no protocol logic
 Actions (src/lib/trade/actions)  side effects: derive keys, read chain, send messages
   │ uses
 Pure core                         no network, no DOM, fully unit tested
-  src/lib/trade/protocol.js        rumors -> trade state (docs/PROTOCOL.md §5)
+  src/lib/trade/protocol.js        rumors -> trade state (docs/PROTOCOL.md §5), escrow and direct trades
+  src/lib/ln/bolt11.js             Lightning invoice reader, preimage check
+  src/lib/shipping.js              carriers, delivery options, tracking links
   src/lib/btc/*                    tx, addresses, unified sighash, escrow
   src/lib/import/normalize.js      imported items -> drafts, duplicate classification
   src/bookmarklet/extract.js       shop page data -> items
 I/O adapters
   src/lib/nostr/*                  relays, NIP-17 inbox, listings, directory, reviews, profiles, uploads
   src/lib/btc/esplora.js           chain API
+  src/lib/ln/nwc.js, wallet.js     Nostr Wallet Connect (the user's Lightning wallet)
+  src/lib/ln/lnurl.js              Lightning address -> invoice
+  src/lib/secrets.js               wallet link and AI key, NIP-44 encrypted to the user's own key
+  src/lib/ai/listing.js            listing draft from photos (Claude, user's own API key, loaded on demand)
   src/bookmarklet/source.js        page I/O for the import button
 ```
 
@@ -37,6 +43,14 @@ Rules:
 | A backdated cancel or reject cannot undo an accept | `trade/protocol.js` | `test/protocol.test.js` |
 | A seller cannot reuse another party's key | `trade/protocol.js` | `test/protocol.test.js` |
 | Proposals need valid signatures from the proposer | `trade/protocol.js` | `test/protocol.test.js` |
+| A direct trade has no arbiter, deposits or escrow messages | `trade/protocol.js` | `test/payments.test.js` |
+| A payment request is for exactly the agreed amount | `trade/protocol.js` | `test/payments.test.js` |
+| A Lightning payment counts as verified only with a matching preimage | `ln/bolt11.js`, `trade/protocol.js` | `test/payments.test.js` (incl. the BOLT11 spec vector) |
+| Wallet requests and answers are encrypted to the wallet (NIP-44, NIP-04 fallback) | `ln/nwc.js` | `test/payments.test.js`, `test:lightning` |
+| Delivery options and payment methods round-trip through a listing | `nostr/listings.js`, `shipping.js` | `test/payments.test.js` |
+| Tracking links only accept plain tracking codes | `shipping.js` | `test/payments.test.js` |
+| The AI draft sends the photos and a strict schema, and handles refusals | `ai/listing.js` | `test/ai.test.js` |
+| A direct Lightning purchase works in a browser with real wallet round trips | everything | `test:direct` (mock NWC wallets, local relay) |
 | Marktplaats price types: FIXED/MIN_BID give a price, others none | `bookmarklet/extract.js` | `test/extract.test.js` |
 | Re-import recognises listings by platform id, then title + price | `import/normalize.js` | `test/import.test.js`, `test:import` e2e |
 | Only a *complete* profile import reports "gone" listings, and only for that platform | `import/normalize.js` | `test/import.test.js`, `test:import` e2e |

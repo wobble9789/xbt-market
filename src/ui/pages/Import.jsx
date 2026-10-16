@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { useStore } from '../../lib/store.js';
 import { account } from '../../lib/nostr/account.js';
 import { query, latestBy } from '../../lib/nostr/pool.js';
-import { newListingId, parseListing, CATEGORIES, LISTING_KIND } from '../../lib/nostr/listings.js';
+import { newListingId, parseListing, CATEGORIES, LISTING_KIND, PAYMENT_METHODS } from '../../lib/nostr/listings.js';
 import { fromPayload, fromCsv, classifyImport } from '../../lib/import/normalize.js';
 import { settings } from '../../lib/settings.js';
 import { MARKET_TAG } from '../../config.js';
@@ -104,7 +104,7 @@ export function ImportPage({ query: q }) {
         // Update the existing listing in place instead of creating a duplicate.
         await publishListing({ ...it.match, ...common, condition: it.condition || it.match.condition, status: it.match.status === 'sold' ? 'active' : it.match.status });
       } else {
-        await publishListing({ d: newListingId(), ...common, condition: it.condition, status: 'active', sellerDepositPct: s.sellerDepositPct, location: it.location || s.location || '' });
+        await publishListing({ d: newListingId(), ...common, condition: it.condition, status: 'active', sellerDepositPct: s.sellerDepositPct, payments: [...PAYMENT_METHODS], location: it.location || s.location || '' });
       }
       setProgress({ done: ++done, total: todo.length });
     }

@@ -16,7 +16,12 @@ export function createStore(initial) {
 
 export function useStore(store, select = (s) => s) {
   const [v, setV] = useState(() => select(store.get()));
-  useEffect(() => store.subscribe((s) => setV(() => select(s))), [store]);
+  useEffect(() => {
+    // The store may have changed between the first render and this effect;
+    // pick that up, or the component would wait for the next change forever.
+    setV(() => select(store.get()));
+    return store.subscribe((s) => setV(() => select(s)));
+  }, [store]);
   return v;
 }
 

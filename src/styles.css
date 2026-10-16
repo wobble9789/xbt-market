@@ -53,7 +53,8 @@ h2 { font-size: 1.3rem; }
 h3 { font-size: 1.08rem; }
 pre.address { white-space: pre-wrap; font: inherit; background: var(--bg); padding: 8px 10px; border-radius: 8px; margin: 6px 0; }
 
-.app { min-height: 100vh; padding-bottom: 72px; }
+/* Room for the phone tab bar, including the iPhone home-indicator area. */
+.app { min-height: 100vh; padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 main { max-width: 1100px; margin: 0 auto; padding: 16px; }
 
 header.top {
@@ -144,7 +145,7 @@ textarea { resize: vertical; }
 .spinner { width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; display: inline-block; animation: spin 0.8s linear infinite; vertical-align: -2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.toasts { position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: 6px; width: min(92vw, 460px); }
+.toasts { position: fixed; bottom: calc(84px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: 6px; width: min(92vw, 460px); }
 .toast { background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: 10px; box-shadow: 0 4px 16px rgb(0 0 0 / 20%); }
 .toast.error { background: var(--danger); color: #fff; }
 .toast.ok { background: var(--ok); color: #fff; }
@@ -161,8 +162,9 @@ textarea { resize: vertical; }
 .searchbar select { width: auto; }
 @media (max-width: 600px) { .searchbar { grid-template-columns: 1fr 1fr; } .searchbar input { grid-column: 1 / -1; } .searchbar select { width: 100%; } }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
-@media (max-width: 480px) { .grid { grid-template-columns: 1fr 1fr; gap: 8px; } }
-.listing-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; text-decoration: none; display: flex; flex-direction: column; box-shadow: var(--shadow); }
+/* minmax(0, …): a long title must shorten with an ellipsis, not widen the column past the screen. */
+@media (max-width: 480px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } }
+.listing-card { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; text-decoration: none; display: flex; flex-direction: column; box-shadow: var(--shadow); }
 .listing-card:hover { border-color: var(--muted); }
 .listing-card .thumb { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; background: var(--bg); }
 .listing-card .body { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 2px; }
@@ -252,3 +254,13 @@ table.amounts tr.total td { font-weight: 700; }
 .prose li { margin: 6px 0; }
 details summary { cursor: pointer; }
 .import-summary { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+
+/* ---- payment and delivery choices ---- */
+.choices { display: flex; flex-direction: column; gap: 6px; }
+.choice { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; background: var(--card); }
+.choice.on { border-color: var(--accent); background: var(--accent-soft); }
+.choice input { width: auto; margin: 0; }
+.choice > span:first-of-type { flex: 1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ship-option select { flex: 2; }
+.ship-option input { flex: 1; min-width: 70px; }
+.msg.system { align-self: center; text-align: center; background: none; border: 1px dashed var(--line); font-size: 0.9em; max-width: 100%; }

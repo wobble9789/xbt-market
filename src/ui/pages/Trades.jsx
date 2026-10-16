@@ -1,4 +1,5 @@
 import { useMemo } from 'preact/hooks';
+import { settings } from '../../lib/settings.js';
 import { useStore } from '../../lib/store.js';
 import { inbox, tradeIds, rumorsFor } from '../../lib/nostr/inbox.js';
 import { account } from '../../lib/nostr/account.js';
@@ -12,7 +13,7 @@ export function useMyTrades() {
   const { rumors } = useStore(inbox);
   const me = useStore(account, (a) => a.pubkey);
   const dir = useStore(directory);
-  return useMemo(() => tradeIds(rumors).map((t) => ({ ...t, state: reduceTrade(t.id, rumorsFor(t.id, rumors), { arbiters: dir.arbiters, me }) })).filter((t) => t.state.offer), [rumors, me, dir]);
+  return useMemo(() => tradeIds(rumors).map((t) => ({ ...t, state: reduceTrade(t.id, rumorsFor(t.id, rumors), { arbiters: dir.arbiters, me, lightningNetwork: settings.get().lightningNetwork }) })).filter((t) => t.state.offer), [rumors, me, dir]);
 }
 
 export function TradeRow({ t }) {
