@@ -10,19 +10,22 @@ const CONDITION_WORDS = [
   ['for-parts', /parts|onderdelen|defect|damaged/i],
 ];
 
+// Marktplaats categories (see categories.js). Marktplaats imports carry their
+// own category; other shops are guessed from the title.
+import { CATEGORIES, DEFAULT_CATEGORY } from '../categories.js';
 const CATEGORY_WORDS = [
-  ['shoes', /shoe|sneaker|boot|schoen|laars|sandal|heel/i],
-  ['bags', /bag|tas|backpack|rugzak|wallet|portemonnee/i],
-  ['clothing', /shirt|jacket|jas|jeans|broek|dress|jurk|hoodie|sweater|trui|coat|skirt|rok|top|blouse|vest|pants|shorts/i],
-  ['phones', /iphone|samsung galaxy|phone|telefoon|pixel/i],
-  ['computers', /laptop|macbook|computer|monitor|keyboard|toetsenbord|gpu|cpu|ssd/i],
-  ['bitcoin-hardware', /bitcoin|coldcard|trezor|ledger|seedsigner|miner|asic|bitaxe|antminer|goldshell/i],
-  ['electronics', /camera|headphone|koptelefoon|speaker|tv|console|playstation|xbox|nintendo|tablet|ipad|watch/i],
-  ['books', /book|boek|novel|roman/i],
-  ['toys', /lego|toy|speelgoed|puzzle|doll|pop/i],
-  ['games', /game|spel/i],
-  ['home', /lamp|chair|stoel|table|tafel|vase|kitchen|keuken|decor|cushion|kussen/i],
-  ['sports', /bike|fiets|ski|tennis|golf|fitness|football|voetbal/i],
+  ['kleding-heren', /\b(heren|men'?s|mannen)\b/i],
+  ['kleding-dames', /shoe|sneaker|boot|schoen|laars|sandal|heel|shirt|jacket|jas|jeans|broek|dress|jurk|hoodie|sweater|trui|coat|skirt|rok|blouse|vest|pants|shorts/i],
+  ['sieraden-tassen-en-uiterlijk', /bag|tas\b|tassen|backpack|rugzak|wallet|portemonnee|ketting|ring|oorbel|horloge|watch/i],
+  ['telecommunicatie', /iphone|samsung galaxy|phone|telefoon|pixel/i],
+  ['computers-en-software', /laptop|macbook|computer|monitor|keyboard|toetsenbord|gpu|cpu|ssd|bitcoin|coldcard|trezor|ledger|seedsigner|miner|asic|bitaxe|antminer|goldshell|raspberry/i],
+  ['spelcomputers-en-games', /playstation|xbox|nintendo|switch|console|game/i],
+  ['audio-tv-en-foto', /camera|headphone|koptelefoon|speaker|\btv\b|televisie|versterker/i],
+  ['boeken', /book|boek|novel|roman/i],
+  ['kinderen-en-baby-s', /lego|toy|speelgoed|puzzle|doll|kinder|baby/i],
+  ['huis-en-inrichting', /lamp|chair|stoel|table|tafel|vase|vaas|kitchen|keuken|decor|cushion|kussen|gordijn|kast/i],
+  ['fietsen-en-brommers', /bike|fiets|scooter|brommer/i],
+  ['sport-en-fitness', /ski|tennis|golf|fitness|football|voetbal/i],
 ];
 
 const guess = (list, text, fallback) => list.find(([, re]) => re.test(text))?.[0] || fallback;
@@ -96,7 +99,7 @@ export function normalizeItem(raw, importedFrom = '') {
     currency: String(raw.currency || 'EUR').toUpperCase().slice(0, 5),
     images,
     condition: guess(CONDITION_WORDS, String(raw.condition || ''), ''),
-    category: guess(CATEGORY_WORDS, `${title} ${raw.category || ''}`, 'other'),
+    category: CATEGORIES.includes(raw.category) ? raw.category : guess(CATEGORY_WORDS, `${title} ${raw.category || ''}`, DEFAULT_CATEGORY),
     source: /^https?:\/\//.test(raw.url || '') ? raw.url : '',
     importedFrom: importedFrom || raw.source || '',
     location: cleanText(raw.location, 100),

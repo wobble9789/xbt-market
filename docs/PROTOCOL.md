@@ -56,8 +56,8 @@ The fee (`ceil(vsize × feeRate)`, where vsize is estimated with 73-byte signatu
 |---|---|
 | `d` | listing id |
 | `title`, `summary`, `published_at` | as NIP-99 |
-| `price` | `["price", "<amount>", "<EUR|USD|…|XBT>"]` |
-| `t` | must include `xbt-market` and `btcb2`, plus one category |
+| `price` | `["price", "<amount>", "<EUR|USD|…|XBT>", "<hour|day|week|month>"?]`: the fourth element (NIP-99 frequency) is set for services priced per period |
+| `t` | must include `xbt-market` and `btcb2`, plus one category: a Marktplaats main-category slug from `src/lib/categories.js` (e.g. `huis-en-inrichting`, `diensten-en-vakmensen`). Older ids (`home`, `books`, …) are mapped onto these when read |
 | `status` | `active`, `sold` or `deleted` |
 | `image` | one per photo (http(s) only) |
 | `condition` | `new`, `like-new`, `good`, `fair` or `for-parts` |

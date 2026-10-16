@@ -131,6 +131,10 @@ const PLAN = [
     ['LN-9', 'Direct on-chain', ['Nieuwe bestelling met "Direct, on-chain". B stuurt een adres, C betaalt en plakt de txid.'], 'Bij de txid staat "✓ …, N bevestigingen" zodra hij in de chain staat.'],
     ['LN-10', 'Afronden en review', ['B verzendt, C bevestigt ontvangst, beide geven een review.'], 'Status Afgerond; reviews tellen als geverifieerde trade.'],
   ]],
+  ['Diensten (Diensten en Vakmensen)', 'B biedt aan, C boekt', [
+    ['SRV-1', 'Dienst aanbieden', ['B: Nieuwe advertentie → categorie "Diensten en Vakmensen", prijs €40, "Prijs per" uur → Publiceren.'], 'Geen staat en geen bezorgopties in het formulier; de advertentie toont "€40,00 per uur".'],
+    ['SRV-2', 'Dienst boeken', ['C: Kopen → "Direct, Lightning" (geen adres gevraagd) → betalen.', 'B: "Markeer als uitgevoerd". C: "Ja, naar wens".'], 'Trade toont "Klus uitgevoerd" in plaats van "Verzonden" en eindigt als Afgerond.'],
+  ]],
   ['AI-advertentiehulp', 'B', [
     ['AI-1', 'Sleutel instellen', ['Maak op console.anthropic.com een aparte workspace met een lage maandlimiet en een API-sleutel.', 'Account → AI-advertentiehulp → plak de sleutel → Opslaan.'], '"✓ Sleutel opgeslagen"; in Local Storage staat alleen versleutelde tekst.'],
     ['AI-2', 'Advertentie uit foto\'s', ['Nieuwe advertentie → upload 2–3 foto\'s → "Schrijf advertentie op basis van foto\'s".'], 'Titel, beschrijving, categorie, staat en prijs worden ingevuld, plus een tip voor jou. Niets verzonnen dat niet op de foto staat.'],

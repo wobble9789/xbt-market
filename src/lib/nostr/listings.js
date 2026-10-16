@@ -5,13 +5,11 @@ import * as nip19 from 'nostr-tools/nip19';
 import { MARKET_TAG } from '../../config.js';
 import { tag, tags } from './pool.js';
 import { parseShippingOptions } from '../shipping.js';
+import { normalizeCategory, PRICE_UNITS } from '../categories.js';
 
 export const LISTING_KIND = 30402;
 
-export const CATEGORIES = [
-  'clothing', 'shoes', 'bags', 'electronics', 'computers', 'phones', 'bitcoin-hardware', 'books', 'music',
-  'games', 'toys', 'kids', 'home', 'garden', 'sports', 'bikes', 'collectibles', 'art', 'beauty', 'tools', 'auto', 'other',
-];
+export { CATEGORIES } from '../categories.js';
 
 export const CONDITIONS = ['new', 'like-new', 'good', 'fair', 'for-parts'];
 
@@ -25,7 +23,7 @@ export function listingTemplate(l) {
     ['title', l.title],
     ['summary', l.summary || l.content.slice(0, 140)],
     ['published_at', String(l.publishedAt || Math.floor(Date.now() / 1000))],
-    ['price', String(l.price), l.currency],
+    ['price', String(l.price), l.currency, ...(l.priceUnit ? [l.priceUnit] : [])],
     ['t', MARKET_TAG],
     ['t', 'btcb2'],
     ['status', l.status || 'active'],
@@ -64,7 +62,8 @@ export function parseListing(e) {
     price,
     currency: (priceTag[2] || 'EUR').toUpperCase(),
     images: tags(e, 'image').map(httpUrl).filter(Boolean),
-    category: tags(e, 't').find((x) => !known.has(x)) || 'other',
+    category: normalizeCategory(tags(e, 't').find((x) => !known.has(x))),
+    priceUnit: PRICE_UNITS.includes(priceTag[3]) ? priceTag[3] || '' : '',
     condition: tag(e, 'condition') || '',
     location: tag(e, 'location') || '',
     shippingCost: tag(e, 'shipping_cost') != null ? Number(tag(e, 'shipping_cost')) : null,

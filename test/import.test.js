@@ -10,7 +10,7 @@ test('bookmarklet payload normalizes', () => {
   ] });
   assert.equal(items.length, 2); // the price-less one stays, for the user to price
   assert.equal(items[1].price, '');
-  assert.equal(items[0].category, 'shoes');
+  assert.equal(items[0].category, 'kleding-dames');
   assert.equal(items[0].condition, 'like-new');
   assert.deepEqual(items[0].images, ['https://images1.vinted.net/a.jpg']);
   assert.equal(items[0].importedFrom, 'vinted.nl');
@@ -23,7 +23,7 @@ test('eBay-style CSV with info line and quoted fields', () => {
   assert.equal(items.length, 2);
   assert.equal(items[0].title, 'Trezor Model T, sealed');
   assert.equal(items[0].price, 1234.5);
-  assert.equal(items[0].category, 'bitcoin-hardware');
+  assert.equal(items[0].category, 'computers-en-software');
   assert.equal(items[0].source, 'https://www.ebay.com/itm/123');
   assert.equal(items[1].condition, 'good');
 });

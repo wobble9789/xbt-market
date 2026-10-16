@@ -12,6 +12,7 @@ import { formatCoin, parseCoin } from '../../lib/btc/units.js';
 import { fiatToSats } from '../../lib/price.js';
 import { createOffer } from '../../lib/trade/actions.js';
 import { optionsFor, carrier } from '../../lib/shipping.js';
+import { isService } from '../../lib/categories.js';
 import { formatFiat } from '../../lib/btc/units.js';
 import { navigate } from '../router.js';
 import { T, CATEGORY_LABELS, CONDITION_LABELS, label, fmtDate } from '../i18n.js';
@@ -79,7 +80,8 @@ function OfferForm({ listing, onClose }) {
   const sd = escrow && sats ? Math.round((sats * sdPct) / 100) : 0;
   const addrOk = isValidAddress(payout, s.network);
   const overLimit = escrow && limit != null && sats > limit;
-  const pickup = carrier(ship).pickup;
+  const service = isService(listing.category);
+  const pickup = carrier(ship).pickup || service;
   const ready = sats > 0 && pay && (!escrow || (arbiter && addrOk && !overLimit)) && (!shipOptions.length || option);
 
   const submit = async () => {
@@ -120,7 +122,7 @@ function OfferForm({ listing, onClose }) {
       {escrow
         ? <p class="hint">{T(`Your coins wait in a 2-of-3 escrow until you confirm receipt. Recommended above ${formatFiat(s.escrowAdviceAbove, listing.currency)}.`, `Je munten wachten in een 2-van-3-escrow tot je de ontvangst bevestigt. Aanbevolen boven ${formatFiat(s.escrowAdviceAbove, listing.currency)}.`)}</p>
         : <p class={`notice ${advise ? 'warn' : ''}`}>{T('You pay the seller directly. Fast and without deposits, but there is no arbiter: if the item does not arrive, you depend on the seller.', 'Je betaalt de verkoper direct. Snel en zonder borg, maar er is geen arbiter: komt het item niet aan, dan ben je afhankelijk van de verkoper.')}{advise && ' ' + T(`For more than ${formatFiat(s.escrowAdviceAbove, listing.currency)} we recommend escrow.`, `Boven ${formatFiat(s.escrowAdviceAbove, listing.currency)} raden we escrow aan.`)}</p>}
-      <Field label={T('Price in XBT (incl. delivery)', 'Prijs in XBT (incl. bezorging)')}
+      <Field label={service ? T('Agreed price in XBT (total)', 'Afgesproken prijs in XBT (totaal)') : T('Price in XBT (incl. delivery)', 'Prijs in XBT (incl. bezorging)')}
         hint={priceSats ? T(`Suggested from the current rate: ${formatCoin(priceSats)}${rate ? ` (1 XBT ≈ ${rate.value.toFixed(2)} ${listing.currency}, ${rate.source})` : ''}. The seller must agree to this amount.`,
           `Voorstel op basis van de huidige koers: ${formatCoin(priceSats)}${rate ? ` (1 XBT ≈ ${rate.value.toFixed(2)} ${listing.currency}, ${rate.source})` : ''}. De verkoper moet met dit bedrag akkoord gaan.`)
           : T('No exchange rate available; enter the amount you agreed with the seller.', 'Geen koers beschikbaar; vul het bedrag in dat je met de verkoper hebt afgesproken.')}>

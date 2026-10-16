@@ -6,7 +6,7 @@ import { npub, shortNpub } from '../lib/nostr/account.js';
 import { formatCoin, formatFiat } from '../lib/btc/units.js';
 import { xbtPrice } from '../lib/price.js';
 import { settings } from '../lib/settings.js';
-import { T } from './i18n.js';
+import { T, PRICE_UNIT_LABELS, label } from './i18n.js';
 
 // ---- toasts ------------------------------------------------------------------
 
@@ -95,6 +95,7 @@ export function ListingPrice({ listing, big }) {
   return (
     <span class={`price ${big ? 'big' : ''}`}>
       {isCoin ? formatCoin(sats) : formatFiat(listing.price, listing.currency)}
+      {listing.priceUnit && <span> {label(PRICE_UNIT_LABELS, listing.priceUnit)}</span>}
       {!isCoin && sats != null && <span class="muted small"> ≈ {formatCoin(sats)}</span>}
     </span>
   );

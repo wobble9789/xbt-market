@@ -47,13 +47,13 @@ function Welcome({ reason }) {
 function Unlock() {
   const [pw, setPw] = useState('');
   const go = async () => {
-    try { unlock(pw); } catch { throw new Error(T('Wrong password', 'Verkeerd wachtwoord')); }
+    try { unlock(pw); } catch (e) { throw new Error(/nsec/i.test(pw) ? e.message : T('Wrong password', 'Verkeerd wachtwoord')); }
   };
   return (
     <div class="card narrow">
       <h2>{T('Unlock', 'Ontgrendelen')}</h2>
       <form onSubmit={(e) => { e.preventDefault(); go().catch(toastError); }}>
-        <Field label={T('Password', 'Wachtwoord')}>
+        <Field label={T('Password', 'Wachtwoord')} hint={T('Forgot it? Your nsec works here too.', 'Vergeten? Je nsec werkt hier ook.')}>
           <input type="password" value={pw} onInput={(e) => setPw(e.target.value)} autofocus />
         </Field>
         <Action class="primary wide" onClick={go}>{T('Unlock', 'Ontgrendelen')}</Action>
