@@ -135,7 +135,7 @@ async function openListing(who, title) {
   await waitText(p, 'Updated');
   return p;
 }
-const tradeIdOf = (p) => p.evaluate(() => location.hash.split('/')[2]);
+const tradeIdOf = (p) => p.evaluate(() => location.hash.split('/')[2].split('?')[0]);
 async function escrowAmounts(p) {
   const cells = await p.$$eval('table.amounts tr td:last-child', (tds) => tds.map((t) => t.innerText));
   return cells.slice(0, 2).map((t) => parseFloat(t));
@@ -1050,11 +1050,18 @@ try {
     await waitText(p, 'I received the payment', 60000);
     const c = await go('C', `#/trade/${id}`);
     await waitText(c, 'A few details for the seller', 30000);
-    await clickIn(c, 'details-form', 'Send'); // address saved in TRD-3b, pre-filled
+    // The address from TRD-3b is pre-filled, unless this browser was reset in TRD-11.
+    if (!(await c.$eval('::-p-xpath(//label[span[normalize-space(.)="Full name"]]//input)', (i) => i.value))) await fillAddress(c);
+    await clickIn(c, 'details-form', 'Send');
+    await waitNoText(c, 'A few details for the seller');
+    await waitText(c, 'Details sent', 30000);
     await waitText(c, 'Pay with my wallet', 30000);
     await click(c, '⚡ Pay with my wallet');
     await waitText(c, 'Paid. The Lightning preimage proves it.', 60000);
+    const types = (pg) => pg.evaluate((tid) => Object.values(window.xbt?.inbox.get().rumors || {}).filter((r) => r.tags.some((t) => t[1] === tid)).map((r) => `${r.tags.find((t) => t[0] === 'xbt-type')?.[1]}@${r.created_at}`).join(' '), id);
+    const cTypes = await types(c);
     const s = await B(`#/trade/${id}`);
+    await waitText(s, 'Details sent', 30000).catch(async (e) => { throw new Error(`${e.message}; buyer has: ${cTypes}; seller has: ${await types(s)}`); });
     await s.waitForFunction(() => /Prepaid shipping label|Your address for the label/.test(document.querySelector('main').innerText), { timeout: 30000 });
     // B has no address yet in this run: fill it once.
     if ((await text(s)).includes('Your address for the label')) {

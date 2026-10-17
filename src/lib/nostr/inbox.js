@@ -109,11 +109,20 @@ export async function sendTradeMessage(tradeId, type, body, participants) {
   const wraps = nip59.wrapManyEvents(rumorTemplate, sk, recipients);
   // The first wrap is the sender's own copy; decrypting it yields the exact rumor.
   const own = accept(nip59.unwrapEvent(wraps[0], sk));
-  const results = await Promise.allSettled(wraps.map((w) => publishEvent(w)));
-  const failed = results.filter((r) => r.status === 'rejected');
-  if (failed.length === wraps.length) throw failed[0].reason;
+  // Every recipient must get its copy: retry a failed one a few times, and if
+  // the other side's copy still fails, say so instead of pretending it was sent.
+  let pending = wraps.map((w, i) => ({ w, i }));
+  let lastError = null;
+  for (let attempt = 0; attempt < 3 && pending.length; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 800 * attempt));
+    const results = await Promise.allSettled(pending.map(({ w }) => publishEvent(w)));
+    lastError = results.find((r) => r.status === 'rejected')?.reason || lastError;
+    pending = pending.filter((_, j) => results[j].status === 'rejected');
+  }
+  const delivered = wraps.length - pending.length;
+  if (pending.some(({ i }) => i > 0)) throw new Error(`Not delivered to the other side: ${lastError?.message || lastError}. Check your connection and try again.`);
   if (own) addRumors([own]);
-  return { rumor: own, delivered: wraps.length - failed.length, total: wraps.length };
+  return { rumor: own, delivered, total: wraps.length };
 }
 
 // Sends copies of my own earlier messages in a trade to someone who joins it
