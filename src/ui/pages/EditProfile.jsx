@@ -10,7 +10,8 @@ export function EditProfile({ pk, profile, onDone }) {
   const m = profile.xbt_market || {};
   const [f, setF] = useState({ name: profile.display_name || profile.name || '', about: profile.about || '', picture: profile.picture || '', vinted: m.vinted || '', ebay: m.ebay || '', marktplaats: m.marktplaats || '', country: m.country || '' });
   const [uploading, setUploading] = useState(false);
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  // Functional updates: quick successive edits must never overwrite each other.
+  const set = (k) => (e) => { const v = e.target.value; setF((cur) => ({ ...cur, [k]: v })); };
   const onFile = async (e) => {
     const file = e.target.files[0];
     e.target.value = '';
@@ -27,7 +28,7 @@ export function EditProfile({ pk, profile, onDone }) {
       </div>
       <Field label={T('Name', 'Nombre')}><input value={f.name} onInput={set('name')} maxLength={60} /></Field>
       <Field label={T('Country', 'País')} hint={T('Required. Buyers filter on it and it sets where you ship from.', 'Obligatorio. Los compradores filtran por él y determina desde dónde envías.')}>
-        <CountrySelect value={f.country} onChange={(country) => setF({ ...f, country })} required />
+        <CountrySelect value={f.country} onChange={(country) => setF((cur) => ({ ...cur, country }))} required />
       </Field>
       <Field label={T('About you', 'Sobre ti')}><textarea rows="3" value={f.about} onInput={set('about')} /></Field>
       <details>

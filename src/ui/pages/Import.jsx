@@ -91,7 +91,7 @@ export function ImportPage({ query: q }) {
     try { load(fromCsv(await file.text())); } catch (err) { toastError(err); }
   };
 
-  const update = (i, patch) => setItems(items.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const update = (i, patch) => setItems((cur) => cur.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   const selected = items.filter((i) => i.selected);
   const counts = items.reduce((c, i) => ({ ...c, [i.status]: (c[i.status] || 0) + 1 }), {});
   const noPrice = items.filter((i) => !(Number(i.price) > 0)).length;
@@ -205,8 +205,8 @@ export function ImportPage({ query: q }) {
           <div class="page-head">
             <h3>{T(`${items.length} found`, `${items.length} encontrados`)}</h3>
             <div class="row">
-              <button class="btn small ghost" onClick={() => setItems(items.map((i) => ({ ...i, selected: i.status !== 'same' && Number(i.price) > 0 })))}>{T('All new + changed', 'Todos los nuevos + cambiados')}</button>
-              <button class="btn small ghost" onClick={() => setItems(items.map((i) => ({ ...i, selected: false })))}>{T('None', 'Ninguno')}</button>
+              <button class="btn small ghost" onClick={() => setItems((cur) => cur.map((i) => ({ ...i, selected: i.status !== 'same' && Number(i.price) > 0 })))}>{T('All new + changed', 'Todos los nuevos + cambiados')}</button>
+              <button class="btn small ghost" onClick={() => setItems((cur) => cur.map((i) => ({ ...i, selected: false })))}>{T('None', 'Ninguno')}</button>
               <button class="btn small ghost" onClick={() => { setRaw(null); setItems([]); setGone([]); }}>{T('Start over', 'Empezar de nuevo')}</button>
             </div>
           </div>

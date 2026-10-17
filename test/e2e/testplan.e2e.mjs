@@ -146,6 +146,7 @@ async function escrowAmounts(p) {
 const results = [];
 let failed = 0;
 async function step(id, title, fn) {
+  if (process.env.STOP_AFTER && results.some((r) => r.id === process.env.STOP_AFTER)) return;
   console.log(`\n== ${id} ${title}`);
   const started = Date.now();
   try {
@@ -182,9 +183,16 @@ async function clickIn(p, scope, label) {
   await (await el(p, `//*[contains(concat(" ",@class," ")," ${scope} ")]//button[normalize-space(.)="${label}"]`)).click();
 }
 const checked = (p, start) => p.evaluate((s) => [...document.querySelectorAll('label.choice')].find((l) => l.textContent.trim().startsWith(s))?.querySelector('input')?.checked, start);
+// Ticks or unticks a choice and checks it took; a click that lands during a
+// late layout shift is retried (and logged).
 async function setChoice(p, start, on) {
-  if ((await checked(p, start)) !== on) await choose(p, start);
-  await p.waitForFunction((s, on) => [...document.querySelectorAll('label.choice')].find((l) => l.textContent.trim().startsWith(s))?.querySelector('input')?.checked === on, { timeout: 5000 }, start, on);
+  for (let i = 0; i < 3; i++) {
+    if ((await checked(p, start)) === on) return;
+    if (i) console.log(`   (retrying the click on "${start}")`);
+    await choose(p, start);
+    await p.waitForFunction((s, on) => [...document.querySelectorAll('label.choice')].find((l) => l.textContent.trim().startsWith(s))?.querySelector('input')?.checked === on, { timeout: 2000 }, start, on).catch(() => {});
+  }
+  if ((await checked(p, start)) !== on) throw new Error(`could not set "${start}"`);
 }
 async function newListing(p, { title, price, cat = 'diversen', sub, escrow = false, onchain = false, currency, desc }) {
   await p.evaluate(() => { location.hash = '#/sell/new'; });

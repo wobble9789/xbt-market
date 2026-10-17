@@ -119,7 +119,8 @@ export function EditListing({ d }) {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiNote, setAiNote] = useState('');
   const [uploading, setUploading] = useState(false);
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  // Functional updates: quick successive edits must never overwrite each other.
+  const set = (k) => (e) => { const v = e.target.value; setF((cur) => ({ ...cur, [k]: v })); };
   useEffect(() => { if (!f.country && myCountry) setF((cur) => ({ ...cur, country: cur.country || myCountry })); }, [myCountry]);
 
   if (d && !existing) return <Empty>{listings.size ? T('Listing not found', 'Anuncio no encontrado') : <Spinner />}</Empty>;
@@ -166,7 +167,7 @@ export function EditListing({ d }) {
       toast(T('Draft filled in. Check it before publishing.', 'Borrador rellenado. Revísalo antes de publicar.'), 'ok');
     } catch (e) { toastError(e); } finally { setAiBusy(false); }
   };
-  const toggle = (k, v) => setF({ ...f, [k]: f[k]?.includes(v) ? f[k].filter((x) => x !== v) : [...(f[k] || []), v] });
+  const toggle = (k, v) => setF((cur) => ({ ...cur, [k]: cur[k]?.includes(v) ? cur[k].filter((x) => x !== v) : [...(cur[k] || []), v] }));
 
   return (
     <div class="card form">
@@ -177,7 +178,7 @@ export function EditListing({ d }) {
           {f.images.map((u, i) => (
             <div class="photo" key={u}>
               <Img src={u} />
-              <button type="button" class="x" aria-label={T('Remove photo', 'Quitar foto')} onClick={() => setF({ ...f, images: f.images.filter((_, j) => j !== i) })}>×</button>
+              <button type="button" class="x" aria-label={T('Remove photo', 'Quitar foto')} onClick={() => setF((cur) => ({ ...cur, images: cur.images.filter((_, j) => j !== i) }))}>×</button>
             </div>
           ))}
           <label class="photo add" aria-label={T('Add photos', 'Añadir fotos')}>{uploading ? <Spinner /> : '+'}<input type="file" accept="image/*" multiple onChange={onFiles} hidden /></label>
@@ -192,7 +193,7 @@ export function EditListing({ d }) {
       <Field label={T('Title', 'Título')}><input value={f.title} onInput={set('title')} maxLength={200} /></Field>
       <Field label={T('Description', 'Descripción')}><textarea rows="6" value={f.content} onInput={set('content')} /></Field>
       <Field label={T('Category', 'Categoría')}>
-        <div class="cols cat-pick"><CategoryPicker category={f.category} subcategory={f.subcategory} onChange={(c) => setF({ ...f, ...c })} /></div>
+        <div class="cols cat-pick"><CategoryPicker category={f.category} subcategory={f.subcategory} onChange={(c) => setF((cur) => ({ ...cur, ...c }))} /></div>
       </Field>
       {subs.length > 0 && !f.subcategory && <span class="hint error">{T('Choose a subcategory', 'Elige una subcategoría')}</span>}
       <div class="cols">
@@ -213,13 +214,13 @@ export function EditListing({ d }) {
       </div>
       <p class="hint">{T('Prices in fiat are converted to XBT when a buyer orders; you approve the amount.', 'Los precios en moneda normal se convierten a XBT cuando alguien pide; tú apruebas el importe.')}</p>
       <div class="cols">
-        <Field label={T('Country', 'País')}><CountrySelect value={f.country} onChange={(country) => setF({ ...f, country })} required /></Field>
+        <Field label={T('Country', 'País')}><CountrySelect value={f.country} onChange={(country) => setF((cur) => ({ ...cur, country }))} required /></Field>
         <Field label={T('Town (optional)', 'Ciudad (opcional)')}><input value={f.city || ''} onInput={set('city')} placeholder="Utrecht" /></Field>
       </div>
       {service ? <p class="hint">{T('A service: no delivery. The buyer pays the agreed amount; with escrow it is released once the job is done.', 'Un servicio: sin envío. El comprador paga el importe acordado; con escrow se libera cuando el trabajo está hecho.')}</p> : (
         <fieldset class="delivery">
           <legend>{T('Delivery', 'Entrega')}</legend>
-          <label class={`choice ${f.pickup ? 'on' : ''}`}><input type="checkbox" checked={f.pickup} onChange={() => setF({ ...f, pickup: !f.pickup })} /><span>🤝 {T('Pick-up', 'Recogida en persona')}</span></label>
+          <label class={`choice ${f.pickup ? 'on' : ''}`}><input type="checkbox" checked={f.pickup} onChange={() => setF((cur) => ({ ...cur, pickup: !cur.pickup }))} /><span>🤝 {T('Pick-up', 'Recogida en persona')}</span></label>
           <Field label={T('Carriers you are willing to use', 'Transportistas que aceptas')} hint={T('You set no price: the buyer picks one of these and pays the shipping on top. You then get a prepaid label in the chat.', 'No pones precio: el comprador elige uno de estos y paga el envío aparte. Luego recibes una etiqueta prepagada en el chat.')}>
             <div class="choices carriers">
               {SHIP_CARRIERS.map((c) => (
@@ -230,11 +231,11 @@ export function EditListing({ d }) {
           {f.carriers.length > 0 && <>
             <Field label={T('Parcel size', 'Tamaño del paquete')}>
               <div class="choices">
-                {PACKAGE_SIZES.map((k) => <label key={k} class={`choice ${f.packageSize === k ? 'on' : ''}`}><input type="radio" name="size" checked={f.packageSize === k} onChange={() => setF({ ...f, packageSize: k })} /><span>{T(...SIZE_LABEL[k])}</span></label>)}
+                {PACKAGE_SIZES.map((k) => <label key={k} class={`choice ${f.packageSize === k ? 'on' : ''}`}><input type="radio" name="size" checked={f.packageSize === k} onChange={() => setF((cur) => ({ ...cur, packageSize: k }))} /><span>{T(...SIZE_LABEL[k])}</span></label>)}
               </div>
             </Field>
             <Field label={T('Ships to', 'Envía a')} hint={T('You always ship within your own country. Add the EU, worldwide or single countries.', 'Siempre envías dentro de tu país. Añade la UE, todo el mundo o países sueltos.')}>
-              <ShipsToPicker value={f.shipsTo || []} onChange={(shipsTo) => setF({ ...f, shipsTo })} />
+              <ShipsToPicker value={f.shipsTo || []} onChange={(shipsTo) => setF((cur) => ({ ...cur, shipsTo }))} />
             </Field>
           </>}
         </fieldset>

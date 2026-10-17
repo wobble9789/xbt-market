@@ -24,6 +24,15 @@ I/O adapters
   src/lib/secrets.js               wallet link and AI key, NIP-44 encrypted to the user's own key
   src/lib/ai/listing.js            listing draft from photos (Claude, user's own API key, loaded on demand)
   src/bookmarklet/source.js        page I/O for the import button
+  src/lib/api.js                   the XBT Market service, NIP-98 signed requests
+  src/lib/nostr/names.js           usernames (NIP-05), verified per profile
+  src/lib/nostr/follows.js         following (NIP-02 contact list)
+  src/lib/shipping-api.js          shipping prices and labels from the service
+  src/lib/trade/forward.js         re-sends own earlier messages to a later-chosen arbiter
+Service (server/, Cloudflare Worker or Node)
+  server/service.js                usernames, Sendcloud v3 rates and labels, Lightning label
+                                   payments (LUD-21 verify), import from a link
+  server/worker.js, node.mjs       Durable Object storage / in-memory storage around it
 ```
 
 Rules:
@@ -57,13 +66,21 @@ Rules:
 | The generated bookmarklet matches its source version | build | `test/extract.test.js` (fails when stale) |
 | An outdated saved bookmark is warned about | `ui/pages/Import.jsx` | `test:import` e2e |
 | The whole trade and dispute flow works in a browser | everything | `test:e2e` (Firefox, Knots regtest, local relay) |
+| v2: a conversation has no offer; only its opener can order | `trade/protocol.js` | `test/protocol.test.js` |
+| v2: the arbiter is fixed by the buyer's first details after the accept, never the buyer or seller | `trade/protocol.js` | `test/protocol.test.js`, `test:e2e` (arbiter rules a dispute after joining late) |
+| A payment method changes only when the other side agrees, and never after paying | `trade/protocol.js` | `test/protocol.test.js`, `test:direct` |
+| Labels come from the seller only, with http(s) links | `trade/protocol.js` | `test/protocol.test.js` |
+| Usernames are unique and only claimable with a valid NIP-98 signature | `server/service.js` | `test/server.test.js`, test plan USR-1 |
+| A label is announced only after its Lightning payment is verified | `server/service.js` | `test/server.test.js`, `test:direct` |
+| A single ad (also /seller/view/m…) and reserved ads are read | `bookmarklet/extract.js`, `server/service.js` | `test/extract.test.js`, `test/server.test.js`, `test:import` |
 | The app shows the page that matches the URL | `ui/router.js` | `test:e2e` (contexts reopen on a deep link) |
 
 ## Changing things safely
 
 - **Protocol or escrow.** Update `docs/PROTOCOL.md` in the same commit. Never change derivation strings, the tag names or the message types without bumping the protocol version, because existing trades must stay recoverable.
-- **Import extraction.** Bump `BOOKMARKLET_VERSION` in `src/bookmarklet/extract.js`, so users with an old saved bookmark see the "out of date" warning.
-- **UI text.** `test:e2e` finds buttons by their English label. If you rename a button, update the test.
+- **Import extraction.** Bump `BOOKMARKLET_VERSION` in `src/bookmarklet/extract.js`, so users with an old saved bookmark see the "older version" note.
+- **Service.** `server/service.js` runs unchanged in the Worker and in Node; test it with `test/server.test.js` and the e2e suites (which use `npm run service:dev` against `npm run sendcloud`).
+- **UI text.** The e2e tests find buttons by their English label. If you rename a button, update the tests. Every string is `T('English', 'Español')`.
 - **Relays and photo server.** `src/config.js`. Users can override them in Settings.
 
 ## Manual testing
