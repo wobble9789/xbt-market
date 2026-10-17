@@ -136,3 +136,107 @@ test('reject and cancel close the offer', () => {
   // a seller who rejected and then accepts after all: the accept counts
   assert.ok(reduceTrade(TID, [offer(), msg('seller', 'reject', {}), accept()]).accept);
 });
+
+// ---- version 2: chat first, details after accept, payment changes -------------
+
+const LISTING = { coord: `30402:${pk.seller}:x`, sellerPubkey: pk.seller, title: 'Jacket', price: 50, currency: 'EUR', payments: ['lightning', 'onchain', 'escrow'] };
+const open2 = () => msg('buyer', 'open', { v: 2, network: 'mainnet', listing: LISTING });
+const offer2 = (over = {}) => msg('buyer', 'offer', {
+  v: 2, tradeId: TID, network: 'mainnet', listing: LISTING, payment: 'escrow',
+  priceSats: 100_000, buyerDepositSats: 15_000, sellerDepositSats: 15_000,
+  buyer: { escrowPubkey: pubkeyOf(key('buyer')) }, shipping: { carrier: 'postnl', country: 'DE', price: 6.95, currency: 'EUR' },
+  shipDays: 7, confirmDays: 21, ...over,
+});
+const accept2 = (payoutAddress = SELLER_ADDR) => msg('seller', 'accept', { seller: { escrowPubkey: pubkeyOf(key('seller')), ...(payoutAddress ? { payoutAddress } : {}) } });
+const details2 = (over = {}) => msg('buyer', 'details', { shipTo: { name: 'B', street: 'Weg', number: '1', postalCode: '10115', city: 'Berlin', country: 'DE' }, payoutAddress: BUYER_ADDR, arbiter: { pubkey: pk.arbiter, escrowBase: arbiterBase }, ...over });
+
+test('v2: a conversation starts without an offer', () => {
+  const s = reduceTrade(TID, [open2(), msg('buyer', 'chat', 'Is it still available?'), msg('seller', 'chat', 'Yes!')], { me: pk.seller });
+  assert.equal(s.status, 'chat');
+  assert.equal(s.role, 'seller');
+  assert.equal(s.chat.length, 2);
+  assert.equal(s.listing.title, 'Jacket');
+  // Only the buyer who opened it can make the offer.
+  const s2 = reduceTrade(TID, [open2(), msg('mallory', 'offer', JSON.parse(offer2().content))]);
+  assert.equal(s2.offer, null);
+});
+
+test('v2 escrow: the arbiter and addresses come after the accept', () => {
+  const log = [open2(), offer2(), accept2()];
+  let s = reduceTrade(TID, log, { arbiters, me: pk.buyer });
+  assert.equal(s.status, 'accepted');
+  assert.equal(s.escrow, null, 'no escrow before the buyer picks an arbiter');
+  assert.equal(s.participants.arbiter, null);
+  log.push(details2());
+  s = reduceTrade(TID, log, { arbiters, me: pk.arbiter });
+  assert.match(s.escrow.address, /^bc1q/);
+  assert.equal(s.role, 'arbiter');
+  assert.ok(s.checks.arbiterTrusted);
+  assert.equal(s.payout.buyer, BUYER_ADDR);
+  assert.equal(s.shipTo.city, 'Berlin');
+  // A second arbiter choice is ignored; the escrow address stays the same.
+  const before = s.escrow.address;
+  log.push(details2({ arbiter: { pubkey: pk.mallory, escrowBase: pubkeyOf(arbiterBaseKey(people.mallory)) } }));
+  s = reduceTrade(TID, log, { arbiters });
+  assert.equal(s.escrow.address, before);
+  assert.ok(s.errors.some((e) => e.includes('already chosen')));
+  // The usual payout works with the addresses from the details.
+  const { m } = proposal(s, 'buyer', 'release');
+  log.push(m);
+  s = reduceTrade(TID, log, { arbiters });
+  assert.deepEqual(s.proposals.p1.outputs.map((o) => o.role).sort(), ['buyer', 'seller']);
+});
+
+test('v2: details before the accept, or the buyer as arbiter, are refused', () => {
+  const early = reduceTrade(TID, [open2(), offer2(), details2()], { arbiters });
+  assert.equal(early.arbiter, null);
+  const self = reduceTrade(TID, [open2(), offer2(), accept2(), details2({ arbiter: { pubkey: pk.buyer, escrowBase: arbiterBase } })], { arbiters });
+  assert.equal(self.escrow, null);
+  assert.ok(self.errors.some((e) => e.includes('three different people')));
+});
+
+test('v2: switch from Lightning to on-chain when both agree, not after paying', () => {
+  const direct = offer2({ payment: 'direct', method: 'lightning', buyerDepositSats: undefined, sellerDepositSats: undefined });
+  const log = [open2(), direct, accept2(null)];
+  const change = msg('buyer', 'change', { method: 'onchain' });
+  log.push(change);
+  let s = reduceTrade(TID, log);
+  assert.equal(s.changes[0].status, 'open');
+  assert.equal(s.method, 'lightning');
+  // The one who asked cannot agree to their own request.
+  log.push(msg('buyer', 'change_ok', { changeId: change.id }));
+  assert.equal(reduceTrade(TID, log).method, 'lightning');
+  log.push(msg('seller', 'change_ok', { changeId: change.id }));
+  s = reduceTrade(TID, log);
+  assert.equal(s.method, 'onchain');
+  assert.equal(s.changes[0].status, 'accepted');
+  log.push(msg('seller', 'request', { method: 'onchain', address: SELLER_ADDR, amountSats: 100_000 }));
+  log.push(msg('buyer', 'paid', { txid: 'ab'.repeat(32) }));
+  log.push(msg('seller', 'change', { method: 'lightning' }));
+  s = reduceTrade(TID, log);
+  assert.equal(s.status, 'paid');
+  assert.ok(s.errors.some((e) => e.includes('already paid')));
+});
+
+test('v2: switch from direct to escrow, then the escrow is set up', () => {
+  const direct = offer2({ payment: 'direct', method: 'lightning', buyerDepositSats: undefined, sellerDepositSats: undefined });
+  const change = msg('seller', 'change', { method: 'escrow', buyerDepositSats: 15_000, sellerDepositSats: 15_000 });
+  const log = [open2(), direct, accept2(), change, msg('buyer', 'change_ok', { changeId: change.id }), details2()];
+  const s = reduceTrade(TID, log, { arbiters });
+  assert.equal(s.payment, 'escrow');
+  assert.ok(s.escrow);
+  assert.equal(s.terms.sellerDepositSats, 15_000);
+  // A method the listing does not accept is refused.
+  const only = { ...LISTING, payments: ['lightning'] };
+  const s2 = reduceTrade(TID, [msg('buyer', 'open', { v: 2, network: 'mainnet', listing: only }), offer2({ listing: only, payment: 'direct', method: 'lightning', buyerDepositSats: undefined, sellerDepositSats: undefined }), msg('buyer', 'change', { method: 'onchain' })]);
+  assert.equal(s2.changes.length, 0);
+});
+
+test('v2: shipping labels come from the seller only', () => {
+  const s = reduceTrade(TID, [open2(), offer2(), accept2(),
+    msg('buyer', 'label', { carrier: 'postnl', tracking: 'X' }),
+    msg('seller', 'label', { carrier: 'postnl', tracking: '3SPOST1', trackingUrl: 'https://track/3SPOST1', qrUrl: 'javascript:alert(1)', labelUrl: 'https://svc/label.pdf' })]);
+  assert.equal(s.labels.length, 1);
+  assert.equal(s.labels[0].qrUrl, '');
+  assert.equal(s.labels[0].labelUrl, 'https://svc/label.pdf');
+});

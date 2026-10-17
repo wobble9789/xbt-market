@@ -7,16 +7,26 @@
 // rumor is signed by its sender, and the rumor pubkey must match it, so `from`
 // is authenticated.
 //
-// Flow (Bisq-like, with every party able to walk away safely):
-//   offer (buyer) -> accept | reject (seller) -> both fund the escrow address
-//   -> shipped (seller) -> proposal "release" + sign -> broadcast
-//   At any point after accept: dispute (buyer/seller); the arbiter then
-//   proposes a ruling and either party co-signs it. Any 2 of 3 signatures pay out.
+// A trade starts as a conversation, like on Marktplaats or Vinted:
+//   open (buyer: which listing) -> chat … -> offer (buyer) -> accept | reject (seller)
+// The offer only names the price, the payment method and the delivery. What is
+// needed after that comes once the seller has accepted:
+//   details (buyer: delivery address; with escrow also the arbiter and a refund
+//   address; seller: payout address)
+// Either side can ask to switch the payment method before anything is paid:
+//   change (one side) -> change_ok | change_no (the other side)
 //
-// Direct trades (offer.payment = "direct") have no escrow and no arbiter: the
-// buyer pays the seller straight away, on chain or over Lightning.
-//   offer -> accept | reject -> request (seller: invoice or address)
-//   -> paid (buyer: preimage or txid) / confirm_paid (seller) -> shipped -> received
+// Escrow (Bisq-like, every party able to walk away safely):
+//   both fund the 2-of-3 address -> shipped (seller) -> proposal "release" + sign
+//   -> broadcast. After accept: dispute (buyer/seller); the arbiter then proposes
+//   a ruling and either party co-signs it. Any 2 of 3 signatures pay out.
+// Direct (payment = "direct", no escrow, no arbiter): the buyer pays the seller
+// straight away, on chain or over Lightning:
+//   request (seller: invoice or address) -> paid (buyer: preimage or txid) /
+//   confirm_paid (seller) -> label / shipped -> received
+//
+// Version 1 offers (arbiter and addresses inside the offer, no "open") are still
+// understood, so older trades keep working.
 
 import { escrowInfo, arbiterTradePubkey, isValidPubkey, verifyEscrowSigs, txSpendsExactly, describeOutputs, finalizeEscrow } from '../btc/escrow.js';
 import { parseTx } from '../btc/tx.js';
@@ -25,11 +35,13 @@ import { decodeInvoice, preimageMatches } from '../ln/bolt11.js';
 
 export const TRADE_KIND = 1714;
 export const CHAT_KIND = 14;
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 const HEX64 = /^[0-9a-f]{64}$/;
+const NETWORKS = ['mainnet', 'testnet4', 'regtest'];
 const isInt = (n) => Number.isSafeInteger(n) && n >= 0;
 const tagOf = (r, n) => r.tags?.find((t) => t[0] === n)?.[1];
+const str = (v, max = 2000) => String(v ?? '').slice(0, max);
 
 export function rumorInfo(r) {
   const tradeId = tagOf(r, 'xbt-trade');
@@ -52,64 +64,85 @@ const byTime = (a, b) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 
 export const paymentOf = (offer) => (offer?.payment === 'direct' ? 'direct' : 'escrow');
 export const DIRECT_METHODS = ['onchain', 'lightning'];
+export const METHODS = ['lightning', 'onchain', 'escrow'];
+// The method the UI shows: lightning, onchain or escrow.
+export const methodOf = (state) => (state.payment === 'escrow' ? 'escrow' : state.method);
+
+function validateListing(l, from) {
+  if (!HEX64.test(l?.sellerPubkey || '')) return 'bad seller';
+  if (from === l.sellerPubkey) return 'buyer and seller must be different people';
+  return null;
+}
+
+function validateOpen(m) {
+  const b = m.body;
+  if (!NETWORKS.includes(b.network)) return 'unknown network';
+  return validateListing(b.listing, m.from);
+}
 
 function validateOffer(m) {
   const b = m.body;
   const net = b.network;
   if (b.tradeId !== m.tradeId) return 'trade id mismatch';
-  if (!['mainnet', 'testnet4', 'regtest'].includes(net)) return 'unknown network';
-  if (!HEX64.test(b.listing?.sellerPubkey || '')) return 'bad seller';
+  if (!NETWORKS.includes(net)) return 'unknown network';
+  const le = validateListing(b.listing, m.from);
+  if (le) return le;
   if (b.payment != null && !['escrow', 'direct'].includes(b.payment)) return 'unknown payment type';
+  if (!isInt(b.priceSats) || b.priceSats <= 0) return 'bad price';
+  if (b.buyer?.escrowPubkey != null && !isValidPubkey(b.buyer.escrowPubkey)) return 'bad buyer escrow key';
   if (b.payment === 'direct') {
     if (!DIRECT_METHODS.includes(b.method)) return 'unknown payment method';
     if (b.arbiter) return 'a direct trade has no arbiter';
-    if (!isInt(b.priceSats) || b.priceSats <= 0) return 'bad price';
     if (b.buyerDepositSats || b.sellerDepositSats) return 'a direct trade has no deposits';
-    if (m.from === b.listing.sellerPubkey) return 'buyer and seller must be different people';
     return null;
   }
-  if (!HEX64.test(b.arbiter?.pubkey || '')) return 'bad arbiter';
-  if (!isValidPubkey(b.arbiter?.escrowBase || '')) return 'bad arbiter escrow key';
-  if (!isValidPubkey(b.buyer?.escrowPubkey || '')) return 'bad buyer escrow key';
-  if (!isValidAddress(b.buyer?.payoutAddress || '', net)) return 'bad buyer payout address';
-  if (!isInt(b.priceSats) || b.priceSats <= 0) return 'bad price';
   if (!isInt(b.buyerDepositSats) || !isInt(b.sellerDepositSats)) return 'bad deposits';
-  const ids = new Set([m.from, b.listing.sellerPubkey, b.arbiter.pubkey]);
-  if (ids.size !== 3) return 'buyer, seller and arbiter must be three different people';
+  if (!isValidPubkey(b.buyer?.escrowPubkey || '')) return 'bad buyer escrow key';
+  if (b.arbiter) { // version 1: arbiter and refund address in the offer
+    if (!HEX64.test(b.arbiter.pubkey || '')) return 'bad arbiter';
+    if (!isValidPubkey(b.arbiter.escrowBase || '')) return 'bad arbiter escrow key';
+    if (!isValidAddress(b.buyer?.payoutAddress || '', net)) return 'bad buyer payout address';
+    if (new Set([m.from, b.listing.sellerPubkey, b.arbiter.pubkey]).size !== 3) return 'buyer, seller and arbiter must be three different people';
+  }
   return null;
 }
 
 function decisionError(m, offer) {
-  if (m.type === 'reject' || paymentOf(offer) === 'direct') return null;
+  if (m.type === 'reject') return null;
   const seller = m.body.seller;
-  if (!isValidPubkey(seller?.escrowPubkey || '')) return 'bad seller escrow key';
-  if (!isValidAddress(seller?.payoutAddress || '', offer.network)) return 'bad seller payout address';
-  const keys = [offer.buyer.escrowPubkey, seller.escrowPubkey, arbiterTradePubkey(offer.arbiter.escrowBase, offer.tradeId)];
-  if (new Set(keys).size !== 3) return 'duplicate escrow key';
+  if (seller?.escrowPubkey != null && !isValidPubkey(seller.escrowPubkey)) return 'bad seller escrow key';
+  if (seller?.payoutAddress && !isValidAddress(seller.payoutAddress, offer.network)) return 'bad seller payout address';
+  if (paymentOf(offer) === 'direct') return null;
+  if (!seller?.escrowPubkey) return 'bad seller escrow key';
+  if (seller.escrowPubkey === offer.buyer.escrowPubkey) return 'duplicate escrow key';
+  if (offer.arbiter) { // version 1
+    if (!isValidAddress(seller.payoutAddress || '', offer.network)) return 'bad seller payout address';
+    const keys = [offer.buyer.escrowPubkey, seller.escrowPubkey, arbiterTradePubkey(offer.arbiter.escrowBase, offer.tradeId)];
+    if (new Set(keys).size !== 3) return 'duplicate escrow key';
+  }
   return null;
 }
 
 function emptyState(tradeId) {
   return {
-    tradeId, status: 'unknown', offer: null, offerAt: 0, participants: null, accept: null, acceptedAt: 0,
-    escrow: null, escrowKeys: null, rejected: null, cancelled: null, shipped: null, received: null,
+    tradeId, status: 'unknown', open: null, offer: null, offerAt: 0, participants: null, accept: null, acceptedAt: 0,
+    escrow: null, escrowKeys: null, arbiter: null, rejected: null, cancelled: null, shipped: null, received: null,
     disputes: [], proposals: {}, proposalOrder: [], broadcasts: [], fundingHints: [], chat: [], log: [], errors: [],
-    checks: {}, payment: 'escrow', requests: [], request: null, paid: null, paymentConfirmed: null,
+    checks: {}, payment: 'escrow', method: null, terms: null, payout: { buyer: '', seller: '' }, shipTo: '', servicePointId: null,
+    changes: [], labels: [], requests: [], request: null, paid: null, paymentConfirmed: null, listing: null, version: 2,
   };
 }
 
 export function roleOf(state, pubkey) {
   const p = state.participants;
-  if (!p) return null;
+  if (!p || !pubkey) return null;
   return p.buyer === pubkey ? 'buyer' : p.seller === pubkey ? 'seller' : p.arbiter === pubkey ? 'arbiter' : null;
 }
 
 function labelOutputs(state, outputs) {
-  const buyerAddr = state.offer.buyer.payoutAddress;
-  const sellerAddr = state.accept?.seller.payoutAddress;
   return outputs.map((o) => ({
     ...o,
-    role: o.address === sellerAddr ? 'seller' : o.address === buyerAddr ? 'buyer' : 'other',
+    role: o.address === state.payout.seller ? 'seller' : o.address === state.payout.buyer ? 'buyer' : 'other',
   }));
 }
 
@@ -127,7 +160,7 @@ function applyProposal(state, m, role) {
   const fee = total - outputs.reduce((s, o) => s + o.sats, 0);
   if (fee < 0) return 'outputs exceed inputs';
   const proposal = {
-    id: b.id, from: m.from, role, purpose: b.purpose || 'custom', note: String(b.note || '').slice(0, 2000),
+    id: b.id, from: m.from, role, purpose: b.purpose || 'custom', note: str(b.note),
     utxos: b.utxos.map(({ txid, vout, value }) => ({ txid, vout, value })), tx, txHex: b.txHex,
     outputs: labelOutputs(state, outputs), total, fee, sigs: {}, signedBy: [], at: m.at,
   };
@@ -148,20 +181,20 @@ function applyRequest(state, m, ctx) {
   if (!state.accept) return 'not accepted yet';
   if (state.paid || state.paymentConfirmed) return 'already paid';
   let req;
-  if (o.method === 'lightning') {
+  if (state.method === 'lightning') {
     let inv;
     try { inv = decodeInvoice(b.invoice); } catch (e) { return 'bad invoice: ' + e.message; }
-    if (inv.amountMsat == null || inv.amountMsat !== BigInt(o.priceSats) * 1000n) return 'invoice amount differs from the agreed price';
+    if (inv.amountMsat == null || inv.amountMsat !== BigInt(state.terms.priceSats) * 1000n) return 'invoice amount differs from the agreed price';
     if (ctx.lightningNetwork && inv.network !== ctx.lightningNetwork) return `invoice is for network "${inv.network}"`;
     req = { method: 'lightning', invoice: inv.invoice, paymentHash: inv.paymentHash, network: inv.network, expiresAt: inv.expiresAt };
   } else {
     if (!isValidAddress(b.address || '', o.network)) return 'bad address';
-    if (b.amountSats !== o.priceSats) return 'amount differs from the agreed price';
+    if (b.amountSats !== state.terms.priceSats) return 'amount differs from the agreed price';
     req = { method: 'onchain', address: b.address, amountSats: b.amountSats };
   }
   req.id = m.id;
   req.at = m.at;
-  req.note = String(b.note || '').slice(0, 500);
+  req.note = str(b.note, 500);
   state.requests.push(req);
   state.request = req;
   return null;
@@ -193,6 +226,88 @@ function applySign(state, m, role) {
   return null;
 }
 
+const paidYet = (state) => !!(state.paid || state.paymentConfirmed || state.escrow);
+
+function setupEscrow(state, ctx) {
+  const k = state.escrowKeys;
+  if (state.payment !== 'escrow' || !k?.buyer || !k?.seller || !k?.arbiter || state.escrow) return null;
+  if (new Set([k.buyer, k.seller, k.arbiter]).size !== 3) return 'duplicate escrow key';
+  state.escrow = escrowInfo(k, state.offer.network);
+  const trusted = ctx.arbiters?.get?.(state.arbiter.pubkey);
+  state.checks.arbiterTrusted = !!trusted && trusted.escrowBase === state.arbiter.escrowBase;
+  return null;
+}
+
+function applyDetails(state, m, role, ctx) {
+  const b = m.body;
+  if (!state.accept) return 'not accepted yet';
+  const net = state.offer.network;
+  const frozen = state.proposalOrder.length > 0; // payout addresses are fixed once a payout is proposed
+  if (b.payoutAddress != null && b.payoutAddress !== '') {
+    if (!isValidAddress(b.payoutAddress, net)) return 'bad payout address';
+    if (role === 'arbiter') return 'the arbiter has no payout address';
+    if (frozen) return 'a payout was already proposed';
+    state.payout[role] = b.payoutAddress;
+  }
+  if (role !== 'buyer') return b.arbiter || b.shipTo ? 'only the buyer sends these details' : null;
+  if (b.shipTo != null) state.shipTo = typeof b.shipTo === 'object' ? b.shipTo : str(b.shipTo);
+  if (b.servicePointId != null) state.servicePointId = str(b.servicePointId, 40);
+  if (b.arbiter) {
+    if (state.payment !== 'escrow') return 'a direct trade has no arbiter';
+    if (state.arbiter) return 'the arbiter was already chosen';
+    const a = b.arbiter;
+    if (!HEX64.test(a.pubkey || '') || !isValidPubkey(a.escrowBase || '')) return 'bad arbiter';
+    if (a.pubkey === state.participants.buyer || a.pubkey === state.participants.seller) return 'buyer, seller and arbiter must be three different people';
+    state.arbiter = { pubkey: a.pubkey, escrowBase: a.escrowBase };
+    state.participants.arbiter = a.pubkey;
+    state.escrowKeys.arbiter = arbiterTradePubkey(a.escrowBase, state.tradeId);
+    const err = setupEscrow(state, ctx);
+    if (err) { state.arbiter = null; state.participants.arbiter = null; state.escrowKeys.arbiter = null; return err; }
+  }
+  return null;
+}
+
+// A request to switch the payment method, valid until anything is paid.
+function changeError(state, b) {
+  if (!state.offer) return 'no offer yet';
+  if (state.rejected || state.cancelled) return 'already closed';
+  if (paidYet(state)) return 'already paid or in escrow';
+  if (!METHODS.includes(b.method)) return 'unknown payment method';
+  if (b.method === methodOf(state)) return 'that is already the payment method';
+  const allowed = state.offer.listing.payments;
+  if (Array.isArray(allowed) && allowed.length && !allowed.includes(b.method)) return 'the listing does not accept this payment method';
+  if (b.method === 'escrow') {
+    if (!isInt(b.buyerDepositSats) || !isInt(b.sellerDepositSats)) return 'bad deposits';
+    if (!state.escrowKeys?.buyer || (state.accept && !state.accept.seller?.escrowPubkey)) return 'this offer cannot switch to escrow';
+  }
+  return null;
+}
+
+function applyChangeOk(state, m, role) {
+  const c = state.changes.find((x) => x.id === m.body.changeId);
+  if (!c) return 'unknown change';
+  if (c.role === role) return 'the other side has to agree';
+  if (c.status !== 'open') return 'this change was already answered';
+  const err = changeError(state, c);
+  if (err) { c.status = 'void'; return err; }
+  c.status = 'accepted';
+  c.answeredAt = m.at;
+  if (c.method === 'escrow') {
+    state.payment = 'escrow';
+    state.method = null;
+    state.terms = { ...state.terms, buyerDepositSats: c.buyerDepositSats, sellerDepositSats: c.sellerDepositSats };
+    state.escrowKeys = { buyer: state.offer.buyer.escrowPubkey, seller: state.accept?.seller?.escrowPubkey || null, arbiter: null };
+  } else {
+    state.payment = 'direct';
+    state.method = c.method;
+    state.terms = { ...state.terms, buyerDepositSats: 0, sellerDepositSats: 0 };
+  }
+  // A payment request for the old method no longer counts.
+  state.request = null;
+  for (const x of state.changes) if (x.status === 'open') x.status = 'void';
+  return null;
+}
+
 // ctx.arbiters: Map(pubkey -> { escrowBase, ... }) of arbiters this user trusts.
 // ctx.me: this user's pubkey.
 export function reduceTrade(tradeId, rumors, ctx = {}) {
@@ -200,39 +315,59 @@ export function reduceTrade(tradeId, rumors, ctx = {}) {
   const msgs = rumors.map((r) => (r.type ? r : rumorInfo(r))).filter((m) => m && m.tradeId === tradeId).sort(byTime);
   const seen = new Set();
 
-  const offerMsg = msgs.find((m) => m.type === 'offer' && !validateOffer(m));
-  if (!offerMsg) {
+  const openMsg = msgs.find((m) => m.type === 'open' && !validateOpen(m));
+  const offerMsg = msgs.find((m) => m.type === 'offer' && !validateOffer(m) && (!openMsg || (m.from === openMsg.from && m.body.listing.sellerPubkey === openMsg.body.listing.sellerPubkey)));
+  if (!offerMsg && !openMsg) {
     state.errors.push('no valid offer');
     return state;
   }
-  const o = offerMsg.body;
-  const direct = paymentOf(o) === 'direct';
-  state.offer = o;
-  state.offerAt = offerMsg.at;
-  state.payment = paymentOf(o);
-  state.participants = { buyer: offerMsg.from, seller: o.listing.sellerPubkey, arbiter: direct ? null : o.arbiter.pubkey };
-  state.status = 'offered';
-  if (!direct) {
-    state.escrowKeys = { buyer: o.buyer.escrowPubkey, seller: null, arbiter: arbiterTradePubkey(o.arbiter.escrowBase, tradeId) };
-    const trusted = ctx.arbiters?.get?.(o.arbiter.pubkey);
-    state.checks.arbiterTrusted = !!trusted && trusted.escrowBase === o.arbiter.escrowBase;
+  if (openMsg) {
+    state.open = { ...openMsg.body, at: openMsg.at };
+    state.listing = openMsg.body.listing;
+    state.participants = { buyer: openMsg.from, seller: openMsg.body.listing.sellerPubkey, arbiter: null };
+    state.status = 'chat';
+  }
+  const o = offerMsg?.body;
+  if (o) {
+    const direct = paymentOf(o) === 'direct';
+    state.offer = o;
+    state.listing = o.listing;
+    state.offerAt = offerMsg.at;
+    state.version = o.arbiter || (!openMsg && o.v === 1) ? 1 : 2;
+    state.payment = paymentOf(o);
+    state.method = direct ? o.method : null;
+    state.terms = { priceSats: o.priceSats, buyerDepositSats: o.buyerDepositSats || 0, sellerDepositSats: o.sellerDepositSats || 0 };
+    state.participants = { buyer: offerMsg.from, seller: o.listing.sellerPubkey, arbiter: null };
+    state.payout.buyer = o.buyer?.payoutAddress || '';
+    state.shipTo = o.shipTo || '';
+    state.escrowKeys = { buyer: o.buyer?.escrowPubkey || null, seller: null, arbiter: null };
+    if (o.arbiter) {
+      state.arbiter = { pubkey: o.arbiter.pubkey, escrowBase: o.arbiter.escrowBase };
+      state.participants.arbiter = o.arbiter.pubkey;
+      state.escrowKeys.arbiter = arbiterTradePubkey(o.arbiter.escrowBase, tradeId);
+      const trusted = ctx.arbiters?.get?.(o.arbiter.pubkey);
+      state.checks.arbiterTrusted = !!trusted && trusted.escrowBase === o.arbiter.escrowBase;
+    }
+    state.status = 'offered';
   }
   state.role = ctx.me ? roleOf(state, ctx.me) : null;
 
   // Timestamps are chosen by senders, so the seller's decision is settled
   // first and an accept, once sent, always wins: neither a backdated buyer
   // cancel nor a backdated seller reject can hide an escrow that may hold coins.
-  const fromSeller = (t) => msgs.find((m) => m.from === state.participants.seller && m.type === t && !decisionError(m, o));
-  const decision = fromSeller('accept') || fromSeller('reject');
-  if (decision?.type === 'accept') {
-    if (!direct) {
-      state.escrowKeys.seller = decision.body.seller.escrowPubkey;
-      state.escrow = escrowInfo(state.escrowKeys, o.network);
+  let decision = null;
+  if (o) {
+    const fromSeller = (t) => msgs.find((m) => m.from === state.participants.seller && m.type === t && !decisionError(m, o));
+    decision = fromSeller('accept') || fromSeller('reject');
+    if (decision?.type === 'accept') {
+      state.accept = decision.body;
+      state.acceptedAt = decision.at;
+      state.escrowKeys.seller = decision.body.seller?.escrowPubkey || null;
+      if (decision.body.seller?.payoutAddress) state.payout.seller = decision.body.seller.payoutAddress;
+      if (state.payment === 'escrow') setupEscrow(state, ctx);
+    } else if (decision?.type === 'reject') {
+      state.rejected = { reason: str(decision.body.reason), at: decision.at };
     }
-    state.accept = decision.body;
-    state.acceptedAt = decision.at;
-  } else if (decision?.type === 'reject') {
-    state.rejected = { reason: String(decision.body.reason || ''), at: decision.at };
   }
 
   for (const m of msgs) {
@@ -243,77 +378,110 @@ export function reduceTrade(tradeId, rumors, ctx = {}) {
     let err = null;
     const b = m.body;
     const afterAccept = !!state.accept;
+    const direct = state.payment === 'direct';
     const escrowOnly = ['funded', 'dispute', 'proposal', 'sign', 'broadcast'];
     const directOnly = ['request', 'paid', 'confirm_paid'];
-    if (direct ? escrowOnly.includes(m.type) : directOnly.includes(m.type)) {
-      const err = direct ? 'not used in a direct trade' : 'only used in a direct trade';
-      state.log.push({ id: m.id, type: m.type, role, at: m.at, error: err });
-      state.errors.push(`${m.type} from ${role}: ${err}`);
-      continue;
+    const needsOffer = !['open', 'chat', 'offer'].includes(m.type);
+    if (needsOffer && !state.offer) {
+      err = 'no offer yet';
+    } else if (direct ? escrowOnly.includes(m.type) : directOnly.includes(m.type)) {
+      err = direct ? 'not used in a direct trade' : 'only used in a direct trade';
+    } else {
+      switch (m.type) {
+        case 'open':
+          if (m.id !== openMsg?.id) err = 'only one start per trade';
+          break;
+        case 'offer':
+          if (m.id !== offerMsg?.id) err = 'only one offer per trade';
+          break;
+        case 'accept':
+        case 'reject':
+          if (role !== 'seller') err = `only the seller can ${m.type}`;
+          else if (m.id !== decision?.id) err = decisionError(m, o) || 'the seller already decided';
+          break;
+        case 'details':
+          err = applyDetails(state, m, role, ctx);
+          break;
+        case 'change':
+          if (role === 'arbiter') err = 'the arbiter does not change payments';
+          else if (!(err = changeError(state, b))) {
+            for (const x of state.changes) if (x.status === 'open' && x.role === role) x.status = 'void';
+            state.changes.push({ id: m.id, role, from: m.from, method: b.method, buyerDepositSats: b.buyerDepositSats, sellerDepositSats: b.sellerDepositSats, note: str(b.note, 500), status: 'open', at: m.at });
+          }
+          break;
+        case 'change_ok':
+          err = applyChangeOk(state, m, role);
+          break;
+        case 'change_no': {
+          const c = state.changes.find((x) => x.id === b.changeId);
+          if (!c || c.role === role || c.status !== 'open') err = 'nothing to decline';
+          else { c.status = 'declined'; c.reason = str(b.reason, 500); c.answeredAt = m.at; }
+          break;
+        }
+        case 'cancel':
+          if (role === 'arbiter') err = 'arbiter cannot cancel';
+          else if (state.rejected || state.cancelled) err = 'already closed';
+          else if (direct && (state.paid || state.paymentConfirmed)) err = 'already paid; agree a refund in the chat';
+          else state.cancelled = { by: role, reason: str(b.reason), at: m.at };
+          break;
+        case 'funded':
+          if (HEX64.test(b.txid || '')) state.fundingHints.push({ by: role, txid: b.txid, at: m.at });
+          break;
+        case 'label':
+          if (role !== 'seller') err = 'only the seller makes a label';
+          else if (!afterAccept) err = 'not accepted yet';
+          else state.labels.push({ id: m.id, carrier: str(b.carrier, 40), service: str(b.service, 100), tracking: str(b.tracking, 60), trackingUrl: /^https:\/\//.test(b.trackingUrl || '') ? str(b.trackingUrl, 500) : '', labelUrl: /^https?:\/\//.test(b.labelUrl || '') ? str(b.labelUrl, 500) : '', qrUrl: /^https?:\/\//.test(b.qrUrl || '') ? str(b.qrUrl, 500) : '', at: m.at });
+          break;
+        case 'shipped':
+          if (role !== 'seller') err = 'only the seller ships';
+          else if (!afterAccept) err = 'not accepted yet';
+          else state.shipped = { carrier: str(b.carrier, 40), tracking: str(b.tracking, 60), note: str(b.note), at: m.at };
+          break;
+        case 'received':
+          if (role !== 'buyer') err = 'only the buyer confirms receipt';
+          else state.received = { at: m.at, note: str(b.note) };
+          break;
+        case 'dispute':
+          if (role === 'arbiter') err = 'arbiter does not open disputes';
+          else if (!afterAccept) err = 'not accepted yet';
+          else if (!state.escrow) err = 'no escrow yet';
+          else state.disputes.push({ by: role, reason: str(b.reason), at: m.at });
+          break;
+        case 'proposal':
+          err = applyProposal(state, m, role);
+          break;
+        case 'sign':
+          err = applySign(state, m, role);
+          break;
+        case 'broadcast':
+          if (HEX64.test(b.txid || '')) state.broadcasts.push({ by: role, txid: b.txid, proposalId: b.proposalId, at: m.at });
+          break;
+        case 'request':
+          err = role !== 'seller' ? 'only the seller requests payment' : applyRequest(state, m, ctx);
+          break;
+        case 'paid':
+          err = role !== 'buyer' ? 'only the buyer reports a payment' : applyPaid(state, m);
+          break;
+        case 'confirm_paid':
+          if (role !== 'seller') err = 'only the seller confirms a payment';
+          else if (!state.request) err = 'no payment request yet';
+          else if (!state.paymentConfirmed) state.paymentConfirmed = { at: m.at };
+          break;
+        case 'chat':
+          state.chat.push({ id: m.id, from: m.from, role, text: b.text, at: m.at });
+          break;
+        default:
+          err = 'unknown message type';
+      }
     }
-    switch (m.type) {
-      case 'offer':
-        if (m.id !== offerMsg.id) err = 'only one offer per trade';
-        break;
-      case 'accept':
-      case 'reject':
-        if (role !== 'seller') err = `only the seller can ${m.type}`;
-        else if (m.id !== decision?.id) err = decisionError(m, o) || 'the seller already decided';
-        break;
-      case 'cancel':
-        if (role === 'arbiter') err = 'arbiter cannot cancel';
-        else if (state.rejected || state.cancelled) err = 'already closed';
-        else if (direct && (state.paid || state.paymentConfirmed)) err = 'already paid; agree a refund in the chat';
-        else state.cancelled = { by: role, reason: String(b.reason || ''), at: m.at };
-        break;
-      case 'funded':
-        if (HEX64.test(b.txid || '')) state.fundingHints.push({ by: role, txid: b.txid, at: m.at });
-        break;
-      case 'shipped':
-        if (role !== 'seller') err = 'only the seller ships';
-        else if (!afterAccept) err = 'not accepted yet';
-        else state.shipped = { carrier: String(b.carrier || ''), tracking: String(b.tracking || ''), note: String(b.note || ''), at: m.at };
-        break;
-      case 'received':
-        if (role !== 'buyer') err = 'only the buyer confirms receipt';
-        else state.received = { at: m.at, note: String(b.note || '') };
-        break;
-      case 'dispute':
-        if (role === 'arbiter') err = 'arbiter does not open disputes';
-        else if (!afterAccept) err = 'not accepted yet';
-        else state.disputes.push({ by: role, reason: String(b.reason || ''), at: m.at });
-        break;
-      case 'proposal':
-        err = applyProposal(state, m, role);
-        break;
-      case 'sign':
-        err = applySign(state, m, role);
-        break;
-      case 'broadcast':
-        if (HEX64.test(b.txid || '')) state.broadcasts.push({ by: role, txid: b.txid, proposalId: b.proposalId, at: m.at });
-        break;
-      case 'request':
-        err = role !== 'seller' ? 'only the seller requests payment' : applyRequest(state, m, ctx);
-        break;
-      case 'paid':
-        err = role !== 'buyer' ? 'only the buyer reports a payment' : applyPaid(state, m);
-        break;
-      case 'confirm_paid':
-        if (role !== 'seller') err = 'only the seller confirms a payment';
-        else if (!state.request) err = 'no payment request yet';
-        else if (!state.paymentConfirmed) state.paymentConfirmed = { at: m.at };
-        break;
-      case 'chat':
-        state.chat.push({ id: m.id, from: m.from, role, text: b.text, at: m.at });
-        break;
-      default:
-        err = 'unknown message type';
-    }
-    state.log.push({ id: m.id, type: m.type, role, at: m.at, error: err });
+    state.log.push({ id: m.id, type: m.type, role, at: m.at, error: err, body: m.type === 'chat' ? undefined : b });
     if (err) state.errors.push(`${m.type} from ${role}: ${err}`);
   }
+  // The role may only be known now (an arbiter chosen after the offer).
+  state.role = ctx.me ? roleOf(state, ctx.me) : null;
 
-  if (direct) {
+  if (!state.offer) return state;
+  if (state.payment === 'direct') {
     state.status = state.rejected ? 'rejected'
       : state.cancelled ? 'cancelled'
       : state.received ? 'completed'
@@ -325,7 +493,7 @@ export function reduceTrade(tradeId, rumors, ctx = {}) {
   }
   state.status = state.rejected ? 'rejected'
     : state.broadcasts.length ? 'closed'
-    : state.cancelled && !state.accept ? 'cancelled'
+    : state.cancelled && !state.escrow ? 'cancelled'
     : state.cancelled ? 'cancelling'
     : state.disputes.length ? 'disputed'
     : state.shipped ? 'shipped'
@@ -336,7 +504,7 @@ export function reduceTrade(tradeId, rumors, ctx = {}) {
 
 // ---- helpers used by the UI ------------------------------------------------
 
-export const expectedTotal = (s) => s.offer.priceSats + (s.offer.buyerDepositSats || 0) + (s.offer.sellerDepositSats || 0);
+export const expectedTotal = (s) => s.terms.priceSats + (s.terms.buyerDepositSats || 0) + (s.terms.sellerDepositSats || 0);
 
 // The value both parties name in their reviews: the payout txid for escrow,
 // the payment txid or Lightning payment hash for a direct trade.
@@ -357,9 +525,9 @@ export function finalizeProposal(state, proposal) {
 
 // The standard splits. `balance` is the escrow's actual balance in sats.
 export function presetAllocations(state, purpose, balance) {
-  const o = state.offer;
-  const buyer = o.buyer.payoutAddress;
-  const seller = state.accept.seller.payoutAddress;
+  const o = state.terms;
+  const buyer = state.payout.buyer;
+  const seller = state.payout.seller;
   const sellerShare = o.priceSats + o.sellerDepositSats;
   let s;
   if (purpose === 'release') s = Math.min(balance, sellerShare); // buyer gets deposit + any overpayment

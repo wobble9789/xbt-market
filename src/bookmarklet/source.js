@@ -5,7 +5,7 @@
 // in extract.js (unit tested); this file only does page I/O.
 import {
   BOOKMARKLET_VERSION, mpResults, nextDataFromHtml, mpSellerPath, fromMp, fromVinted, vintedMemberId,
-  flattenJsonLd, productsFromJsonLd, cardsFromDocument, dedupeItems,
+  flattenJsonLd, productsFromJsonLd, cardsFromDocument, dedupeItems, findMpListings, itemFromMeta,
 } from './extract.js';
 
 (async () => {
@@ -29,6 +29,11 @@ import {
     let own = null;
     try { own = JSON.parse(document.getElementById('__NEXT_DATA__')?.textContent || 'null'); } catch { /* none */ }
     const first = mpResults(own);
+    if (!first?.listings?.length && own) {
+      // A single ad, or the seller's own view of one (/seller/view/m…).
+      const found = findMpListings(own);
+      if (found.length) { platform = 'marktplaats'; found.forEach((l) => items.push(fromMp(l, here))); }
+    }
     if (first?.listings?.length) {
       platform = 'marktplaats';
       first.listings.forEach((l) => items.push(fromMp(l, here)));
@@ -71,11 +76,13 @@ import {
 
   // Listing grids (eBay), never on Marktplaats where the header would be misread.
   if (!items.length && !/marktplaats\.|2dehands\.|2ememain\./.test(host)) items.push(...cardsFromDocument(document, here, host));
+  // A single item page without structured data: its share tags (og:title, og:image…).
+  if (!items.length) items.push(...itemFromMeta(document, here));
 
   const clean = dedupeItems(items);
   if (!clean.length) {
     win?.close();
-    alert('XBT Market: no listings found here. Open your own Marktplaats profile (marktplaats.nl/u/…), Vinted profile (vinted.xx/member/…), an eBay seller page, or a single item page, then click the bookmark again.');
+    alert('XBT Market: no listings found on this page. Open your public Marktplaats profile (marktplaats.nl/u/…), your Vinted profile (vinted.xx/member/…) or one ad, and tap the bookmark again. Or copy the link and paste it on the XBT Market import page.');
     return;
   }
   payload = { v: BOOKMARKLET_VERSION, source: host, platform: platform || host.replace(/^www\./, ''), complete, page: here, at: Date.now(), items: clean };

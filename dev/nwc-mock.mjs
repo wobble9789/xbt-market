@@ -11,6 +11,7 @@ import * as nip44 from 'nostr-tools/nip44';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { randomBytes } from '@noble/hashes/utils.js';
 import { fakeInvoice } from './fake-invoice.mjs';
+import http from 'node:http';
 
 const relay = process.argv[2] || 'ws://127.0.0.1:7777';
 const network = process.argv[3] || 'bcrt';
@@ -28,7 +29,7 @@ const hex = (b) => Buffer.from(b).toString('hex');
 const keyFor = (name) => sha256(new TextEncoder().encode(`xbt-mock-wallet/${name}`));
 
 const invoices = new Map(); // paymentHash -> { invoice, preimage, msat, owner, settledAt }
-const wallets = ['buyer', 'seller', 'arbiter'].map((name) => {
+const wallets = ['buyer', 'seller', 'arbiter', 'platform'].map((name) => {
   const sk = keyFor(name);
   const clientSk = keyFor(`${name}/client`);
   return { name, sk, pk: getPublicKey(sk), clientPk: getPublicKey(clientSk), balance: 10_000_000_000, uri: `nostr+walletconnect://${getPublicKey(sk)}?relay=${encodeURIComponent(relay)}&secret=${hex(clientSk)}` };
@@ -87,6 +88,24 @@ for (const w of wallets) {
     },
   });
 }
+
+// The platform's Lightning address (LUD-16) with LUD-21 "verify", which the
+// XBT Market service uses to charge for shipping labels:
+//   platform@127.0.0.1:3010
+const lnPort = Number(process.env.LNURL_PORT || 3010);
+http.createServer((req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const out = (o, s = 200) => { res.writeHead(s, { 'content-type': 'application/json', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(o)); };
+  const base = `http://${req.headers.host}`;
+  if (url.pathname === '/.well-known/lnurlp/platform') return out({ tag: 'payRequest', callback: `${base}/lnurl/platform`, minSendable: 1000, maxSendable: 1e14, metadata: '[["text/plain","XBT Market labels"]]' });
+  if (url.pathname === '/lnurl/platform') {
+    const r = handle(wallets.find((w) => w.name === 'platform'), { method: 'make_invoice', params: { amount: Number(url.searchParams.get('amount')), description: 'XBT Market shipping label' } });
+    return out({ pr: r.invoice, routes: [], verify: `${base}/verify/${r.payment_hash}` });
+  }
+  const m = url.pathname.match(/^\/verify\/([0-9a-f]{64})$/);
+  if (m) { const i = invoices.get(m[1]); return i ? out({ status: 'OK', settled: !!i.settledAt, preimage: i.settledAt ? i.preimage : null, pr: i.invoice }) : out({ status: 'ERROR', reason: 'Not found' }, 404); }
+  out({ status: 'ERROR', reason: 'Not found' }, 404);
+}).listen(lnPort, '127.0.0.1');
 
 console.log(`Mock NWC wallets on ${relay} (Lightning network prefix "ln${network}"):`);
 for (const w of wallets) console.log(`\n  ${w.name}:\n  ${w.uri}`);

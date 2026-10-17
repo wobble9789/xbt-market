@@ -17,7 +17,7 @@ await setupPage(app);
 await app.goto((process.env.APP_URL || 'http://127.0.0.1:4173/'), { waitUntil: 'load' });
 await app.evaluate((p) => {
   localStorage.setItem('xbt:account', JSON.stringify({ pubkey: p.pk, sk: p.sk, backedUp: true }));
-  localStorage.setItem('xbt:settings', JSON.stringify({ relays: ['ws://127.0.0.1:7777'], network: 'regtest', lang: 'nl' }));
+  localStorage.setItem('xbt:settings', JSON.stringify({ relays: ['ws://127.0.0.1:7777'], network: 'regtest', lang: 'en', country: 'NL' }));
 }, { pk: getPublicKey(sk), sk: Buffer.from(sk).toString('hex') });
 await app.close();
 let failures = 0;
@@ -41,7 +41,7 @@ for (const [url, expect] of [
   console.log(ok ? 'ok  ' : 'FAIL', url, JSON.stringify(vals), JSON.stringify(prices), txt.split('\n')[1] || '');
   if (url.includes('member')) {
     if (process.env.SHOTS) await imp.screenshot({ path: process.env.SHOTS + '/8-import.png', fullPage: true });
-    await imp.evaluate(() => [...document.querySelectorAll('button')].find((b) => /publiceren/.test(b.textContent)).click());
+    await imp.evaluate(() => [...document.querySelectorAll('button')].find((b) => /^Publish \d/.test(b.textContent)).click());
     await sleep(3000);
     console.log('after publish:', (await imp.evaluate(() => document.querySelector('main').innerText)).slice(0, 120).replace(/\n/g, ' | '));
   }
@@ -74,24 +74,26 @@ async function runMp(label) {
 await fetch('http://127.0.0.1:4300/__variant?v=1');
 let r = await runMp('first import');
 const check = (cond, msg) => { if (!cond) { failures++; console.log('FAIL', msg); } };
-check(r.rows.length === 5 && r.rows.filter((x) => x.badge.match(/Nieuw/)).length === 5, 'all 5 new');
+check(r.rows.length === 5 && r.rows.filter((x) => x.badge.match(/New/)).length === 5, 'all 5 new');
 check(r.rows.find((x) => x.title === 'MP item 5').checked === false, 'price-less item not preselected');
 check(r.rows.find((x) => x.title === 'MP item 1').price === '10', 'price parsed');
 check(r.rows.find((x) => x.title === 'MP item 4').price === '40', 'MIN_BID price parsed');
 check(!r.goneText, 'other platforms are never reported as gone');
-await r.imp.evaluate(() => [...document.querySelectorAll('button')].find((b) => /publiceren/.test(b.textContent)).click());
-await r.imp.waitForFunction(() => /4 staan al/.test(document.querySelector('.import-summary')?.innerText || ''), { timeout: 30000 });
+await r.imp.evaluate(() => [...document.querySelectorAll('button')].find((b) => /^Publish \d/.test(b.textContent)).click());
+await r.imp.waitForFunction(() => /4 already on XBT Market/.test(document.querySelector('.import-summary')?.innerText || ''), { timeout: 30000 });
 await r.imp.close(); await r.shop.close();
 
 r = await runMp('re-import, nothing changed');
-check(/1 nieuw/.test(r.summary) && /4 staan al/.test(r.summary), 'everything recognised on re-import (only the unpriced one is new)');
+check(/1 new/.test(r.summary) && /4 already on XBT Market/.test(r.summary), 'everything recognised on re-import (only the unpriced one is new)');
+check(r.rows.length === 1, 'items already on XBT Market are hidden from the list');
 check(r.rows.every((x) => !x.checked || x.title === 'MP item 5'), 'nothing preselected');
 await r.imp.close(); await r.shop.close();
 
 await fetch('http://127.0.0.1:4300/__variant?v=2');
 r = await runMp('re-import after changes on Marktplaats');
-check(/1 gewijzigd/.test(r.summary), 'price change detected');
-check(/^1 van je advertenties/.test(r.goneText) && /MP item 3/.test(r.goneText), 'exactly the removed listing detected');
+check(/1 changed/.test(r.summary), 'price change detected');
+check(/^1 of your listings/.test(r.goneText) && /MP item 3/.test(r.goneText), 'exactly the removed listing detected');
+check(await r.imp.evaluate(() => [...document.querySelectorAll('button')].some((b) => b.textContent === 'Mark as sold on XBT Market')), 'button says "Mark as sold on XBT Market"');
 await r.imp.close(); await r.shop.close();
 
 // An old (v1) bookmark must trigger the "out of date" warning.
@@ -101,9 +103,43 @@ await r.imp.close(); await r.shop.close();
   await sleep(1500);
   await imp.evaluate(() => window.postMessage({ type: 'xbt-import', payload: { v: 1, source: 'www.marktplaats.nl', at: 1, page: 'x', items: [{ title: 'ITW', price: 1, url: 'https://www.marktplaats.nl/u/itw/1/' }] } }, '*'));
   await sleep(2500);
-  const warned = await imp.evaluate(() => /verouderd|out of date/.test(document.body.innerText));
+  const warned = await imp.evaluate(() => /older version \(v1, now v\d\)/.test(document.body.innerText));
   check(warned, 'outdated bookmark warning shown');
   console.log(warned ? 'ok   outdated bookmark warning' : 'FAIL outdated bookmark warning');
+  await imp.close();
+}
+
+// A single reserved ad from the seller's own view (/seller/view/m…), with the
+// bookmark: found, marked reserved, not preselected, and no outdated warning.
+{
+  const shop = await browser.newPage();
+  await shop.goto('http://127.0.0.1:4300/seller/view/m2454474184', { waitUntil: 'load' });
+  const popup = new Promise((resolve) => browser.once('targetcreated', (t) => resolve(t.page())));
+  shop.on('dialog', (d) => { console.log('  dialog:', d.message()); d.dismiss(); });
+  await shop.evaluate(BOOKMARKLET + ';0');
+  const imp = await popup;
+  await imp.waitForSelector('.import-row', { timeout: 20000 });
+  const row = await imp.evaluate(() => ({ title: document.querySelector('.import-row input:not([type=checkbox]):not(.price-in)').value, checked: document.querySelector('.import-row input[type=checkbox]').checked, text: document.querySelector('main').innerText }));
+  check(row.title === 'Eiken salontafel', 'single ad from /seller/view/ found');
+  check(/Reserved there/.test(row.text) && !row.checked, 'reserved ad recognised and not preselected');
+  check(!/older version/.test(row.text), 'a fresh bookmark gives no outdated warning');
+  console.log(row.title === 'Eiken salontafel' ? 'ok   single reserved ad via the bookmark' : 'FAIL single ad', JSON.stringify(row.title));
+  await imp.close(); await shop.close();
+}
+
+// The same ad by pasting its link (the XBT Market service reads the page), as a phone user would.
+if (process.env.API) {
+  const imp = await browser.newPage();
+  await setupPage(imp);
+  await imp.goto((process.env.APP_URL || 'http://127.0.0.1:4173/') + '#/import', { waitUntil: 'load' });
+  const input = await imp.waitForSelector('input[inputmode=url]', { timeout: 15000 });
+  await input.type('http://127.0.0.1:4300/seller/view/m2454474184');
+  await imp.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent === 'Read').click());
+  await imp.waitForSelector('.import-row', { timeout: 20000 }).catch(() => {});
+  const title = await imp.evaluate(() => document.querySelector('.import-row input:not([type=checkbox]):not(.price-in)')?.value || document.querySelector('main').innerText.slice(0, 300));
+  check(title === 'Eiken salontafel', 'import by pasted link');
+  console.log(title === 'Eiken salontafel' ? 'ok   import by pasted link' : 'FAIL import by pasted link: ' + title);
+  if (process.env.SHOTS) await imp.screenshot({ path: process.env.SHOTS + '/import-link.png', fullPage: true });
   await imp.close();
 }
 

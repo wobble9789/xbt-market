@@ -1,9 +1,13 @@
 // End-to-end test of a direct Lightning purchase through the real UI, with the
 // mock NWC wallets (no node needed): both connect a wallet, the seller lists
-// with delivery options, the buyer orders "Direct, Lightning", the seller's
-// wallet makes the invoice, the buyer's wallet pays it, the seller ships with
-// a tracking code, the buyer confirms, and both reviews become "verified".
-// Needs: npm run relay, npm run wallets, npm run build && npm run preview.
+// with carriers (no shipping price), the buyer orders from the chat with
+// Lightning and picks PostNL at its live rate, the seller's wallet makes the
+// invoice, the buyer's wallet pays it, the buyer sends the address, the seller
+// buys a prepaid label (paid over Lightning, QR code in the chat), ships, the
+// buyer confirms, and both reviews become "verified". Then an on-chain
+// purchase where the buyer switches from Lightning to on-chain first.
+// Needs: npm run relay, npm run wallets, npm run sendcloud, npm run service:dev,
+// and a build with VITE_API_URL=http://127.0.0.1:8787 (npm run preview).
 // Browser: Firefox by default (FIREFOX=…), or Chromium with CHROME=/path/to/chrome.
 import puppeteer from 'puppeteer-core';
 import { mkdirSync, rmSync } from 'node:fs';
@@ -22,7 +26,7 @@ const walletKey = (n) => sha256(new TextEncoder().encode(`xbt-mock-wallet/${n}`)
 const walletUri = (n) => `nostr+walletconnect://${getPublicKey(walletKey(n))}?relay=${encodeURIComponent(RELAY)}&secret=${hex(walletKey(`${n}/client`))}`;
 
 const people = {};
-for (const who of ['seller', 'buyer']) { const sk = generateSecretKey(); people[who] = { sk: hex(sk), pk: getPublicKey(sk) }; }
+for (const who of ['seller', 'buyer']) { const sk = generateSecretKey(); people[who] = { sk: hex(sk), pk: getPublicKey(sk), name: who === 'seller' ? 'Sam Seller' : 'Bob Buyer', city: who === 'seller' ? 'Utrecht' : 'Amsterdam' }; }
 
 const chrome = process.env.CHROME;
 const browser = await puppeteer.launch({
@@ -58,7 +62,10 @@ async function open(who) {
   await page.evaluate((p, saved, relay) => {
     if (saved) { for (const [k, v] of Object.entries(saved)) localStorage.setItem(k, v); return; }
     localStorage.setItem('xbt:account', JSON.stringify({ pubkey: p.pk, sk: p.sk, backedUp: true }));
-    localStorage.setItem('xbt:settings', JSON.stringify({ relays: [relay], network: 'regtest', lang: 'en', manualRate: { value: 50000, currency: 'EUR' }, currency: 'EUR' }));
+    localStorage.setItem('xbt:settings', JSON.stringify({
+      relays: [relay], network: 'regtest', lang: 'en', manualRate: { value: 50000, currency: 'EUR' }, currency: 'EUR', country: 'NL',
+      address: { name: p.name, street: 'Kerkstraat', number: '1', postalCode: '1234AB', city: p.city, country: 'NL', email: 'test@example.com' },
+    }));
   }, people[who], storage[who], RELAY);
   await page.reload({ waitUntil: 'load' });
   page.who = who;
@@ -68,7 +75,7 @@ async function open(who) {
 }
 
 const go = (page, hash) => page.evaluate((h) => { location.hash = h; }, hash);
-const text = (page) => page.evaluate(() => document.querySelector('main').innerText);
+const text = (page) => page.evaluate(() => document.querySelector('main')?.innerText || '');
 async function waitText(page, t, timeout = 30000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) { if ((await text(page)).includes(t)) return; await sleep(400); }
@@ -97,6 +104,17 @@ async function fillPh(page, ph, value) {
   await el.click({ count: 3 });
   await el.type(value);
 }
+async function clickIn(page, scope, label) {
+  console.log(`  [${page.who}] click ${label} in ${scope}`);
+  const el = await page.waitForSelector(`::-p-xpath(//*[contains(concat(" ",@class," ")," ${scope} ")]//button[normalize-space(.)="${label}"])`, { timeout: 30000 });
+  await settle(el);
+  await el.click();
+}
+async function pickSubcategory(page) {
+  const sel = await page.waitForSelector('select[aria-label="Subcategory"]:not([disabled])', { timeout: 15000 });
+  await page.waitForFunction(() => document.querySelector('select[aria-label="Subcategory"]').options.length > 1, { timeout: 15000 });
+  await sel.select(await sel.evaluate((e) => e.options[1].value));
+}
 async function choose(page, labelStart) {
   console.log(`  [${page.who}] choose ${labelStart}`);
   const el = await page.waitForSelector(`::-p-xpath(//label[contains(@class,"choice")][starts-with(normalize-space(.),"${labelStart}")])`, { timeout: 15000 });
@@ -110,7 +128,7 @@ const cli = (...a) => execSync(`${CLI} ${a.map((x) => `'${x}'`).join(' ')}`, { e
 try {
   for (const who of ['seller', 'buyer']) {
     step(`${who} connects a Lightning wallet`);
-    await go(await as(who), '#/settings');
+    await go(await as(who), '#/settings?open=lightning');
     await fillPh(await as(who), 'nostr+walletconnect://…', walletUri(who));
     await click(await as(who), 'Connect');
     await waitText(await as(who), '✓ Connected', 30000);
@@ -119,69 +137,77 @@ try {
     await shot(await as(who), `${who === 'seller' ? 'Verkoper' : 'Koper'}: Lightning-wallet gekoppeld via Nostr Wallet Connect, saldo opgehaald uit de wallet`);
   }
 
-  step('seller lists with two delivery options');
+  step('seller lists: carriers without a price, Lightning and on-chain');
   await go(await as('seller'), '#/sell/new');
   await fill(await as('seller'), 'Title', 'Desk lamp, brass');
   await fill(await as('seller'), 'Description', 'Works fine.');
+  await pickSubcategory(await as('seller'));
   await fill(await as('seller'), 'Price', '20');
-  await fillPh(await as('seller'), 'Price', '4.95');
-  await click(await as('seller'), '+ Add option');
-  await shot(await as('seller'), 'Verkoper: advertentieformulier met bezorgopties (PostNL €4,95, Ophalen) en de drie betaalmethodes');
+  await choose(await as('seller'), 'On-chain');
+  await shot(await as('seller'), 'Verkoper: vervoerders aanvinken zonder prijs (ook goedkope internationale), pakketgrootte, verzendgebied; Lightning en on-chain aan, escrow uit');
   await click(await as('seller'), 'Publish');
   await waitText(await as('seller'), 'Desk lamp, brass');
 
-  step('buyer orders, paying directly over Lightning');
+  step('buyer orders from the chat, paying over Lightning, PostNL at its live rate');
   await go(await as('buyer'), '#/');
   await waitText(await as('buyer'), 'Desk lamp');
   await (await (await as('buyer')).waitForSelector('a.listing-card')).click();
-  await waitText(await as('buyer'), 'Direct, Lightning');
-  await shot(await as('buyer'), 'Koper: advertentie toont bezorgopties en betaalmethodes');
-  await click(await as('buyer'), 'Buy');
-  await choose(await as('buyer'), 'PostNL');
-  await choose(await as('buyer'), 'Direct, Lightning');
-  await fill(await as('buyer'), 'Shipping address', 'Bob Buyer\nKerkstraat 1\n1234 AB Amsterdam');
-  await shot(await as('buyer'), 'Koper: bestelformulier, PostNL en "Direct, Lightning" gekozen, waarschuwing zonder kopersbescherming');
-  await shot(await as('buyer'), 'Koper: hetzelfde bestelformulier op een telefoon', { mobile: true });
-  await click(await as('buyer'), 'Send order');
+  await waitText(await as('buyer'), 'Lightning');
+  await shot(await as('buyer'), 'Koper: advertentie toont vervoerders, verzendgebied en betaalmethodes; knoppen "Bericht" en "Bestellen"');
+  await click(await as('buyer'), '🛒 Order now');
   await (await as('buyer')).waitForFunction(() => location.hash.startsWith('#/trade/'), { timeout: 20000 });
   const tid = await (await as('buyer')).evaluate(() => location.hash.split('/')[2]);
+  await waitText(await as('buyer'), '€6.95', 30000); // PostNL NL→NL, size M, from the Sendcloud mock
+  await choose(await as('buyer'), 'PostNL');
+  await choose(await as('buyer'), '⚡ Lightning');
+  await shot(await as('buyer'), 'Koper: bestellen in de chat: Lightning, PostNL met live prijs, totaal = prijs + verzending');
+  await shot(await as('buyer'), 'Koper: hetzelfde bestelformulier op een telefoon', { mobile: true });
+  await click(await as('buyer'), 'Send order');
   await waitText(await as('buyer'), 'Waiting for the seller to accept');
-  await shot(await as('buyer'), 'Koper: bestelling verstuurd, wacht op de verkoper; geen escrow en geen arbiter');
 
   step('seller accepts and sends an invoice from their wallet');
   await go(await as('seller'), `#/trade/${tid}`);
-  await waitText(await as('seller'), 'New order');
-  await shot(await as('seller'), 'Verkoper: nieuwe bestelling met betaalwijze, bezorgoptie en verzendadres');
-  await click(await as('seller'), 'Accept');
+  await waitText(await as('seller'), 'Order from');
+  await shot(await as('seller'), 'Verkoper: bestelling met betaalwijze, vervoerder, land en prijs');
+  await click(await as('seller'), '✓ Accept');
   await waitText(await as('seller'), 'Send a payment request');
-  await shot(await as('seller'), 'Verkoper: betaalverzoek sturen via de gekoppelde wallet, een Lightning-adres of een geplakte factuur');
   await click(await as('seller'), 'Create invoice with my wallet');
   await waitText(await as('seller'), 'Payment request:', 60000);
   await waitText(await as('seller'), 'I received the payment'); // request sent before closing this browser
 
-  step('buyer pays with their wallet');
+  step('buyer sends the address and pays with their wallet');
+  await waitText(await as('buyer'), 'A few details for the seller', 30000);
+  await waitText(await as('buyer'), 'Delivery address');
+  await clickIn(await as('buyer'), 'details-form', 'Send');
+  await waitNoText(await as('buyer'), 'A few details for the seller');
   await waitText(await as('buyer'), 'Pay with my wallet', 30000);
   await shot(await as('buyer'), 'Koper: betaalverzoek in de chat met QR-code, factuur, netwerk (lnbcrt) en "Betaal met mijn wallet"');
   await click(await as('buyer'), '⚡ Pay with my wallet');
   await waitText(await as('buyer'), 'Paid. The Lightning preimage proves it.', 60000);
-  await shot(await as('buyer'), 'Koper: met één tik betaald; het preimage bewijst de betaling');
 
-  step('seller sees the payment and ships');
+  step('seller buys a prepaid label over Lightning and gets a QR code');
   await waitText(await as('seller'), 'Paid. The Lightning preimage proves it.', 30000);
-  await shot(await as('seller'), 'Verkoper: ziet de bewezen betaling, verzendformulier met de vervoerder van de koper en links naar Sendcloud/Packlink');
-  await fill(await as('seller'), 'Tracking code', '3SXBT9876');
+  await waitText(await as('seller'), 'Bob Buyer');
+  await click(await as('seller'), 'Get the label price');
+  await waitText(await as('seller'), 'Buy label');
+  await click(await as('seller'), 'Buy label €6.95');
+  await click(await as('seller'), '⚡ Pay with my wallet');
+  await waitText(await as('seller'), 'Show this QR code', 60000);
+  const qrOk = await (await as('seller')).waitForFunction(() => { const i = document.querySelector('img.label-qr'); return i && i.complete && i.naturalWidth > 0; }, { timeout: 20000 }).then(() => true, () => false);
+  if (!qrOk) throw new Error('the label QR code did not load');
+  await shot(await as('seller'), 'Verkoper: verzendlabel betaald via Lightning; QR-code voor het PostNL-punt, label als PDF en trackingcode in de chat');
+  const tracking = await (await as('seller')).$eval('.label-card code', (e) => e.textContent.trim());
   await click(await as('seller'), 'Mark as shipped');
   await waitText(await as('seller'), 'Shipped with PostNL');
   const track = await (await as('seller')).$eval('a.btn.small[target=_blank]', (a) => a.href);
-  if (!track.startsWith('https://postnl.nl/tracktrace/?B=3SXBT9876')) throw new Error('unexpected tracking link ' + track);
+  if (!track.startsWith(`https://postnl.nl/tracktrace/?B=${tracking}`)) throw new Error('unexpected tracking link ' + track);
 
   step('buyer confirms receipt and both review');
   await waitText(await as('buyer'), 'Shipped with PostNL', 30000);
   await waitText(await as('buyer'), 'Track');
-  await shot(await as('buyer'), 'Koper: verzonden met PostNL, trackingcode met Volgen-knop naar postnl.nl');
+  await shot(await as('buyer'), 'Koper: verzonden met PostNL, trackingcode van het label met Volgen-knop');
   await click(await as('buyer'), 'Yes, received');
   await waitText(await as('buyer'), 'Leave a review', 30000);
-  await shot(await as('buyer'), 'Koper: ontvangst bevestigd, status Afgerond, review achterlaten');
   await click(await as('buyer'), 'Publish review');
   await waitNoText(await as('buyer'), 'Leave a review');
   await waitText(await as('seller'), 'Leave a review', 30000);
@@ -193,43 +219,52 @@ try {
   await shot(await as('buyer'), 'Profiel verkoper: de Lightning-aankoop telt als geverifieerde trade');
   await go(await as('buyer'), `#/trade/${tid}`);
   await waitText(await as('buyer'), 'Received');
-  await shot(await as('buyer'), 'Koper: chat met de stappen als tijdlijn (bestelling, geaccepteerd, betaalverzoek, betaald, verzonden, ontvangen)');
+  await shot(await as('buyer'), 'Koper: chat met de stappen als tijdlijn (bestelling, geaccepteerd, betaalverzoek, betaald, label, verzonden, ontvangen)');
 
   if (CLI) {
-    step('direct on-chain purchase, checked against the regtest node');
+    step('on-chain purchase: the buyer asks to switch from Lightning to on-chain');
     await go(await as('seller'), '#/sell/new');
     await fill(await as('seller'), 'Title', 'Bike lights set');
+    await pickSubcategory(await as('seller'));
     await fill(await as('seller'), 'Price', '15');
+    await choose(await as('seller'), 'On-chain');
     await click(await as('seller'), 'Publish');
     await waitText(await as('seller'), 'Bike lights set');
     await go(await as('buyer'), '#/?q=bike');
     await (await as('buyer')).reload({ waitUntil: 'load' });
     await waitText(await as('buyer'), 'Bike lights set');
     await (await (await as('buyer')).waitForSelector('a.listing-card')).click();
-    await click(await as('buyer'), 'Buy');
-    await choose(await as('buyer'), 'Direct, on chain');
-    await click(await as('buyer'), 'Send order');
+    await click(await as('buyer'), '🛒 Order now');
     await (await as('buyer')).waitForFunction((t) => location.hash.startsWith('#/trade/') && !location.hash.includes(t), { timeout: 20000 }, tid);
     const tid2 = await (await as('buyer')).evaluate(() => location.hash.split('/')[2]);
+    await choose(await as('buyer'), '🤝 Pick up');
+    await click(await as('buyer'), 'Send order');
+    await waitText(await as('buyer'), 'Waiting for the seller to accept');
+    await click(await as('buyer'), '🔁 Change payment method');
+    await choose(await as('buyer'), 'On-chain');
+    await click(await as('buyer'), 'Ask');
+    await waitText(await as('buyer'), 'Waiting for an answer');
     await go(await as('seller'), `#/trade/${tid2}`);
-    await waitText(await as('seller'), 'New order');
-    await click(await as('seller'), 'Accept');
+    await waitText(await as('seller'), 'asks to pay with', 30000);
+    await shot(await as('seller'), 'Verkoper: de koper vraagt om van Lightning naar on-chain te wisselen; akkoord of weigeren');
+    await click(await as('seller'), '✓ Agree');
+    await waitText(await as('seller'), 'Payment method changed');
+    await click(await as('seller'), '✓ Accept');
     const sellerAddr = cli('getnewaddress', 'direct-seller', 'bech32');
     await fill(await as('seller'), 'Your XBT address', sellerAddr);
     await click(await as('seller'), 'Request 0.0003 XBT');
     await waitText(await as('seller'), 'I received the payment');
     await waitText(await as('buyer'), 'Payment request:', 30000);
-    await shot(await as('buyer'), 'Koper: on-chain betaalverzoek met adres en QR-code');
+    await shot(await as('buyer'), 'Koper: na de wissel een on-chain betaalverzoek met adres en QR-code');
     const txid = cli('sendtoaddress', sellerAddr, '0.0003');
     cli('generatetoaddress', '1', cli('getnewaddress'));
     await fillPh(await as('buyer'), 'Payment txid', txid);
     await click(await as('buyer'), 'I paid');
     await waitText(await as('buyer'), '1 confirmations', 30000);
-    await shot(await as('buyer'), 'Koper: txid gemeld; de app controleert bij de node: volledig bedrag, 1 bevestiging');
     await waitText(await as('seller'), 'The buyer reports a payment', 30000);
     await click(await as('seller'), 'I received the payment');
     await waitText(await as('seller'), 'The seller confirmed receiving the payment');
-    await shot(await as('seller'), 'Verkoper: on-chain betaling gecontroleerd en bevestigd, klaar om te verzenden');
+    await shot(await as('seller'), 'Verkoper: on-chain betaling gecontroleerd en bevestigd, klaar voor de overdracht');
   } else {
     console.log('(skipping the on-chain part: set KNOTS_CLI to run it against a regtest node)');
   }

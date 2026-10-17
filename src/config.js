@@ -5,6 +5,11 @@
 export const ADMIN_NPUB = import.meta.env?.VITE_ADMIN_NPUB || '';
 
 export const APP_NAME = 'XBT Market';
+
+// The XBT Market service (server/worker.js): usernames, shipping quotes and
+// labels, and importing from a shop link. Without it those features are hidden
+// or fall back to doing it by hand.
+export const API_URL = (import.meta.env?.VITE_API_URL || '').replace(/\/+$/, '');
 export const MARKET_TAG = 'xbt-market';
 
 // Model for drafting listings from photos (users bring their own API key).
@@ -44,7 +49,7 @@ export const DEFAULTS = {
     { minTrades: 10, maxSats: Infinity },
   ],
   currency: 'EUR',
-  lang: (globalThis.navigator?.language || 'en').toLowerCase().startsWith('nl') ? 'nl' : 'en',
+  lang: (globalThis.navigator?.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en',
 };
 
 export const explorerFor = (esploraBase) => esploraBase.replace(/\/api\/?$/, '');

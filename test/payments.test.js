@@ -181,12 +181,20 @@ test('shipping: options round-trip through a listing, tracking links are safe', 
     ...listingTemplate({ d: 'l1', title: 'Lamp', content: '', price: 20, currency: 'EUR', shippingOptions: [{ id: 'postnl', price: 6.95 }, { id: 'pickup', price: 0 }], payments: ['escrow', 'lightning', 'paypal'] }),
   });
   assert.deepEqual(l.shippingOptions, [{ id: 'postnl', price: 6.95, currency: 'EUR' }, { id: 'pickup', price: 0, currency: 'EUR' }]);
-  assert.deepEqual(l.payments, ['escrow', 'lightning']);
+  // Always in the app's order: Lightning, on-chain, escrow.
+  assert.deepEqual(l.payments, ['lightning', 'escrow']);
   assert.deepEqual(optionsFor({ shippingOptions: [], shippingCost: 4, currency: 'EUR' }), [{ id: 'other', price: 4, currency: 'EUR' }]);
   assert.deepEqual(parseShippingOptions([['shipping_option', 'dhl', 'x']]), []);
   assert.match(trackingUrl('postnl', '3SABCD123'), /^https:\/\/postnl\.nl\//);
-  assert.match(trackingUrl('Mondial Relay', 'AB12345'), /^https:\/\/parcelsapp\.com\//);
+  assert.match(trackingUrl('Mondial Relay', 'AB12345'), /^https:\/\/www\.mondialrelay\.com\//);
+  assert.match(trackingUrl('Unknown carrier', 'AB12345'), /^https:\/\/parcelsapp\.com\//);
   assert.equal(trackingUrl('dhl', '"><script>'), null);
+  // New listings: carriers without a price (the buyer pays the carrier's rate),
+  // a parcel size, a country and where the seller ships to.
+  const n = parseListing({ id: 'z', pubkey: pk.seller, created_at: 1, ...listingTemplate({ d: 'l3', title: 'Jas', content: '', price: 20, currency: 'EUR', country: 'NL', city: 'Utrecht', shipsTo: ['EU', 'GB'], packageSize: 'S', category: 'kleding-dames', subcategory: 'jassen-winter', shippingOptions: [{ id: 'pickup', price: 0 }, { id: 'mondialrelay' }, { id: 'postnl' }] }) });
+  assert.deepEqual(n.shippingOptions.map((o) => [o.id, o.price]), [['pickup', 0], ['mondialrelay', null], ['postnl', null]]);
+  assert.deepEqual([n.country, n.city, n.location, n.packageSize, n.subcategory], ['NL', 'Utrecht', 'Utrecht, NL', 'S', 'jassen-winter']);
+  assert.deepEqual(n.shipsTo, ['EU', 'GB']);
   // Old listings without payment tags accept escrow only.
   assert.deepEqual(parseListing({ id: 'y', pubkey: pk.seller, created_at: 1, ...listingTemplate({ d: 'l2', title: 'x', content: '', price: 1, currency: 'EUR' }) }).payments, ['escrow']);
 });

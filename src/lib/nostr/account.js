@@ -8,6 +8,7 @@ import * as nip19 from 'nostr-tools/nip19';
 import * as nip49 from 'nostr-tools/nip49';
 import { bytesToHex, hexToBytes } from '../btc/bytes.js';
 import { createStore, loadJSON, saveJSON } from '../store.js';
+import { T } from '../../ui/i18n.js';
 
 const KEY = 'xbt:account';
 
@@ -33,15 +34,15 @@ export function parseSecret(input) {
   const s = String(input || '').replace(/\s+/g, '').replace(/^nostr:/i, '');
   const lower = s.toLowerCase();
   if (/^[0-9a-f]{64}$/.test(lower)) return hexToBytes(lower);
-  if (lower.startsWith('npub1')) throw new Error('This is an npub (your public address). Log in with your nsec, which starts with nsec1. / Dit is een npub (je openbare adres). Log in met je nsec, die begint met nsec1.');
-  if (lower.startsWith('ncryptsec1')) throw new Error('This key is password-protected (ncryptsec). Use the nsec itself. / Deze sleutel is met een wachtwoord versleuteld (ncryptsec). Gebruik de nsec zelf.');
-  if (!lower.startsWith('nsec1')) throw new Error('Enter your nsec: it starts with nsec1. / Vul je nsec in: die begint met nsec1.');
-  if (s !== lower && s !== s.toUpperCase() && s.slice(1) !== lower.slice(1)) throw new Error('The nsec has capital letters in it; it should be all lower case. / Er staan hoofdletters in de nsec; die hoort helemaal in kleine letters.');
+  if (lower.startsWith('npub1')) throw new Error(T('This is an npub (your public address). Log in with your nsec, which starts with nsec1.', 'Esto es un npub (tu dirección pública). Inicia sesión con tu nsec, que empieza por nsec1.'));
+  if (lower.startsWith('ncryptsec1')) throw new Error(T('This key is password-protected (ncryptsec). Use the nsec itself.', 'Esta clave está protegida con contraseña (ncryptsec). Usa el nsec.'));
+  if (!lower.startsWith('nsec1')) throw new Error(T('Enter your nsec: it starts with nsec1.', 'Introduce tu nsec: empieza por nsec1.'));
+  if (s !== lower && s !== s.toUpperCase() && s.slice(1) !== lower.slice(1)) throw new Error(T('The nsec has capital letters in it; it should be all lower case.', 'El nsec tiene mayúsculas; debe ir todo en minúsculas.'));
   try {
     const d = nip19.decode(lower);
     if (d.type === 'nsec') return d.data;
   } catch { /* reported below */ }
-  throw new Error(`This nsec is not valid: ${lower.length} characters instead of 63, or a typo. Copy it again from your backup. / Deze nsec klopt niet: ${lower.length} tekens in plaats van 63, of een typefout. Kopieer hem opnieuw uit je back-up.`);
+  throw new Error(T(`This nsec is not valid: ${lower.length} characters instead of 63, or a typo. Copy it again from your backup.`, `Este nsec no es válido: ${lower.length} caracteres en vez de 63, o una errata. Cópialo otra vez de tu copia de seguridad.`));
 }
 
 function setSecret(sk, { backedUp }) {
@@ -60,12 +61,30 @@ export function markBackedUp() {
   account.set({ backedUp: true });
 }
 
-export function setPassword(password) {
-  if (!secret) throw new Error('unlock first');
-  const ncryptsec = nip49.encrypt(secret, password, 16, 0x01);
+// Sets or changes the password. Changing or removing it needs the current one,
+// so someone holding an unlocked phone cannot lock the owner out.
+export function setPassword(password, current) {
+  if (!secret) throw new Error(T('Unlock first', 'Desbloquea primero'));
+  if (String(password).length < 8) throw new Error(T('Use at least 8 characters', 'Usa al menos 8 caracteres'));
   const prev = loadJSON(KEY, {});
+  if (prev.ncryptsec) checkCurrent(prev.ncryptsec, current);
+  const ncryptsec = nip49.encrypt(secret, password, 16, 0x01);
   saveJSON(KEY, { pubkey: prev.pubkey, ncryptsec, backedUp: prev.backedUp });
   account.set({ encrypted: true });
+}
+
+export function removePassword(current) {
+  const prev = loadJSON(KEY, {});
+  if (!prev.ncryptsec) return;
+  checkCurrent(prev.ncryptsec, current);
+  saveJSON(KEY, { pubkey: prev.pubkey, sk: bytesToHex(secret), backedUp: prev.backedUp });
+  account.set({ encrypted: false });
+}
+
+function checkCurrent(ncryptsec, current) {
+  let ok = false;
+  try { ok = bytesToHex(nip49.decrypt(ncryptsec, current || '')) === bytesToHex(secret); } catch { /* wrong */ }
+  if (!ok) throw new Error(T('The current password is not correct', 'La contraseña actual no es correcta'));
 }
 
 // Unlocks with the password, or with the account's own nsec when the
@@ -75,7 +94,7 @@ export function unlock(password) {
   let sk;
   if (/^\s*(nostr:)?nsec1/i.test(password)) {
     sk = parseSecret(password);
-    if (getPublicKey(sk) !== pubkey) throw new Error('This nsec belongs to another account. / Deze nsec hoort bij een ander account.');
+    if (getPublicKey(sk) !== pubkey) throw new Error(T('This nsec belongs to another account.', 'Este nsec pertenece a otra cuenta.'));
   } else {
     sk = nip49.decrypt(ncryptsec, password); // throws on a wrong password
   }

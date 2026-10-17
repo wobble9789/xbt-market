@@ -6,7 +6,7 @@
 // Bump BOOKMARKLET_VERSION whenever extraction changes: the import page warns
 // users whose saved bookmark is older, because bookmarks never update themselves.
 
-export const BOOKMARKLET_VERSION = 3;
+export const BOOKMARKLET_VERSION = 4;
 
 export const absUrl = (u, base) => { try { return new URL(u, base).href; } catch { return ''; } };
 
@@ -56,7 +56,40 @@ export function fromMp(l, base) {
     url: absUrl(l.vipUrl || '', base),
     // Ad URLs are /v/<main category>/<subcategory>/m…; the app uses the same slugs.
     category: (l.vipUrl || '').match(/^\/v\/([a-z0-9-]+)\//)?.[1] || '',
+    subcategory: (l.vipUrl || '').match(/^\/v\/[a-z0-9-]+\/([a-z0-9-]+)\//)?.[1] || '',
+    // "Gereserveerd" on Marktplaats.
+    reserved: !!(l.reserved || l.isReserved || /reserved|gereserveerd/i.test(l.priceInfo?.priceType || '') || (l.traits || []).some?.((t) => /reserved/i.test(t))),
   };
+}
+
+// Any Marktplaats page (a single ad, the seller's own ad view such as
+// /seller/view/m…, a profile): find ad objects anywhere in its Next.js data.
+export function findMpListings(data, max = 500) {
+  const out = [];
+  const seen = new Set();
+  const walk = (v, depth) => {
+    if (!v || typeof v !== 'object' || depth > 12 || out.length >= max) return;
+    if (Array.isArray(v)) { v.forEach((x) => walk(x, depth + 1)); return; }
+    const id = v.itemId || v.id;
+    if (typeof id === 'string' && /^m\d{6,}$/.test(id) && typeof v.title === 'string' && (v.priceInfo || v.price || v.pictures || v.imageUrls) && !seen.has(id)) {
+      seen.add(id);
+      out.push(v.itemId ? v : { ...v, itemId: id, priceInfo: v.priceInfo || (v.price?.priceCents != null ? v.price : undefined) });
+      return;
+    }
+    for (const k of Object.keys(v)) walk(v[k], depth + 1);
+  };
+  walk(data, 0);
+  return out;
+}
+
+// Last resort for a single item page: Open Graph / product meta tags.
+export function itemFromMeta(doc, pageUrl) {
+  const meta = (n) => doc.querySelector(`meta[property="${n}"], meta[name="${n}"], meta[itemprop="${n}"]`)?.getAttribute('content') || '';
+  const title = meta('og:title') || doc.title || '';
+  const priceText = meta('product:price:amount') || meta('og:price:amount') || meta('price') || doc.querySelector('[itemprop="price"]')?.getAttribute('content') || '';
+  const images = [...doc.querySelectorAll('meta[property="og:image"]')].map((m) => absUrl(m.getAttribute('content'), pageUrl)).filter(Boolean);
+  if (!title || !images.length) return [];
+  return [{ title: title.trim(), price: parsePrice(priceText), currency: meta('product:price:currency') || meta('og:price:currency') || 'EUR', images, description: meta('og:description'), url: meta('og:url') || pageUrl }];
 }
 
 // ---- Vinted wardrobe API -------------------------------------------------------

@@ -84,7 +84,7 @@ function page(msg = '') {
   return `<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>XBT demo helper</title>
 <style>body{font:16px/1.5 system-ui,sans-serif;margin:0;background:#f6f6f4;color:#1b1c1e}main{max-width:640px;margin:0 auto;padding:16px}
 .card{background:#fff;border:1px solid #e3e3df;border-radius:12px;padding:14px;margin:0 0 14px}h1{font-size:22px}h2{font-size:17px;margin:0 0 8px}
-textarea,input{width:100%;box-sizing:border-box;font:13px monospace;padding:8px;border:1px solid #ccc;border-radius:8px}button{font:inherit;padding:10px 14px;border:0;border-radius:8px;background:#f7931a;color:#fff;margin-top:8px}
+textarea,input{width:100%;box-sizing:border-box;font:13px monospace;padding:8px;border:1px solid #ccc;border-radius:8px}button{font:inherit;padding:10px 14px;border:0;border-radius:8px;background:#c9a227;color:#1b1500;margin-top:8px}
 .qr{max-width:220px}.ok{background:#e6f5ec;padding:8px;border-radius:8px}.muted{color:#6b6f76;font-size:14px}
 @media (prefers-color-scheme:dark){body{background:#111214;color:#ececec}.card{background:#1b1c1f;border-color:#2c2e33}textarea,input{background:#111214;color:#ececec;border-color:#2c2e33}.ok{background:#12301f}}</style></head><body><main>
 <h1>XBT Market demo (nepgeld)</h1>${msg ? `<p class="ok">${esc(msg)}</p>` : ''}

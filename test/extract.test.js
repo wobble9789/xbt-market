@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parsePrice, currencyOf, fromMp, mpResults, nextDataFromHtml, mpSellerPath, fromVinted, vintedMemberId,
-  flattenJsonLd, productsFromJsonLd, dedupeItems, BOOKMARKLET_VERSION,
+  flattenJsonLd, productsFromJsonLd, dedupeItems, BOOKMARKLET_VERSION, findMpListings, itemFromMeta,
 } from '../src/bookmarklet/extract.js';
 import { BOOKMARKLET_VERSION as GENERATED } from '../src/generated/bookmarklet.js';
 
@@ -88,4 +88,30 @@ test('dedupe and version', () => {
   assert.equal(dedupeItems([{ title: 'a', url: 'u' }, { title: 'a', url: 'u' }, { title: '', url: 'v' }]).length, 1);
   assert.ok(BOOKMARKLET_VERSION >= 2);
   assert.equal(GENERATED, BOOKMARKLET_VERSION, 'generated bookmarklet is stale: run npm run build');
+});
+
+test('Marktplaats: a single ad or the seller\'s own ad view, reserved ads and subcategories', () => {
+  // e.g. /seller/view/m2454474184: the ad sits somewhere deep in the page data.
+  const data = { props: { pageProps: { initialState: { ad: { listing: mp('m2454474184', 'FIXED', 4500, { reserved: true }) }, other: { itemId: 'notanad' } } } } };
+  const found = findMpListings(data);
+  assert.equal(found.length, 1);
+  const it = fromMp(found[0], BASE);
+  assert.equal(it.price, 45);
+  assert.equal(it.reserved, true);
+  assert.equal(it.category, 'huis-en-inrichting');
+  assert.equal(it.subcategory, 'gordijnen');
+  assert.equal(fromMp(mp('m1', 'FIXED', 100), BASE).reserved, false);
+});
+
+test('a page with only share tags still gives one item', () => {
+  const metas = { 'og:title': 'Vintage lamp', 'og:image': '/img/a.jpg', 'product:price:amount': '12,50', 'og:description': 'Works' };
+  const doc = {
+    title: 'x',
+    querySelector: (sel) => { const k = Object.keys(metas).find((n) => sel.includes(`"${n}"`)); return k ? { getAttribute: () => metas[k] } : null; },
+    querySelectorAll: (sel) => (sel.includes('og:image') ? [{ getAttribute: () => metas['og:image'] }] : []),
+  };
+  const [item] = itemFromMeta(doc, 'https://shop.example/p/1');
+  assert.equal(item.title, 'Vintage lamp');
+  assert.equal(item.price, 12.5);
+  assert.deepEqual(item.images, ['https://shop.example/img/a.jpg']);
 });
