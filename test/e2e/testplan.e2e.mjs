@@ -122,8 +122,8 @@ async function el(p, xpath, timeout = 20000) {
 const btnX = (label) => `//main//button[normalize-space(.)="${label}"] | //main//a[normalize-space(.)="${label}"]`;
 const fieldX = (label, tag = '*[self::input or self::textarea]') => `//label[span[@class="label" and normalize-space(.)="${label}"]]//${tag}[1]`;
 async function click(p, label) { await (await el(p, btnX(label))).click(); }
-async function fill(p, label, value) { const e = await el(p, fieldX(label)); await e.click({ count: 3 }); await e.evaluate((x) => { x.value = ''; }); await e.type(value); }
-async function fillPh(p, ph, value) { const e = await el(p, `//*[(self::input or self::textarea) and @placeholder="${ph}"]`); await e.click({ count: 3 }); await e.evaluate((x) => { x.value = ''; }); await e.type(value); }
+async function fill(p, label, value) { const e = await el(p, fieldX(label)); await e.click({ count: 3 }); await e.evaluate((x) => { x.value = ''; x.dispatchEvent(new Event('input', { bubbles: true })); }); await e.type(value); }
+async function fillPh(p, ph, value) { const e = await el(p, `//*[(self::input or self::textarea) and @placeholder="${ph}"]`); await e.click({ count: 3 }); await e.evaluate((x) => { x.value = ''; x.dispatchEvent(new Event('input', { bubbles: true })); }); await e.type(value); }
 async function select(p, label, value) { const e = await el(p, fieldX(label, 'select')); await e.select(value); }
 async function choose(p, start) { await (await el(p, `//label[contains(@class,"choice")][starts-with(normalize-space(.),"${start}")]`)).click(); }
 const exists = (p, xpath) => p.$(`::-p-xpath(${xpath})`).then((x) => !!x);
@@ -205,7 +205,8 @@ async function newListing(p, { title, price, cat = 'diversen', sub, escrow = fal
   if (escrow) { await setChoice(p, '🛡 Escrow', true); await waitText(p, 'Your escrow deposit'); }
   if (onchain) await setChoice(p, 'On-chain', true);
   await click(p, 'Publish');
-  await waitText(p, 'Your listings');
+  // A tap during a late layout shift can miss; publishing twice only replaces the listing.
+  await waitText(p, 'Your listings', 15000).catch(async () => { console.log('   (retrying Publish)'); await click(p, 'Publish'); await waitText(p, 'Your listings'); });
   await waitText(p, title);
 }
 const ADDRESS = { name: 'Cees Koper', street: 'Kerkstraat', number: '1', postalCode: '1234AB', city: 'Amsterdam' };

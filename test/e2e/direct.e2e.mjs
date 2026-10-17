@@ -75,7 +75,7 @@ async function open(who) {
 }
 
 const go = (page, hash) => page.evaluate((h) => { location.hash = h; }, hash);
-const text = (page) => page.evaluate(() => document.querySelector('main').innerText);
+const text = (page) => page.evaluate(() => document.querySelector('main')?.innerText || '');
 async function waitText(page, t, timeout = 30000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) { if ((await text(page)).includes(t)) return; await sleep(400); }

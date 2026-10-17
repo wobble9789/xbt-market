@@ -36,7 +36,7 @@ await setupPage(page);
 
 const DRAFT = { title: 'Messing bureaulamp, jaren 70', description: 'Werkende bureaulamp van messing met verstelbare arm. Lichte gebruikssporen op de voet, kap zonder deuken. Inclusief snoer met schakelaar.', category: 'huis-en-inrichting', condition: 'good', price: 35, notes: 'Meet de hoogte van de lamp en vermeld die in de beschrijving.' };
 
-const text = () => page.evaluate(() => document.querySelector('main').innerText);
+const text = () => page.evaluate(() => document.querySelector('main')?.innerText || '');
 async function waitText(t, timeout = 30000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) { if ((await text()).includes(t)) return; await sleep(300); }
