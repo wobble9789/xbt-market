@@ -5,37 +5,45 @@ import { account } from '../../lib/nostr/account.js';
 import { directory, refreshDirectory } from '../../lib/nostr/directory.js';
 import { publishReview, reviewsAbout, tradeLimitFor } from '../../lib/nostr/reviews.js';
 import { settings, updateSettings } from '../../lib/settings.js';
-import { reduceTrade, expectedTotal, presetAllocations, deadlines, paymentProof } from '../../lib/trade/protocol.js';
+import { reduceTrade, expectedTotal, presetAllocations, deadlines, paymentProof, methodOf } from '../../lib/trade/protocol.js';
 import {
   acceptOffer, rejectOffer, cancelTrade, markShipped, markReceived, openDispute, sendChat, sendFundedHint,
   loadFunding, proposePayout, signProposal, broadcastProposal, myEscrowKey, esploraFor,
   requestLightning, requestOnchain, payWithWallet, reportPaid, confirmPaid, checkOnchainPayment,
+  sendDetails, requestChange, answerChange, sendLabel, openConversation,
 } from '../../lib/trade/actions.js';
-import { walletConnected, walletLud16, lookupInvoice } from '../../lib/ln/wallet.js';
+import { walletConnected, walletLud16, lookupInvoice, payInvoice } from '../../lib/ln/wallet.js';
 import { secretNames } from '../../lib/secrets.js';
-import { CARRIERS, LABEL_SERVICES, carrier, trackingUrl } from '../../lib/shipping.js';
+import { CARRIERS, carrier, trackingUrl } from '../../lib/shipping.js';
+import { labelsEnabled, labelQuote, createLabel, labelStatus, servicePoints } from '../../lib/shipping-api.js';
+import { API_URL } from '../../config.js';
 import { isValidAddress } from '../../lib/btc/address.js';
-import { formatCoin, parseCoin } from '../../lib/btc/units.js';
+import { formatCoin, parseCoin, formatFiat } from '../../lib/btc/units.js';
 import { explorerFor } from '../../config.js';
 import { loadJSON, saveJSON } from '../../lib/store.js';
-import { T, fmtDate, timeAgo } from '../i18n.js';
-import { Action, Field, Name, Coin, QR, Copy, Img, Empty, Spinner, toast } from '../components.jsx';
-import { Reputation, payLabel } from './Listing.jsx';
+import { navigate } from '../router.js';
+import { T, fmtDate, timeAgo, countryName } from '../i18n.js';
+import { Action, Field, Name, Coin, QR, Copy, Img, Empty, Spinner, AddressForm, addressComplete, formatAddress, toast } from '../components.jsx';
+import { Reputation, payLabel, payShort, useListing } from './Listing.jsx';
+import { OrderForm } from './Order.jsx';
 
-const ROLE = { buyer: ['Buyer', 'Koper'], seller: ['Seller', 'Verkoper'], arbiter: ['Arbiter', 'Arbiter'], other: ['Unknown', 'Onbekend'] };
+const ROLE = { buyer: ['Buyer', 'Comprador'], seller: ['Seller', 'Vendedor'], arbiter: ['Arbiter', 'Árbitro'], other: ['Unknown', 'Desconocido'] };
 const roleLabel = (r) => T(...(ROLE[r] || ROLE.other));
 
 export const STATUS = {
-  offered: ['Offer sent', 'Bod verstuurd'], accepted: ['Waiting for payment', 'Wacht op betaling'], funded: ['Paid, waiting for shipment', 'Betaald, wacht op verzending'],
-  shipped: ['Shipped', 'Verzonden'], disputed: ['In dispute', 'In geschil'], closed: ['Paid out', 'Uitbetaald'], rejected: ['Rejected', 'Afgewezen'],
-  cancelled: ['Cancelled', 'Geannuleerd'], paid: ['Paid, waiting for shipment', 'Betaald, wacht op verzending'], completed: ['Completed', 'Afgerond'], cancelling: ['Cancelling, refund needed', 'Wordt geannuleerd, terugbetaling nodig'], unknown: ['Unknown', 'Onbekend'],
+  chat: ['Conversation', 'Conversación'], offered: ['Order sent', 'Pedido enviado'], accepted: ['Waiting for payment', 'Esperando el pago'], funded: ['Paid, waiting for shipment', 'Pagado, esperando el envío'],
+  shipped: ['Shipped', 'Enviado'], disputed: ['In dispute', 'En disputa'], closed: ['Paid out', 'Pagado al vendedor'], rejected: ['Rejected', 'Rechazado'],
+  cancelled: ['Cancelled', 'Cancelado'], paid: ['Paid, waiting for shipment', 'Pagado, esperando el envío'], completed: ['Completed', 'Completado'], cancelling: ['Cancelling, refund needed', 'Cancelando, hace falta un reembolso'], unknown: ['Unknown', 'Desconocido'],
 };
 export const statusLabel = (s) => T(...(STATUS[s] || STATUS.unknown));
 
 // Services are carried out, not shipped.
-const isServiceTrade = (state) => state.offer?.listing?.kind === 'service';
-const shippedWord = (state) => (isServiceTrade(state) ? T('Done', 'Uitgevoerd') : T('Shipped', 'Verzonden'));
-const receivedQuestion = (state) => (isServiceTrade(state) ? T('Was the job done well?', 'Is de klus naar wens uitgevoerd?') : T('Received the item?', 'Item ontvangen?'));
+const isServiceTrade = (state) => state.listing?.kind === 'service';
+const shippedWord = (state) => (isServiceTrade(state) ? T('Done', 'Hecho') : T('Shipped', 'Enviado'));
+const receivedQuestion = (state) => (isServiceTrade(state) ? T('Was the job done well?', '¿Se hizo bien el trabajo?') : T('Received the item?', '¿Has recibido el artículo?'));
+const isPickup = (state) => state.offer?.shipping?.carrier === 'pickup' || state.offer?.shipping?.id === 'pickup';
+const shipCarrierOf = (state) => state.offer?.shipping?.carrier || state.offer?.shipping?.id || '';
+const needsAddress = (state) => !isServiceTrade(state) && !!state.offer?.shipping && !isPickup(state);
 
 export function useTrade(tradeId) {
   const { rumors } = useStore(inbox);
@@ -62,28 +70,28 @@ function useFunding(state) {
 
 function Steps({ state, funded }) {
   const steps = state.payment === 'direct' ? [
-    ['offer', T('Order', 'Bestelling'), true],
-    ['accept', T('Accepted', 'Geaccepteerd'), !!state.accept],
-    ['request', T('Payment request', 'Betaalverzoek'), !!state.request],
-    ['paid', T('Paid', 'Betaald'), !!(state.paid || state.paymentConfirmed)],
+    ['offer', T('Order', 'Pedido'), !!state.offer],
+    ['accept', T('Accepted', 'Aceptado'), !!state.accept],
+    ['paid', T('Paid', 'Pagado'), !!(state.paid || state.paymentConfirmed)],
     ['ship', shippedWord(state), !!state.shipped],
-    ['done', T('Received', 'Ontvangen'), !!state.received],
+    ['done', T('Received', 'Recibido'), !!state.received],
   ] : [
-    ['offer', T('Offer', 'Bod'), true],
-    ['accept', T('Accepted', 'Geaccepteerd'), !!state.accept],
-    ['fund', T('Paid into escrow', 'Betaald in escrow'), funded],
+    ['offer', T('Order', 'Pedido'), !!state.offer],
+    ['accept', T('Accepted', 'Aceptado'), !!state.accept],
+    ['fund', T('Paid into escrow', 'Pagado al escrow'), funded],
     ['ship', shippedWord(state), !!state.shipped],
-    ['done', T('Paid out', 'Uitbetaald'), state.status === 'closed'],
+    ['done', T('Paid out', 'Pagado'), state.status === 'closed'],
   ];
   return <ol class="steps">{steps.map(([k, l, done]) => <li key={k} class={done ? 'done' : ''}>{l}</li>)}</ol>;
 }
 
 function EscrowBox({ state, funding, fundErr, refresh, role, done }) {
   const o = state.offer;
+  const tm = state.terms;
   const need = expectedTotal(state);
   const explorer = explorerFor(esploraFor(o.network).base);
   const [txid, setTxid] = useState('');
-  const myPart = role === 'buyer' ? o.priceSats + o.buyerDepositSats : role === 'seller' ? o.sellerDepositSats : 0;
+  const myPart = role === 'buyer' ? tm.priceSats + tm.buyerDepositSats : role === 'seller' ? tm.sellerDepositSats : 0;
   const minConf = settings.get().minConfirmations;
   return (
     <div class="card escrow">
@@ -94,34 +102,34 @@ function EscrowBox({ state, funding, fundErr, refresh, role, done }) {
           <div class="addr"><code>{state.escrow.address}</code> <Copy text={state.escrow.address} /></div>
           <table class="amounts">
             <tbody>
-              <tr><td>{T('Buyer pays (price + deposit)', 'Koper betaalt (prijs + borg)')}</td><td><Coin sats={o.priceSats + o.buyerDepositSats} /></td></tr>
-              <tr><td>{T('Seller pays (deposit)', 'Verkoper betaalt (borg)')}</td><td><Coin sats={o.sellerDepositSats} /></td></tr>
-              <tr class="total"><td>{T('Total needed', 'Totaal nodig')}</td><td><Coin sats={need} /></td></tr>
-              <tr><td>{T('In escrow now', 'Nu in escrow')}</td><td>
-                {funding ? <><Coin sats={funding.total} fiat={false} />{funding.total !== funding.confirmedTotal && <span class="muted small"> ({formatCoin(funding.confirmedTotal)} {T(`with ${minConf}+ confirmations`, `met ${minConf}+ bevestigingen`)})</span>}</>
+              <tr><td>{T('Buyer pays (price + deposit)', 'El comprador paga (precio + depósito)')}</td><td><Coin sats={tm.priceSats + tm.buyerDepositSats} /></td></tr>
+              <tr><td>{T('Seller pays (deposit)', 'El vendedor paga (depósito)')}</td><td><Coin sats={tm.sellerDepositSats} /></td></tr>
+              <tr class="total"><td>{T('Total needed', 'Total necesario')}</td><td><Coin sats={need} /></td></tr>
+              <tr><td>{T('In escrow now', 'Ahora en el escrow')}</td><td>
+                {funding ? <><Coin sats={funding.total} fiat={false} />{funding.total !== funding.confirmedTotal && <span class="muted small"> ({formatCoin(funding.confirmedTotal)} {T(`with ${minConf}+ confirmations`, `con ${minConf}+ confirmaciones`)})</span>}</>
                   : fundErr ? <span class="error small">{fundErr}</span> : <Spinner />}
               </td></tr>
             </tbody>
           </table>
-          {myPart > 0 && !done && <p class="notice">{T(`Your part: send ${formatCoin(myPart)} to the address above from a BLAKE2b wallet that signs with the unified sighash (Knots, Sparrow BLAKE2b, Shrike), so the payment cannot be replayed on the other chain.`, `Jouw deel: stuur ${formatCoin(myPart)} naar het adres hierboven vanuit een BLAKE2b-wallet die met de unified sighash tekent (Knots, Sparrow BLAKE2b, Shrike), zodat de betaling niet op de andere chain kan worden herhaald.`)}</p>}
+          {myPart > 0 && !done && <p class="notice">{T(`Your part: send ${formatCoin(myPart)} to the address above from a BLAKE2b wallet that signs with the unified sighash (Knots, Sparrow BLAKE2b, Shrike), so the payment cannot be replayed on the other chain.`, `Tu parte: envía ${formatCoin(myPart)} a la dirección de arriba desde una cartera BLAKE2b que firme con el sighash unificado (Knots, Sparrow BLAKE2b, Shrike), para que el pago no se pueda reproducir en la otra cadena.`)}</p>}
           <div class="row">
-            <button class="btn small" onClick={refresh}>{T('Refresh', 'Vernieuwen')}</button>
-            <a class="btn small ghost" href={`${explorer}/address/${state.escrow.address}`} target="_blank" rel="noopener noreferrer">{T('View on explorer', 'Bekijk in explorer')}</a>
+            <button class="btn small" onClick={refresh}>{T('Refresh', 'Actualizar')}</button>
+            <a class="btn small ghost" href={`${explorer}/address/${state.escrow.address}`} target="_blank" rel="noopener noreferrer">{T('View on explorer', 'Ver en el explorador')}</a>
           </div>
           {myPart > 0 && !done && (
             <div class="row">
-              <input value={txid} onInput={(e) => setTxid(e.target.value.trim())} placeholder={T('Payment txid (optional)', 'Betalings-txid (optioneel)')} />
-              <Action class="small" disabled={!/^[0-9a-f]{64}$/.test(txid)} onClick={async () => { await sendFundedHint(state, txid); setTxid(''); toast(T('Sent', 'Verstuurd'), 'ok'); }}>{T('I paid', 'Ik heb betaald')}</Action>
+              <input value={txid} onInput={(e) => setTxid(e.target.value.trim())} placeholder={T('Payment txid (optional)', 'Txid del pago (opcional)')} />
+              <Action class="small" disabled={!/^[0-9a-f]{64}$/.test(txid)} onClick={async () => { await sendFundedHint(state, txid); setTxid(''); toast(T('Sent', 'Enviado'), 'ok'); }}>{T('I paid', 'He pagado')}</Action>
             </div>
           )}
         </div>
       </div>
       <details class="small">
-        <summary>{T('Recovery details', 'Herstelgegevens')}</summary>
-        <p>{T('2-of-3 P2WSH multisig. Keys (sorted):', '2-van-3 P2WSH-multisig. Sleutels (gesorteerd):')}</p>
+        <summary>{T('Recovery details', 'Datos de recuperación')}</summary>
+        <p>{T('2-of-3 P2WSH multisig. Keys (sorted):', 'Multisig P2WSH 2 de 3. Claves (ordenadas):')}</p>
         <ul>{state.escrow.pubkeys.map((k) => <li key={k}><code>{k}</code> {Object.entries(state.escrowKeys).find(([, v]) => v === k)?.[0]}</li>)}</ul>
         <p>{T('Witness script', 'Witness script')}: <code class="break">{state.escrow.witnessScript}</code></p>
-        <p class="hint">{T('Your escrow key is derived from your Nostr key and this trade id. Any two of the three parties can always move the coins, with or without this app.', 'Jouw escrow-sleutel wordt afgeleid van je Nostr-sleutel en dit trade-id. Twee van de drie partijen kunnen de munten altijd verplaatsen, met of zonder deze app.')}</p>
+        <p class="hint">{T('Your escrow key is derived from your Nostr key and this trade id. Any two of the three parties can always move the coins, with or without this app.', 'Tu clave de escrow se deriva de tu clave Nostr y del id de esta compra. Dos de las tres partes siempre pueden mover las monedas, con o sin esta app.')}</p>
       </details>
     </div>
   );
@@ -136,30 +144,30 @@ function SplitEditor({ state, balance, purpose: initialPurpose, onDone, role }) 
   const sellerSats = parseCoin(sellerText);
   const valid = sellerSats != null && sellerSats <= balance;
   const allocations = valid ? [
-    { role: 'seller', address: state.accept.seller.payoutAddress, sats: sellerSats },
-    { role: 'buyer', address: state.offer.buyer.payoutAddress, sats: balance - sellerSats },
+    { role: 'seller', address: state.payout.seller, sats: sellerSats },
+    { role: 'buyer', address: state.payout.buyer, sats: balance - sellerSats },
   ].filter((a) => a.sats > 0) : [];
   const purposes = role === 'arbiter' ? ['ruling'] : ['release', 'refund', 'custom'];
   return (
     <div class="card">
-      <h3>{T('Propose a payout', 'Stel een uitbetaling voor')}</h3>
+      <h3>{T('Propose a payout', 'Proponer un pago')}</h3>
       {purposes.length > 1 && (
         <div class="row">
-          {purposes.map((p) => <button key={p} class={`btn small ${purpose === p ? 'primary' : 'ghost'}`} onClick={() => setPurpose(p)}>{{ release: T('Release to seller', 'Vrijgeven aan verkoper'), refund: T('Refund buyer', 'Koper terugbetalen'), custom: T('Custom split', 'Eigen verdeling') }[p]}</button>)}
+          {purposes.map((p) => <button key={p} class={`btn small ${purpose === p ? 'primary' : 'ghost'}`} onClick={() => setPurpose(p)}>{{ release: T('Release to seller', 'Liberar al vendedor'), refund: T('Refund buyer', 'Reembolsar al comprador'), custom: T('Custom split', 'Reparto personalizado') }[p]}</button>)}
         </div>
       )}
-      <p class="muted small">{T('Escrow balance', 'Saldo escrow')}: <Coin sats={balance} /></p>
-      <Field label={T('Seller receives (XBT)', 'Verkoper ontvangt (XBT)')}>
+      <p class="muted small">{T('Escrow balance', 'Saldo del escrow')}: <Coin sats={balance} /></p>
+      <Field label={T('Seller receives (XBT)', 'El vendedor recibe (XBT)')}>
         <input inputmode="decimal" value={sellerText} onInput={(e) => setSellerText(e.target.value)} class={valid ? '' : 'invalid'} />
       </Field>
-      {valid && <p>{T('Buyer receives', 'Koper ontvangt')}: <Coin sats={balance - sellerSats} /></p>}
-      <p class="hint">{T('The network fee is shared in proportion to each amount.', 'De netwerkkosten worden naar verhouding van elk bedrag gedeeld.')}</p>
-      <Field label={T('Note', 'Toelichting')}><textarea rows="2" value={note} onInput={(e) => setNote(e.target.value)} /></Field>
+      {valid && <p>{T('Buyer receives', 'El comprador recibe')}: <Coin sats={balance - sellerSats} /></p>}
+      <p class="hint">{T('The network fee is shared in proportion to each amount.', 'La comisión de red se reparte en proporción a cada importe.')}</p>
+      <Field label={T('Note', 'Nota')}><textarea rows="2" value={note} onInput={(e) => setNote(e.target.value)} /></Field>
       <div class="row">
-        <Action class="primary" disabled={!valid} onClick={async () => { await proposePayout(state, { purpose, allocations, note }); toast(T('Proposal signed and sent', 'Voorstel getekend en verstuurd'), 'ok'); onDone(); }}>
-          {T('Sign and propose', 'Tekenen en voorstellen')}
+        <Action class="primary" disabled={!valid} onClick={async () => { await proposePayout(state, { purpose, allocations, note }); toast(T('Proposal signed and sent', 'Propuesta firmada y enviada'), 'ok'); onDone(); }}>
+          {T('Sign and propose', 'Firmar y proponer')}
         </Action>
-        <button class="btn ghost" onClick={onDone}>{T('Cancel', 'Annuleren')}</button>
+        <button class="btn ghost" onClick={onDone}>{T('Cancel', 'Cancelar')}</button>
       </div>
     </div>
   );
@@ -172,82 +180,29 @@ function Proposal({ state, p, role, funding }) {
   const broadcast = state.broadcasts.find((b) => b.proposalId === p.id);
   const live = funding && p.utxos.every((u) => funding.utxos.some((f) => f.txid === u.txid && f.vout === u.vout));
   const stale = funding && !live && !broadcast;
-  const purpose = { release: T('Release to seller', 'Vrijgeven aan verkoper'), refund: T('Refund', 'Terugbetaling'), ruling: T('Arbiter ruling', 'Uitspraak arbiter'), custom: T('Custom split', 'Eigen verdeling') }[p.purpose] || p.purpose;
+  const purpose = { release: T('Release to seller', 'Liberar al vendedor'), refund: T('Refund', 'Reembolso'), ruling: T('Arbiter ruling', 'Resolución del árbitro'), custom: T('Custom split', 'Reparto personalizado') }[p.purpose] || p.purpose;
   const unknownOut = p.outputs.some((o) => o.role === 'other');
   return (
     <div class={`card proposal ${stale ? 'stale' : ''}`}>
       <div class="page-head">
-        <h4>{purpose} <span class="muted small">{T('by', 'door')} {roleLabel(p.role)} · {timeAgo(p.at)}</span></h4>
-        <span class="badge">{p.signedBy.map(roleLabel).join(' + ')} {T('signed', 'getekend')}</span>
+        <h4>{purpose} <span class="muted small">{T('by', 'por')} {roleLabel(p.role)} · {timeAgo(p.at)}</span></h4>
+        <span class="badge">{p.signedBy.map(roleLabel).join(' + ')} {T('signed', 'firmado')}</span>
       </div>
       {p.note && <p class="quote">{p.note}</p>}
       <table class="amounts"><tbody>
         {p.outputs.map((o, i) => <tr key={i}><td>{roleLabel(o.role)} <code class="small">{o.address.slice(0, 14)}…</code></td><td><Coin sats={o.sats} /></td></tr>)}
-        <tr class="muted"><td>{T('Network fee', 'Netwerkkosten')}</td><td>{formatCoin(p.fee)}</td></tr>
+        <tr class="muted"><td>{T('Network fee', 'Comisión de red')}</td><td>{formatCoin(p.fee)}</td></tr>
       </tbody></table>
-      {unknownOut && <p class="notice warn">{T('Pays to an address that is not the buyer\'s or seller\'s payout address. Check carefully.', 'Betaalt naar een adres dat niet het uitbetaaladres van koper of verkoper is. Controleer goed.')}</p>}
-      {stale && <p class="muted small">{T('No longer valid: the escrow coins changed.', 'Niet meer geldig: de munten in escrow zijn veranderd.')}</p>}
+      {unknownOut && <p class="notice warn">{T('Pays to an address that is not the buyer\'s or seller\'s payout address. Check carefully.', 'Paga a una dirección que no es la de cobro del comprador ni la del vendedor. Revísalo bien.')}</p>}
+      {stale && <p class="muted small">{T('No longer valid: the escrow coins changed.', 'Ya no es válido: las monedas del escrow han cambiado.')}</p>}
       {broadcast ? (
-        <p>✅ {T('Broadcast', 'Verzonden')}: <a href={`${explorer}/tx/${broadcast.txid}`} target="_blank" rel="noopener noreferrer"><code>{broadcast.txid.slice(0, 16)}…</code></a></p>
+        <p>✅ {T('Broadcast', 'Emitido')}: <a href={`${explorer}/tx/${broadcast.txid}`} target="_blank" rel="noopener noreferrer"><code>{broadcast.txid.slice(0, 16)}…</code></a></p>
       ) : !stale && role && (
         <div class="row">
-          {!iSigned && <Action class="primary" confirm={T('Sign this payout? With your signature it can be broadcast.', 'Deze uitbetaling tekenen? Met jouw handtekening kan hij worden verzonden.')} onClick={async () => { const t = await signProposal(state, p); toast(t ? T('Signed and broadcast', 'Getekend en verzonden') : T('Signed', 'Getekend'), 'ok'); }}>{T('Agree and sign', 'Akkoord en tekenen')}</Action>}
-          {ready && <Action onClick={async () => { await broadcastProposal(state, p); toast(T('Broadcast', 'Verzonden'), 'ok'); }}>{T('Broadcast', 'Verzenden')}</Action>}
+          {!iSigned && <Action class="primary" confirm={T('Sign this payout? With your signature it can be broadcast.', '¿Firmar este pago? Con tu firma se puede emitir.')} onClick={async () => { const t = await signProposal(state, p); toast(t ? T('Signed and broadcast', 'Firmado y emitido') : T('Signed', 'Firmado'), 'ok'); }}>{T('Agree and sign', 'Aceptar y firmar')}</Action>}
+          {ready && <Action onClick={async () => { await broadcastProposal(state, p); toast(T('Broadcast', 'Emitido'), 'ok'); }}>{T('Broadcast', 'Emitir')}</Action>}
         </div>
       )}
-    </div>
-  );
-}
-
-// Protocol steps shown as lines in the chat, Marktplaats-style.
-function eventText(state, e) {
-  const o = state.offer;
-  switch (e.type) {
-    case 'offer': return `🛒 ${T('Order', 'Bestelling')}: ${formatCoin(o.priceSats)} · ${payLabel(state.payment === 'direct' ? o.method : 'escrow')}${o.shipping ? ` · ${carrier(o.shipping.id).name}` : ''}`;
-    case 'accept': return state.payment === 'direct' ? `✅ ${T('Accepted. The seller sends a payment request.', 'Geaccepteerd. De verkoper stuurt een betaalverzoek.')}` : `✅ ${T(`Accepted. Payment request: pay ${formatCoin(o.priceSats + o.buyerDepositSats)} into escrow.`, `Geaccepteerd. Betaalverzoek: betaal ${formatCoin(o.priceSats + o.buyerDepositSats)} in escrow.`)}`;
-    case 'reject': return `✖ ${T('Rejected', 'Afgewezen')}`;
-    case 'cancel': return `✖ ${T('Cancelled', 'Geannuleerd')}`;
-    case 'request': return `💳 ${T('Payment request', 'Betaalverzoek')}: ${formatCoin(o.priceSats)}`;
-    case 'paid': return `💸 ${T('Buyer paid', 'Koper heeft betaald')}`;
-    case 'confirm_paid': return `✅ ${T('Seller received the payment', 'Verkoper heeft de betaling ontvangen')}`;
-    case 'funded': return `💸 ${T('Paid into escrow', 'Betaald in escrow')}`;
-    case 'shipped': return isServiceTrade(state) ? `✅ ${T('Job done', 'Klus uitgevoerd')}` : `📦 ${T('Shipped', 'Verzonden')}`;
-    case 'received': return `🎉 ${T('Received', 'Ontvangen')}`;
-    case 'dispute': return `⚖️ ${T('Dispute opened', 'Geschil geopend')}`;
-    case 'proposal': return `✍️ ${T('Payout proposed', 'Uitbetaling voorgesteld')}`;
-    case 'broadcast': return `✅ ${T('Paid out', 'Uitbetaald')}`;
-    default: return null;
-  }
-}
-
-function Chat({ state }) {
-  const [text, setText] = useState('');
-  const me = useStore(account, (a) => a.pubkey);
-  const end = useRef();
-  const items = useMemo(() => {
-    const ev = state.log.filter((e) => !e.error && e.type !== 'chat' && e.type !== 'sign').map((e) => ({ ...e, system: eventText(state, e) })).filter((e) => e.system);
-    return [...ev, ...state.chat].sort((a, b) => a.at - b.at);
-  }, [state]);
-  useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }); }, [items.length]);
-  const who = state.payment === 'direct' ? T('end-to-end encrypted, visible to buyer and seller', 'end-to-end versleuteld, zichtbaar voor koper en verkoper') : T('end-to-end encrypted, visible to buyer, seller and arbiter', 'end-to-end versleuteld, zichtbaar voor koper, verkoper en arbiter');
-  return (
-    <div class="card chat">
-      <h3>{T('Messages', 'Berichten')} <span class="muted small">{who}</span></h3>
-      <div class="messages">
-        {items.map((m) => m.system ? (
-          <div key={m.id} class="msg system"><span>{m.system}</span> <span class="muted small">· {roleLabel(m.role)} · {timeAgo(m.at)}</span></div>
-        ) : (
-          <div key={m.id} class={`msg ${m.from === me ? 'mine' : ''} ${m.role}`}>
-            <div class="who"><Name pk={m.from} avatar={false} /> · {roleLabel(m.role)} · {timeAgo(m.at)}</div>
-            <div class="text">{m.text}</div>
-          </div>
-        ))}
-        <div ref={end} />
-      </div>
-      <form class="row" onSubmit={(e) => e.preventDefault()}>
-        <input value={text} onInput={(e) => setText(e.target.value)} placeholder={T('Write a message…', 'Schrijf een bericht…')} />
-        <Action class="primary" disabled={!text.trim()} onClick={async () => { await sendChat(state, text.trim()); setText(''); }}>{T('Send', 'Stuur')}</Action>
-      </form>
     </div>
   );
 }
@@ -262,31 +217,10 @@ function ReviewBox({ state, role }) {
   const txid = paymentProof(state);
   return (
     <div class="card">
-      <h3>{T('Leave a review', 'Laat een review achter')}</h3>
+      <h3>{T('Leave a review', 'Deja una valoración')}</h3>
       <div class="row stars-input">{[1, 2, 3, 4, 5].map((n) => <button key={n} class={`star ${n <= rating ? 'on' : ''}`} onClick={() => setRating(n)}>★</button>)}</div>
-      <textarea rows="2" value={text} onInput={(e) => setText(e.target.value)} placeholder={T('How did it go?', 'Hoe ging het?')} />
-      <Action class="primary" onClick={async () => { await publishReview({ about, tradeId: state.tradeId, txid, rating, text, role }); saveJSON(key, true); setDone(true); reviewsAbout(about, { fresh: true }); toast(T('Thanks!', 'Bedankt!'), 'ok'); }}>{T('Publish review', 'Review publiceren')}</Action>
-    </div>
-  );
-}
-
-function DirectOfferReview({ state }) {
-  const [reason, setReason] = useState('');
-  const o = state.offer;
-  return (
-    <div class="card">
-      <h3>{T('New order', 'Nieuwe bestelling')}</h3>
-      <p><Name pk={state.participants.buyer} /> <Reputation pk={state.participants.buyer} /></p>
-      <p>{T('wants to buy', 'wil kopen')} <b>{o.listing.title}</b> {T('for', 'voor')} <b><Coin sats={o.priceSats} /></b> <span class="muted">({T('listed at', 'vraagprijs')} {o.listing.price} {o.listing.currency})</span></p>
-      <p>{T('Payment', 'Betaling')}: <b>{payLabel(o.method)}</b>{o.shipping && <> · {T('Delivery', 'Bezorging')}: <b>{carrier(o.shipping.id).name}</b></>}</p>
-      {o.note && <p class="quote">{o.note}</p>}
-      {o.shipTo && <div><b>{T('Ship to', 'Verzenden naar')}:</b><pre class="address">{o.shipTo}</pre></div>}
-      <p class="hint">{T('No escrow: only ship once the payment has arrived in your wallet.', 'Geen escrow: verstuur pas als de betaling in je wallet staat.')}</p>
-      <div class="row">
-        <Action class="primary" onClick={() => acceptOffer(state)}>{T('Accept', 'Accepteren')}</Action>
-        <input value={reason} onInput={(e) => setReason(e.target.value)} placeholder={T('Reason (optional)', 'Reden (optioneel)')} />
-        <Action class="danger" onClick={() => rejectOffer(state, reason)}>{T('Reject', 'Afwijzen')}</Action>
-      </div>
+      <textarea rows="2" value={text} onInput={(e) => setText(e.target.value)} placeholder={T('How did it go?', '¿Qué tal fue?')} />
+      <Action class="primary" onClick={async () => { await publishReview({ about, tradeId: state.tradeId, txid, rating, text, role }); saveJSON(key, true); setDone(true); reviewsAbout(about, { fresh: true }); toast(T('Thanks!', '¡Gracias!'), 'ok'); }}>{T('Publish review', 'Publicar valoración')}</Action>
     </div>
   );
 }
@@ -300,34 +234,34 @@ function RequestForm({ state }) {
   const [invoice, setInvoice] = useState('');
   const [address, setAddress] = useState(s.payoutAddress || '');
   const hasWallet = walletConnected();
-  if (o.method === 'onchain') {
+  if (state.method === 'onchain') {
     const ok = isValidAddress(address, o.network);
     return (
       <div class="card">
-        <h3>{T('Send a payment request', 'Stuur een betaalverzoek')}</h3>
-        <Field label={T('Your XBT address', 'Jouw XBT-adres')}><input value={address} onInput={(e) => setAddress(e.target.value)} class={address && !ok ? 'invalid' : ''} placeholder="bc1q…" /></Field>
-        <Action class="primary" disabled={!ok} onClick={async () => { updateSettings({ payoutAddress: address.trim() }); await requestOnchain(state, address); }}>{T('Request', 'Verzoek sturen')} {formatCoin(o.priceSats)}</Action>
+        <h3>{T('Send a payment request', 'Envía una solicitud de pago')}</h3>
+        <Field label={T('Your XBT address', 'Tu dirección XBT')}><input value={address} onInput={(e) => setAddress(e.target.value)} class={address && !ok ? 'invalid' : ''} placeholder="bc1q…" /></Field>
+        <Action class="primary" disabled={!ok} onClick={async () => { updateSettings({ payoutAddress: address.trim() }); await requestOnchain(state, address); }}>{T('Request', 'Solicitar')} {formatCoin(state.terms.priceSats)}</Action>
       </div>
     );
   }
   return (
     <div class="card">
-      <h3>{T('Send a payment request', 'Stuur een betaalverzoek')}</h3>
-      <p class="hint">{T(`An invoice for exactly ${formatCoin(o.priceSats)} goes into the chat. The buyer pays it with one tap.`, `Een factuur voor precies ${formatCoin(o.priceSats)} gaat de chat in. De koper betaalt met één tik.`)}</p>
-      {hasWallet && <Action class="primary" onClick={() => requestLightning(state, {})}>{T('Create invoice with my wallet', 'Factuur maken met mijn wallet')}</Action>}
-      <Field label={T('…or your Lightning address', '…of je Lightning-adres')}>
+      <h3>{T('Send a payment request', 'Envía una solicitud de pago')}</h3>
+      <p class="hint">{T(`An invoice for exactly ${formatCoin(state.terms.priceSats)} goes into the chat. The buyer pays it with one tap.`, `Una factura por exactamente ${formatCoin(state.terms.priceSats)} se envía al chat. El comprador la paga con un toque.`)}</p>
+      {hasWallet && <Action class="primary" onClick={() => requestLightning(state, {})}>{T('Create invoice with my wallet', 'Crear factura con mi cartera')}</Action>}
+      <Field label={T('…or your Lightning address', '…o tu dirección Lightning')}>
         <div class="row">
           <input value={lnAddr} onInput={(e) => setLnAddr(e.target.value)} placeholder="naam@wallet.com" />
-          <Action disabled={!lnAddr.includes('@')} onClick={async () => { updateSettings({ lightningAddress: lnAddr.trim() }); await requestLightning(state, { lightningAddress: lnAddr }); }}>{T('Request', 'Verzoek sturen')}</Action>
+          <Action disabled={!lnAddr.includes('@')} onClick={async () => { updateSettings({ lightningAddress: lnAddr.trim() }); await requestLightning(state, { lightningAddress: lnAddr }); }}>{T('Request', 'Solicitar')}</Action>
         </div>
       </Field>
-      <Field label={T('…or paste an invoice', '…of plak een factuur')}>
+      <Field label={T('…or paste an invoice', '…o pega una factura')}>
         <div class="row">
           <input value={invoice} onInput={(e) => setInvoice(e.target.value)} placeholder="ln…" />
-          <Action disabled={!invoice.trim()} onClick={() => requestLightning(state, { invoice })}>{T('Send', 'Stuur')}</Action>
+          <Action disabled={!invoice.trim()} onClick={() => requestLightning(state, { invoice })}>{T('Send', 'Enviar')}</Action>
         </div>
       </Field>
-      {!hasWallet && <p class="muted small">{T('Tip: connect your Lightning wallet under Account to create invoices and see payments automatically.', 'Tip: koppel je Lightning-wallet onder Account om automatisch facturen te maken en betalingen te zien.')}</p>}
+      {!hasWallet && <p class="muted small">{T('Tip: connect your Lightning wallet under Account to create invoices and see payments automatically.', 'Consejo: conecta tu cartera Lightning en Cuenta para crear facturas y ver los pagos automáticamente.')}</p>}
     </div>
   );
 }
@@ -349,28 +283,28 @@ function PaymentBox({ state, role }) {
   const uri = req.method === 'lightning' ? `lightning:${req.invoice}` : `bitcoin:${req.address}?amount=${(req.amountSats / 1e8).toFixed(8)}`;
   return (
     <div class="card escrow">
-      <h3>💳 {T('Payment request', 'Betaalverzoek')}: <Coin sats={o.priceSats} /></h3>
-      {paid?.verified ? <p class="notice ok">✅ {T('Paid. The Lightning preimage proves it.', 'Betaald. Het Lightning-preimage bewijst het.')}</p>
-        : paid ? <p class="notice">{T('The buyer reports a payment', 'De koper meldt een betaling')}{paid.txid && <>: <a href={`${explorer}/tx/${paid.txid}`} target="_blank" rel="noopener noreferrer"><code>{paid.txid.slice(0, 16)}…</code></a></>}
-            {check?.error && <> · <span class="error small">{T('Could not check this transaction', 'Kon deze transactie niet controleren')}: {check.error}</span></>}
-            {check && !check.error && <> · {check.enough ? `✓ ${formatCoin(check.paid)}, ${check.confirmations} ${T('confirmations', 'bevestigingen')}` : `⚠ ${T('pays only', 'betaalt maar')} ${formatCoin(check.paid)}`}</>}</p>
+      <h3>💳 {T('Payment request', 'Solicitud de pago')}: <Coin sats={state.terms.priceSats} /></h3>
+      {paid?.verified ? <p class="notice ok">✅ {T('Paid. The Lightning preimage proves it.', 'Pagado. El preimage de Lightning lo demuestra.')}</p>
+        : paid ? <p class="notice">{T('The buyer reports a payment', 'El comprador indica que ha pagado')}{paid.txid && <>: <a href={`${explorer}/tx/${paid.txid}`} target="_blank" rel="noopener noreferrer"><code>{paid.txid.slice(0, 16)}…</code></a></>}
+            {check?.error && <> · <span class="error small">{T('Could not check this transaction', 'No se ha podido comprobar esta transacción')}: {check.error}</span></>}
+            {check && !check.error && <> · {check.enough ? `✓ ${formatCoin(check.paid)}, ${check.confirmations} ${T('confirmations', 'confirmaciones')}` : `⚠ ${T('pays only', 'solo paga')} ${formatCoin(check.paid)}`}</>}</p>
         : null}
-      {state.paymentConfirmed && <p class="notice ok">✅ {T('The seller confirmed receiving the payment.', 'De verkoper heeft de ontvangst van de betaling bevestigd.')}</p>}
+      {state.paymentConfirmed && <p class="notice ok">✅ {T('The seller confirmed receiving the payment.', 'El vendedor ha confirmado que ha recibido el pago.')}</p>}
       {!paid && !state.paymentConfirmed && (
         <div class="escrow-grid">
           <QR text={uri} size={170} />
           <div>
             <div class="addr"><code class="break small">{req.method === 'lightning' ? req.invoice : req.address}</code> <Copy text={req.method === 'lightning' ? req.invoice : req.address} /></div>
-            {req.method === 'lightning' && <p class="muted small">{T('Network', 'Netwerk')}: ln{req.network} · {expired ? <span class="error">{T('expired, ask for a new one', 'verlopen, vraag een nieuwe')}</span> : `${T('valid until', 'geldig tot')} ${fmtDate(req.expiresAt)}`}</p>}
+            {req.method === 'lightning' && <p class="muted small">{T('Network', 'Red')}: ln{req.network} · {expired ? <span class="error">{T('expired, ask for a new one', 'caducada, pide una nueva')}</span> : `${T('valid until', 'válida hasta')} ${fmtDate(req.expiresAt)}`}</p>}
             {role === 'buyer' && (
               <>
                 <div class="row">
-                  {req.method === 'lightning' && walletConnected() && !expired && <Action class="primary" confirm={T(`Pay ${formatCoin(o.priceSats)} from your connected wallet?`, `${formatCoin(o.priceSats)} betalen vanuit je gekoppelde wallet?`)} onClick={async () => { await payWithWallet(state); toast(T('Paid', 'Betaald'), 'ok'); }}>⚡ {T('Pay with my wallet', 'Betaal met mijn wallet')}</Action>}
-                  <a class="btn" href={uri}>{T('Open in wallet app', 'Open in wallet-app')}</a>
+                  {req.method === 'lightning' && walletConnected() && !expired && <Action class="primary" confirm={T(`Pay ${formatCoin(state.terms.priceSats)} from your connected wallet?`, `¿Pagar ${formatCoin(state.terms.priceSats)} desde tu cartera conectada?`)} onClick={async () => { await payWithWallet(state); toast(T('Paid', 'Pagado'), 'ok'); }}>⚡ {T('Pay with my wallet', 'Pagar con mi cartera')}</Action>}
+                  <a class="btn" href={uri}>{T('Open in wallet app', 'Abrir en la app de la cartera')}</a>
                 </div>
                 <div class="row">
-                  <input value={proof} onInput={(e) => setProof(e.target.value.trim())} placeholder={req.method === 'lightning' ? T('Preimage (optional)', 'Preimage (optioneel)') : T('Payment txid', 'Betalings-txid')} />
-                  <Action disabled={req.method === 'onchain' && !/^[0-9a-f]{64}$/i.test(proof)} onClick={() => reportPaid(state, req.method === 'lightning' ? { preimage: proof } : { txid: proof })}>{T('I paid', 'Ik heb betaald')}</Action>
+                  <input value={proof} onInput={(e) => setProof(e.target.value.trim())} placeholder={req.method === 'lightning' ? T('Preimage (optional)', 'Preimage (opcional)') : T('Payment txid', 'Txid del pago')} />
+                  <Action disabled={req.method === 'onchain' && !/^[0-9a-f]{64}$/i.test(proof)} onClick={() => reportPaid(state, req.method === 'lightning' ? { preimage: proof } : { txid: proof })}>{T('I paid', 'He pagado')}</Action>
                 </div>
               </>
             )}
@@ -379,80 +313,10 @@ function PaymentBox({ state, role }) {
       )}
       {role === 'seller' && !state.paymentConfirmed && (
         <div class="row">
-          {req.method === 'lightning' && walletConnected() && <Action onClick={async () => { const r = await lookupInvoice(req.paymentHash); if (r.settled_at || r.preimage) { await confirmPaid(state); toast(T('Payment received', 'Betaling ontvangen'), 'ok'); } else toast(T('Not paid yet', 'Nog niet betaald')); }}>{T('Check my wallet', 'Controleer mijn wallet')}</Action>}
-          <Action confirm={T('Confirm the full amount is in your wallet?', 'Bevestigen dat het volledige bedrag in je wallet staat?')} onClick={() => confirmPaid(state)}>{T('I received the payment', 'Ik heb de betaling ontvangen')}</Action>
+          {req.method === 'lightning' && walletConnected() && <Action onClick={async () => { const r = await lookupInvoice(req.paymentHash); if (r.settled_at || r.preimage) { await confirmPaid(state); toast(T('Payment received', 'Pago recibido'), 'ok'); } else toast(T('Not paid yet', 'Aún no pagado')); }}>{T('Check my wallet', 'Comprobar mi cartera')}</Action>}
+          <Action confirm={T('Confirm the full amount is in your wallet?', '¿Confirmas que el importe completo está en tu cartera?')} onClick={() => confirmPaid(state)}>{T('I received the payment', 'He recibido el pago')}</Action>
         </div>
       )}
-    </div>
-  );
-}
-
-function OfferReview({ state }) {
-  const s = settings.get();
-  const dir = useStore(directory);
-  const [payout, setPayout] = useState(s.payoutAddress || '');
-  const [reason, setReason] = useState('');
-  const [limit, setLimit] = useState(null);
-  const o = state.offer;
-  useEffect(() => { reviewsAbout(state.participants.buyer).then((r) => setLimit(tradeLimitFor(r.verifiedTrades, s.tradeLimits))).catch(() => {}); }, []);
-  // The arbiter may have announced after we loaded the directory.
-  useEffect(() => { if (!state.checks.arbiterTrusted) refreshDirectory(0).catch(() => {}); }, [o.arbiter.pubkey]);
-  const ok = isValidAddress(payout, o.network);
-  const arb = dir.arbiters.get(o.arbiter.pubkey);
-  return (
-    <div class="card">
-      <h3>{T('New offer', 'Nieuw bod')}</h3>
-      <p><Name pk={state.participants.buyer} /> <Reputation pk={state.participants.buyer} /></p>
-      <p>{T('offers', 'biedt')} <b><Coin sats={o.priceSats} /></b> {T('for', 'voor')} <b>{o.listing.title}</b> <span class="muted">({T('listed at', 'vraagprijs')} {o.listing.price} {o.listing.currency}{o.listing.shippingCost ? ` + ${o.listing.shippingCost}` : ''})</span></p>
-      <p>{T('Your deposit', 'Jouw borg')}: <Coin sats={o.sellerDepositSats} /> · {T('buyer deposit', 'borg koper')}: <Coin sats={o.buyerDepositSats} /></p>
-      <p>{T('Arbiter', 'Arbiter')}: <Name pk={o.arbiter.pubkey} /> {state.checks.arbiterTrusted ? <span class="badge ok">✓ {T('approved', 'goedgekeurd')}</span> : <span class="badge danger">{T('NOT an approved arbiter', 'GEEN goedgekeurde arbiter')}</span>}</p>
-      {!state.checks.arbiterTrusted && <p class="notice danger">{T('Do not accept: the arbiter or its escrow key is not on your trusted list. A buyer who controls the arbiter key controls the escrow.', 'Niet accepteren: de arbiter of zijn escrow-sleutel staat niet op je vertrouwde lijst. Een koper die de arbitersleutel beheert, beheert de escrow.')}</p>}
-      {limit != null && o.priceSats > limit && <p class="notice warn">{T(`This buyer has few verified trades; the community limit for them is ${formatCoin(limit)}.`, `Deze koper heeft weinig geverifieerde trades; de community-limiet voor hen is ${formatCoin(limit)}.`)}</p>}
-      {o.note && <p class="quote">{o.note}</p>}
-      {o.shipTo && <div><b>{T('Ship to', 'Verzenden naar')}:</b><pre class="address">{o.shipTo}</pre></div>}
-      <Field label={T('Your XBT payout address', 'Jouw XBT-uitbetaaladres')}>
-        <input value={payout} onInput={(e) => setPayout(e.target.value)} class={payout && !ok ? 'invalid' : ''} placeholder="bc1q…" />
-      </Field>
-      <div class="row">
-        <Action class="primary" disabled={!ok || !arb || !state.checks.arbiterTrusted} onClick={async () => { updateSettings({ payoutAddress: payout.trim() }); await acceptOffer(state, payout); }}>{T('Accept', 'Accepteren')}</Action>
-        <input value={reason} onInput={(e) => setReason(e.target.value)} placeholder={T('Reason (optional)', 'Reden (optioneel)')} />
-        <Action class="danger" onClick={() => rejectOffer(state, reason)}>{T('Reject', 'Afwijzen')}</Action>
-      </div>
-    </div>
-  );
-}
-
-function ShipForm({ state }) {
-  const [carrierId, setCarrier] = useState(state.offer.shipping?.id || '');
-  const [tracking, setTracking] = useState('');
-  const [note, setNote] = useState('');
-  if (isServiceTrade(state)) {
-    return (
-      <div class="card">
-        <h3>{T('Job done?', 'Klus uitgevoerd?')}</h3>
-        <p class="hint">{T('Let the buyer know when the work is finished. They then confirm and the payment is released.', 'Laat de koper weten wanneer het werk af is. Die bevestigt dan en de betaling wordt vrijgegeven.')}</p>
-        <Field label={T('Note', 'Toelichting')}><input value={note} onInput={(e) => setNote(e.target.value)} /></Field>
-        <Action class="primary" onClick={() => markShipped(state, { carrier: 'service', tracking: '', note })}>{T('Mark as done', 'Markeer als uitgevoerd')}</Action>
-      </div>
-    );
-  }
-  return (
-    <div class="card">
-      <h3>{T('Ship the item', 'Verstuur het item')}</h3>
-      <p class="hint">{T('Tip: film yourself packing it with the label visible. It makes any dispute easy to settle.', 'Tip: film het inpakken met het label in beeld. Dat maakt een eventueel geschil makkelijk op te lossen.')}</p>
-      <pre class="address">{state.offer.shipTo || T('(no address given, ask in the chat)', '(geen adres opgegeven, vraag het in de chat)')}</pre>
-      <div class="cols">
-        <Field label={T('Carrier', 'Vervoerder')}>
-          <select value={carrierId} onChange={(e) => setCarrier(e.target.value)}>
-            <option value="">…</option>
-            {CARRIERS.filter((c) => !c.pickup || state.offer.shipping?.id === 'pickup').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </Field>
-        <Field label={T('Tracking code', 'Track & trace-code')}><input value={tracking} onInput={(e) => setTracking(e.target.value)} /></Field>
-      </div>
-      <Field label={T('Note', 'Toelichting')}><input value={note} onInput={(e) => setNote(e.target.value)} /></Field>
-      <p class="muted small">{T('Cheaper labels', 'Goedkopere labels')}: {[...(carrier(carrierId).label ? [{ name: carrier(carrierId).name, url: carrier(carrierId).label }] : []), ...LABEL_SERVICES].map((l, i) => <>{i > 0 && ' · '}<a href={l.url} target="_blank" rel="noopener noreferrer">{l.name}</a></>)}</p>
-      <Action class="primary" disabled={!carrierId} onClick={() => markShipped(state, { carrier: carrierId, tracking, note })}>{T('Mark as shipped', 'Markeer als verzonden')}</Action>
     </div>
   );
 }
@@ -460,16 +324,416 @@ function ShipForm({ state }) {
 function DisputeBox({ state, role }) {
   const [reason, setReason] = useState('');
   const [open, setOpen] = useState(false);
-  if (!open) return <button class="btn ghost danger" onClick={() => setOpen(true)}>{T('Open a dispute', 'Open een geschil')}</button>;
+  if (!open) return <button class="btn ghost danger" onClick={() => setOpen(true)}>{T('Open a dispute', 'Abrir una disputa')}</button>;
   return (
     <div class="card">
-      <h3>{T('Open a dispute', 'Open een geschil')}</h3>
-      <p class="hint">{T('The arbiter will read the chat and may ask for photos or videos. Try to solve it together first: you can always propose a split yourselves.', 'De arbiter leest de chat en kan om foto\'s of video\'s vragen. Probeer het eerst samen op te lossen: jullie kunnen altijd zelf een verdeling voorstellen.')}</p>
-      <textarea rows="3" value={reason} onInput={(e) => setReason(e.target.value)} placeholder={T('What went wrong?', 'Wat ging er mis?')} />
+      <h3>{T('Open a dispute', 'Abrir una disputa')}</h3>
+      <p class="hint">{T('The arbiter will read the chat and may ask for photos or videos. Try to solve it together first: you can always propose a split yourselves.', 'El árbitro leerá el chat y puede pedir fotos o vídeos. Intentad resolverlo juntos primero: siempre podéis proponer un reparto vosotros mismos.')}</p>
+      <textarea rows="3" value={reason} onInput={(e) => setReason(e.target.value)} placeholder={T('What went wrong?', '¿Qué ha salido mal?')} />
       <div class="row">
-        <Action class="danger" disabled={!reason.trim()} onClick={async () => { await openDispute(state, reason.trim()); setOpen(false); }}>{T('Open dispute', 'Geschil openen')}</Action>
-        <button class="btn ghost" onClick={() => setOpen(false)}>{T('Cancel', 'Annuleren')}</button>
+        <Action class="danger" disabled={!reason.trim()} onClick={async () => { await openDispute(state, reason.trim()); setOpen(false); }}>{T('Open dispute', 'Abrir disputa')}</Action>
+        <button class="btn ghost" onClick={() => setOpen(false)}>{T('Cancel', 'Cancelar')}</button>
       </div>
+    </div>
+  );
+}
+
+// Protocol steps shown as lines in the chat, Marktplaats-style.
+function eventText(state, e) {
+  const b = e.body || {};
+  switch (e.type) {
+    case 'open': return `💬 ${T('Conversation about', 'Conversación sobre')} “${state.listing?.title || ''}”`;
+    case 'offer': return `🛒 ${T('Order', 'Pedido')}: ${formatCoin(b.priceSats)} · ${payShort(b.payment === 'direct' ? b.method : 'escrow')}${b.shipping?.carrier ? ` · ${carrier(b.shipping.carrier).name}` : ''}`;
+    case 'accept': return `✅ ${T('Order accepted', 'Pedido aceptado')}`;
+    case 'reject': return `✖ ${T('Order rejected', 'Pedido rechazado')}${b.reason ? `: ${b.reason}` : ''}`;
+    case 'cancel': return `✖ ${T('Cancelled', 'Cancelado')}`;
+    case 'details': return `📋 ${T('Details sent', 'Datos enviados')}${b.arbiter ? ` · ${T('arbiter chosen', 'árbitro elegido')}` : ''}`;
+    case 'change': return `🔁 ${T('Asks to pay with', 'Pide pagar con')} ${payShort(b.method)}`;
+    case 'change_ok': return `✅ ${T('Payment method changed', 'Método de pago cambiado')}`;
+    case 'change_no': return `✖ ${T('Change of payment method declined', 'Cambio de método de pago rechazado')}`;
+    case 'request': return `💳 ${T('Payment request', 'Solicitud de pago')}: ${formatCoin(state.terms?.priceSats)}`;
+    case 'paid': return `💸 ${T('Buyer paid', 'El comprador ha pagado')}`;
+    case 'confirm_paid': return `✅ ${T('Seller received the payment', 'El vendedor ha recibido el pago')}`;
+    case 'funded': return `💸 ${T('Paid into escrow', 'Pagado al escrow')}`;
+    case 'label': return `🏷 ${T('Shipping label ready', 'Etiqueta de envío lista')}: ${carrier(b.carrier).name}${b.tracking ? ` · ${b.tracking}` : ''}`;
+    case 'shipped': return isServiceTrade(state) ? `✅ ${T('Job done', 'Trabajo hecho')}` : `📦 ${T('Shipped', 'Enviado')}`;
+    case 'received': return `🎉 ${T('Received', 'Recibido')}`;
+    case 'dispute': return `⚖️ ${T('Dispute opened', 'Disputa abierta')}`;
+    case 'proposal': return `✍️ ${T('Payout proposed', 'Pago propuesto')}`;
+    case 'broadcast': return `✅ ${T('Paid out', 'Pagado')}`;
+    default: return null;
+  }
+}
+
+function Chat({ state }) {
+  const [text, setText] = useState('');
+  const me = useStore(account, (a) => a.pubkey);
+  const end = useRef();
+  const items = useMemo(() => {
+    const ev = state.log.filter((e) => !e.error && e.type !== 'chat' && e.type !== 'sign').map((e) => ({ ...e, system: eventText(state, e) })).filter((e) => e.system);
+    return [...ev, ...state.chat].sort((a, b) => a.at - b.at);
+  }, [state]);
+  useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }); }, [items.length]);
+  const who = state.participants.arbiter ? T('end-to-end encrypted, visible to buyer, seller and arbiter', 'cifrado de extremo a extremo, visible para comprador, vendedor y árbitro') : T('end-to-end encrypted, only you two can read it', 'cifrado de extremo a extremo, solo vosotros dos lo podéis leer');
+  return (
+    <div class="card chat">
+      <h3>💬 {T('Messages', 'Mensajes')} <span class="muted small">{who}</span></h3>
+      {state.open?.prev && <p class="small"><a href={`#/trade/${state.open.prev}`}>← {T('Earlier conversation', 'Conversación anterior')}</a></p>}
+      <div class="messages">
+        {items.map((m) => m.system ? (
+          <div key={m.id} class="msg system"><span>{m.system}</span> <span class="muted small">· {m.from === me || m.role === state.role ? T('you', 'tú') : roleLabel(m.role)} · {timeAgo(m.at)}</span></div>
+        ) : (
+          <div key={m.id} class={`msg ${m.from === me ? 'mine' : ''} ${m.role}`}>
+            <div class="who">{m.from === me ? T('You', 'Tú') : <><Name pk={m.from} avatar={false} /> · {roleLabel(m.role)}</>} · {timeAgo(m.at)}</div>
+            <div class="text">{m.text}</div>
+          </div>
+        ))}
+        <div ref={end} />
+      </div>
+      <form class="row" onSubmit={(e) => e.preventDefault()}>
+        <input value={text} onInput={(e) => setText(e.target.value)} placeholder={T('Write a message…', 'Escribe un mensaje…')} />
+        <Action class="primary" disabled={!text.trim()} onClick={async () => { await sendChat(state, text.trim()); setText(''); }}>{T('Send', 'Enviar')}</Action>
+      </form>
+    </div>
+  );
+}
+
+function RoleBanner({ state }) {
+  const p = state.participants;
+  const role = state.role;
+  if (role === 'buyer') return <div class="role-banner buyer">🛒 <span><b>{T('You are buying', 'Estás comprando')}</b> {T('from', 'a')} <Name pk={p.seller} /></span></div>;
+  if (role === 'seller') return <div class="role-banner seller">🏷 <span><b>{T('You are selling', 'Estás vendiendo')}</b> {T('to', 'a')} <Name pk={p.buyer} /></span></div>;
+  if (role === 'arbiter') return <div class="role-banner arbiter">⚖️ <span><b>{T('You are the arbiter', 'Eres el árbitro')}</b>: <Name pk={p.buyer} /> ({T('buyer', 'comprador')}) · <Name pk={p.seller} /> ({T('seller', 'vendedor')})</span></div>;
+  return <div class="role-banner">{T('You are not part of this trade', 'No participas en esta compra')}</div>;
+}
+
+function ShippingLine({ state }) {
+  const sh = state.offer?.shipping;
+  if (!sh || isServiceTrade(state)) return null;
+  if (isPickup(state)) return <div><span>{T('Delivery', 'Entrega')}</span><b>🤝 {T('pick-up', 'recogida')}</b></div>;
+  return <div><span>{T('Shipping', 'Envío')}: {carrier(shipCarrierOf(state)).name} → {countryName(sh.country)}</span><b>{sh.estimate ? '≈ ' : ''}{sh.price != null ? formatFiat(sh.price, sh.currency || 'EUR') : ''}</b></div>;
+}
+
+// The order, as both sides see it, with the seller's accept / reject.
+function OfferCard({ state, role }) {
+  const s = settings.get();
+  const dir = useStore(directory);
+  const [payout, setPayout] = useState(s.payoutAddress || '');
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState('');
+  const [limit, setLimit] = useState(null);
+  const o = state.offer;
+  const tm = state.terms;
+  const escrow = state.payment === 'escrow';
+  useEffect(() => { if (role === 'seller') reviewsAbout(state.participants.buyer).then((r) => setLimit(tradeLimitFor(r.verifiedTrades, s.tradeLimits))).catch(() => {}); }, []);
+  // A version 1 offer names its arbiter up front.
+  useEffect(() => { if (state.arbiter && !state.checks.arbiterTrusted) refreshDirectory(0).catch(() => {}); }, [state.arbiter?.pubkey]);
+  const v1Arbiter = state.version === 1 && escrow ? state.arbiter : null;
+  const ok = !escrow || isValidAddress(payout, o.network);
+  const title = role === 'buyer' ? T('Your order', 'Tu pedido') : role === 'seller' ? <>{T('Order from', 'Pedido de')} <Name pk={state.participants.buyer} /> <span class="muted small">({T('the buyer', 'el comprador')})</span></> : T('Order', 'Pedido');
+  return (
+    <div class={`card offer-card ${state.status === 'offered' && role === 'seller' ? 'attention' : ''}`}>
+      <h3>🛒 {title}</h3>
+      {role === 'seller' && <p class="small"><Reputation pk={state.participants.buyer} /></p>}
+      <div class="summary">
+        <div><span>{T('Asking price', 'Precio pedido')}</span><b>{formatFiat(o.listing.price, o.listing.currency)}</b></div>
+        <ShippingLine state={state} />
+        <div><span>{T('Payment', 'Pago')}</span><b>{payShort(methodOf(state))}</b></div>
+        <div class="total"><span>{role === 'seller' ? T('The buyer offers', 'El comprador ofrece') : T('You offer', 'Ofreces')}</span><b><Coin sats={tm.priceSats} /></b></div>
+        {escrow && <div class="muted small"><span>{T('Deposits', 'Depósitos')}: {T('buyer', 'comprador')} {formatCoin(tm.buyerDepositSats)} · {T('seller', 'vendedor')} {formatCoin(tm.sellerDepositSats)}</span></div>}
+      </div>
+      {o.note && <p class="quote">{o.note}</p>}
+      {v1Arbiter && <p>{T('Arbiter', 'Árbitro')}: <Name pk={v1Arbiter.pubkey} /> {state.checks.arbiterTrusted ? <span class="badge ok">✓ {T('approved', 'aprobado')}</span> : <span class="badge danger">{T('NOT an approved arbiter', 'NO es un árbitro aprobado')}</span>}</p>}
+      {role === 'seller' && limit != null && escrow && tm.priceSats > limit && <p class="notice warn">{T(`This buyer has few verified trades; the community limit for them is ${formatCoin(limit)}.`, `Este comprador tiene pocas compras verificadas; el límite de la comunidad para él es ${formatCoin(limit)}.`)}</p>}
+      {state.status === 'offered' && role === 'seller' && (
+        <>
+          {escrow && (
+            <Field label={T('Your XBT payout address', 'Tu dirección XBT de cobro')} hint={T('Where the escrow pays you. A wallet that follows the BLAKE2b chain.', 'Donde te paga el escrow. Una cartera que siga la cadena BLAKE2b.')}>
+              <input value={payout} onInput={(e) => setPayout(e.target.value)} class={payout && !ok ? 'invalid' : ''} placeholder="bc1q…" />
+            </Field>
+          )}
+          {!escrow && <p class="hint">{T('No escrow: you ship once the payment has arrived in your wallet.', 'Sin escrow: envías cuando el pago esté en tu cartera.')}</p>}
+          {rejecting ? (
+            <div class="reject-box">
+              <Field label={T('Why do you reject it? (optional)', '¿Por qué lo rechazas? (opcional)')}><input value={reason} onInput={(e) => setReason(e.target.value)} autofocus /></Field>
+              <div class="row">
+                <Action class="danger" onClick={() => rejectOffer(state, reason)}>{T('Reject order', 'Rechazar pedido')}</Action>
+                <button class="btn ghost" onClick={() => setRejecting(false)}>{T('Back', 'Volver')}</button>
+              </div>
+            </div>
+          ) : (
+            <div class="row">
+              <Action class="primary" disabled={!ok || (v1Arbiter && !state.checks.arbiterTrusted)} onClick={async () => { if (escrow) updateSettings({ payoutAddress: payout.trim() }); await acceptOffer(state, escrow ? payout : ''); }}>✓ {T('Accept', 'Aceptar')}</Action>
+              <button class="btn danger ghost" onClick={() => setRejecting(true)}>{T('Reject', 'Rechazar')}</button>
+            </div>
+          )}
+        </>
+      )}
+      {state.status === 'offered' && role === 'buyer' && (
+        <div class="row">
+          <span class="muted small">{T('Waiting for the seller to accept. Nothing to pay yet.', 'Esperando a que el vendedor acepte. Aún no hay que pagar nada.')}</span>
+          <Action class="ghost small" onClick={() => cancelTrade(state, '')}>{T('Withdraw order', 'Retirar pedido')}</Action>
+        </div>
+      )}
+      {v1Arbiter && !state.checks.arbiterTrusted && role === 'seller' && <p class="notice danger">{T('Do not accept: the arbiter or its escrow key is not on your trusted list.', 'No aceptes: el árbitro o su clave de escrow no está en tu lista de confianza.')}</p>}
+    </div>
+  );
+}
+
+function ServicePointPicker({ state, value, onChange, postalCode }) {
+  const [list, setList] = useState(null);
+  const sh = state.offer.shipping;
+  useEffect(() => {
+    setList(null);
+    if (!postalCode) return;
+    const t = setTimeout(() => servicePoints(shipCarrierOf(state), sh.country, postalCode).then(setList).catch(() => setList([])), 400);
+    return () => clearTimeout(t);
+  }, [postalCode]);
+  if (!postalCode) return <p class="hint">{T('Fill in your postcode to see pick-up points near you.', 'Introduce tu código postal para ver puntos de recogida cercanos.')}</p>;
+  if (!list) return <Spinner />;
+  if (!list.length) return <p class="hint error">{T('No pick-up points found near this postcode.', 'No hay puntos de recogida cerca de este código postal.')}</p>;
+  return (
+    <div class="choices">
+      {list.map((p) => <label key={p.id} class={`choice ${String(value) === String(p.id) ? 'on' : ''}`}><input type="radio" name="point" checked={String(value) === String(p.id)} onChange={() => onChange(p.id)} /><span>{p.name}<span class="muted small">{p.street} {p.number}, {p.city}{p.distance ? ` · ${Math.round(p.distance)} m` : ''}</span></span></label>)}
+    </div>
+  );
+}
+
+// After the accept: what the other side needs now, and only that.
+function DetailsForm({ state, role }) {
+  const s = settings.get();
+  const dir = useStore(directory);
+  const arbiters = [...dir.arbiters.values()];
+  const escrow = state.payment === 'escrow';
+  const sh = state.offer.shipping;
+  const needShip = role === 'buyer' && needsAddress(state) && !state.shipTo;
+  const needPoint = role === 'buyer' && sh?.servicePoint && labelsEnabled() && !state.servicePointId;
+  const needArbiter = role === 'buyer' && escrow && !state.arbiter;
+  const needPayout = escrow && (role === 'buyer' || role === 'seller') && !state.payout[role];
+  const [address, setAddress] = useState(() => ({ ...(s.address || {}), country: sh?.country || s.address?.country || '' }));
+  const [point, setPoint] = useState('');
+  const [arbiter, setArbiter] = useState(arbiters[0]?.pubkey || '');
+  const [payout, setPayout] = useState(s.payoutAddress || '');
+  useEffect(() => { refreshDirectory().catch(() => {}); }, []);
+  useEffect(() => { if (!arbiter && arbiters[0]) setArbiter(arbiters[0].pubkey); }, [arbiters.length]);
+  if (!state.accept || state.cancelled || state.rejected || !(needShip || needPoint || needArbiter || needPayout)) return null;
+  const addrOk = !needShip || (addressComplete(address) && address.country === sh.country);
+  const payoutOk = !needPayout || isValidAddress(payout, state.offer.network);
+  const ready = addrOk && payoutOk && (!needArbiter || dir.arbiters.has(arbiter)) && (!needPoint || point);
+  return (
+    <div class="card form attention details-form">
+      <h3>📋 {role === 'buyer' ? T('Accepted! A few details for the seller', '¡Aceptado! Unos datos para el vendedor') : T('Your payout address', 'Tu dirección de cobro')}</h3>
+      {needShip && <>
+        <h4>{T('Delivery address', 'Dirección de entrega')}</h4>
+        <p class="hint">{T('Encrypted; only the seller (and with escrow the arbiter) can read it.', 'Cifrada; solo el vendedor (y con escrow el árbitro) la puede leer.')}</p>
+        <AddressForm value={address} onChange={setAddress} />
+        {address.country && address.country !== sh.country && <p class="hint error">{T(`The shipping price was for ${countryName(sh.country)}.`, `El precio de envío era para ${countryName(sh.country)}.`)}</p>}
+      </>}
+      {needPoint && <Field label={T('Pick-up point', 'Punto de recogida')}><ServicePointPicker state={state} value={point} onChange={setPoint} postalCode={address.postalCode} /></Field>}
+      {needArbiter && (
+        <Field label={T('Arbiter', 'Árbitro')} hint={T('Only steps in if you and the seller disagree. Holds one of the three escrow keys.', 'Solo interviene si el vendedor y tú no os ponéis de acuerdo. Tiene una de las tres claves del escrow.')}>
+          {arbiters.length ? (
+            <select value={arbiter} onChange={(e) => setArbiter(e.target.value)}>
+              {arbiters.map((a) => <option key={a.pubkey} value={a.pubkey}>{a.name || a.pubkey.slice(0, 12)}{a.languages ? ` (${a.languages})` : ''}</option>)}
+            </select>
+          ) : <p class="notice warn">{dir.loaded ? T('No approved arbiters yet. Ask the seller to switch to Lightning, or add an arbiter you trust under Account.', 'Aún no hay árbitros aprobados. Pide al vendedor cambiar a Lightning o añade un árbitro de confianza en Cuenta.') : <Spinner />}</p>}
+        </Field>
+      )}
+      {needPayout && (
+        <Field label={role === 'buyer' ? T('Your XBT address for refunds and your deposit', 'Tu dirección XBT para reembolsos y tu depósito') : T('Your XBT payout address', 'Tu dirección XBT de cobro')} hint={payout && !payoutOk ? T('Not a valid address for ' + state.offer.network, 'No es una dirección válida para ' + state.offer.network) : T('A wallet that follows the BLAKE2b chain (e.g. Sparrow BLAKE2b).', 'Una cartera que siga la cadena BLAKE2b (p. ej. Sparrow BLAKE2b).')}>
+          <input value={payout} onInput={(e) => setPayout(e.target.value)} placeholder="bc1q…" class={payout && !payoutOk ? 'invalid' : ''} />
+        </Field>
+      )}
+      <Action class="primary" disabled={!ready} onClick={async () => {
+        if (needShip) updateSettings({ address });
+        if (needPayout) updateSettings({ payoutAddress: payout.trim() });
+        await sendDetails(state, { ...(needShip ? { shipTo: address } : {}), ...(needPoint ? { servicePointId: point } : {}), ...(needPayout ? { payoutAddress: payout } : {}), ...(needArbiter ? { arbiter: dir.arbiters.get(arbiter) } : {}) });
+      }}>{T('Send', 'Enviar')}</Action>
+    </div>
+  );
+}
+
+// Either side may ask to pay another way, until something is paid.
+function ChangeBox({ state, role, funded }) {
+  const s = settings.get();
+  const [open, setOpen] = useState(false);
+  const [method, setMethod] = useState('');
+  if (!state.offer || !['buyer', 'seller'].includes(role) || state.rejected || state.cancelled || state.paid || state.paymentConfirmed || state.escrow || funded) return null;
+  const current = methodOf(state);
+  const allowed = (state.offer.listing.payments?.length ? state.offer.listing.payments : ['lightning', 'onchain', 'escrow']).filter((m) => m !== current);
+  const pending = state.changes.filter((c) => c.status === 'open');
+  const theirs = pending.find((c) => c.role !== role);
+  const mine = pending.find((c) => c.role === role);
+  const canEscrow = !!state.escrowKeys?.buyer && (!state.accept || state.accept.seller?.escrowPubkey);
+  const options = allowed.filter((m) => m !== 'escrow' || canEscrow);
+  if (theirs) {
+    return (
+      <div class="card attention change-box">
+        <h4>🔁 {role === 'buyer' ? T('The seller', 'El vendedor') : T('The buyer', 'El comprador')} {T('asks to pay with', 'pide pagar con')} <b>{payShort(theirs.method)}</b> {T('instead of', 'en vez de')} {payShort(current)}</h4>
+        {theirs.method === 'escrow' && <p class="small">{T('Deposits', 'Depósitos')}: {T('buyer', 'comprador')} {formatCoin(theirs.buyerDepositSats)} · {T('seller', 'vendedor')} {formatCoin(theirs.sellerDepositSats)}</p>}
+        {theirs.note && <p class="quote">{theirs.note}</p>}
+        <div class="row">
+          <Action class="primary" onClick={() => answerChange(state, theirs, true)}>✓ {T('Agree', 'Aceptar')}</Action>
+          <Action class="ghost danger" onClick={() => answerChange(state, theirs, false)}>{T('Decline', 'Rechazar')}</Action>
+        </div>
+      </div>
+    );
+  }
+  if (mine) return <p class="notice small">🔁 {T(`You asked to pay with ${payShort(mine.method)}. Waiting for an answer.`, `Pediste pagar con ${payShort(mine.method)}. Esperando respuesta.`)}</p>;
+  if (!options.length) return null;
+  if (!open) return <button class="btn ghost small" onClick={() => { setOpen(true); setMethod(options[0]); }}>🔁 {T('Change payment method', 'Cambiar método de pago')}</button>;
+  const p = state.terms.priceSats;
+  const sdPct = state.offer.listing.sellerDepositPct ?? s.sellerDepositPct;
+  return (
+    <div class="card change-box">
+      <h4>🔁 {T('Ask to pay another way', 'Pedir pagar de otra forma')}</h4>
+      <p class="small">{T('Now', 'Ahora')}: <b>{payShort(current)}</b>. {T('The other side has to agree.', 'La otra parte tiene que aceptar.')}</p>
+      <div class="choices">{options.map((m) => <label key={m} class={`choice ${method === m ? 'on' : ''}`}><input type="radio" name="chg" checked={method === m} onChange={() => setMethod(m)} /><span>{payLabel(m)}</span></label>)}</div>
+      <div class="row">
+        <Action class="primary" disabled={!method} onClick={async () => { await requestChange(state, { method, buyerDepositSats: Math.round((p * s.buyerDepositPct) / 100), sellerDepositSats: Math.round((p * sdPct) / 100) }); setOpen(false); }}>{T('Ask', 'Pedir')}</Action>
+        <button class="btn ghost" onClick={() => setOpen(false)}>{T('Cancel', 'Cancelar')}</button>
+      </div>
+    </div>
+  );
+}
+
+function LabelCard({ label }) {
+  const url = trackingUrl(label.carrier, label.tracking);
+  return (
+    <div class="card label-card">
+      <h3>🏷 {T('Shipping label', 'Etiqueta de envío')} · {carrier(label.carrier).name}</h3>
+      {label.qrUrl ? <>
+        <img class="label-qr" src={label.qrUrl} alt="QR" />
+        <p class="small">{T(`Show this QR code at a ${carrier(label.carrier).name} drop-off point: they print the label for you.`, `Enseña este código QR en un punto de ${carrier(label.carrier).name}: allí te imprimen la etiqueta.`)}</p>
+      </> : null}
+      <div class="row">
+        {label.labelUrl && <a class="btn" href={label.labelUrl} target="_blank" rel="noopener">🖨 {T('Label (PDF)', 'Etiqueta (PDF)')}</a>}
+        {label.tracking && <><code>{label.tracking}</code> <Copy text={label.tracking} /></>}
+        {(label.trackingUrl || url) && <a class="btn small" href={label.trackingUrl || url} target="_blank" rel="noopener noreferrer">{T('Track', 'Seguir')}</a>}
+      </div>
+    </div>
+  );
+}
+
+// Seller: buy a prepaid label, paid over Lightning, delivered as a QR code / PDF.
+function LabelMaker({ state }) {
+  useStore(secretNames);
+  const s = useStore(settings);
+  const key = `xbt:label:${state.tradeId}`;
+  const [job, setJob] = useState(() => loadJSON(key, null)); // { id, invoice, sats, price, currency }
+  const [quote, setQuote] = useState(null);
+  const [addr, setAddr] = useState(s.address || {});
+  const [err, setErr] = useState('');
+  const sh = state.offer.shipping;
+  const to = typeof state.shipTo === 'object' ? state.shipTo : null;
+  const from = s.address;
+  const size = sh.size || 'M';
+  const save = (j) => { saveJSON(key, j); setJob(j); };
+  const poll = async (j = job) => {
+    const st = await labelStatus(j.id);
+    if (st.status === 'created') {
+      await sendLabel(state, { carrier: st.carrier, service: st.service, tracking: st.tracking, trackingUrl: st.trackingUrl, labelUrl: API_URL + st.documents.label, ...(st.documents.qr ? { qrUrl: API_URL + st.documents.qr } : {}) });
+      save(null);
+      toast(T('Label ready', 'Etiqueta lista'), 'ok');
+    } else if (st.status === 'failed') {
+      setErr(st.error || T('The carrier refused the label', 'El transportista rechazó la etiqueta'));
+    }
+    return st;
+  };
+  useEffect(() => {
+    if (!job) return;
+    const t = setInterval(() => poll().catch(() => {}), 5000);
+    return () => clearInterval(t);
+  }, [job?.id]);
+  if (!to) return <p class="notice small">{T('Waiting for the buyer\'s address.', 'Esperando la dirección del comprador.')}</p>;
+  if (!addressComplete(from)) {
+    return (
+      <div class="card form">
+        <h3>🏷 {T('Your address for the label', 'Tu dirección para la etiqueta')}</h3>
+        <AddressForm value={addr} onChange={setAddr} />
+        <button class="btn primary" disabled={!addressComplete(addr)} onClick={() => updateSettings({ address: addr })}>{T('Save', 'Guardar')}</button>
+      </div>
+    );
+  }
+  if (job) {
+    return (
+      <div class="card">
+        <h3>🏷 {T('Shipping label', 'Etiqueta de envío')}: {formatFiat(job.price, job.currency)}</h3>
+        {job.invoice ? <>
+          <p class="small">{T('Pay the label over Lightning; it appears here right after.', 'Paga la etiqueta por Lightning; aparece aquí justo después.')}</p>
+          <div class="escrow-grid"><QR text={`lightning:${job.invoice}`} size={170} /><div>
+            <div class="addr"><code class="break small">{job.invoice}</code> <Copy text={job.invoice} /></div>
+            <div class="row">
+              {walletConnected() && <Action class="primary" confirm={T(`Pay ${formatCoin(job.sats)} for the label?`, `¿Pagar ${formatCoin(job.sats)} por la etiqueta?`)} onClick={async () => { await payInvoice(job.invoice); await poll(); }}>⚡ {T('Pay with my wallet', 'Pagar con mi cartera')}</Action>}
+              <a class="btn" href={`lightning:${job.invoice}`}>{T('Open in wallet app', 'Abrir en la app de la cartera')}</a>
+              <Action class="ghost" onClick={async () => { const st = await poll(); if (st.status === 'unpaid') toast(T('Not paid yet', 'Aún no pagada')); }}>{T('I paid', 'He pagado')}</Action>
+            </div>
+          </div></div>
+        </> : <p><Spinner /> {T('Creating the label…', 'Creando la etiqueta…')}</p>}
+        {err && <p class="notice danger small">{err}</p>}
+        <button class="btn ghost small" onClick={() => { save(null); setErr(''); }}>{T('Start over', 'Empezar de nuevo')}</button>
+      </div>
+    );
+  }
+  return (
+    <div class="card">
+      <h3>🏷 {T('Prepaid shipping label', 'Etiqueta de envío prepagada')}</h3>
+      <p class="small">{carrier(shipCarrierOf(state)).name} · {from.city} → {to.city}, {countryName(to.country)} · {T('size', 'tamaño')} {size}</p>
+      {quote ? <p>{T('Price', 'Precio')}: <b>{formatFiat(quote.price, quote.currency)}</b> {T('(the buyer paid you the shipping)', '(el comprador te pagó el envío)')}</p> : null}
+      {err && <p class="notice danger small">{err}</p>}
+      <div class="row">
+        {!quote ? <Action class="primary" onClick={async () => { setErr(''); const q = await labelQuote({ from, to, size, carrier: shipCarrierOf(state), servicePoint: !!sh.servicePoint }); if (!q) throw new Error(T('This carrier has no price for this route now', 'Este transportista no tiene precio para esta ruta ahora')); setQuote(q); }}>{T('Get the label price', 'Ver precio de la etiqueta')}</Action>
+          : <Action class="primary" onClick={async () => { setErr(''); const res = await createLabel({ quoteId: quote.id, from, to, servicePointId: state.servicePointId || undefined, tradeId: state.tradeId }); const j = { id: res.id, invoice: res.invoice, sats: res.sats, price: res.price, currency: res.currency }; save(j); if (!res.invoice) await poll(j); }}>{T('Buy label', 'Comprar etiqueta')} {formatFiat(quote.price, quote.currency)}</Action>}
+      </div>
+    </div>
+  );
+}
+
+function ShipForm({ state }) {
+  const label = state.labels[state.labels.length - 1];
+  const [carrierId, setCarrier] = useState(label?.carrier || shipCarrierOf(state) || '');
+  const [tracking, setTracking] = useState(label?.tracking || '');
+  const [note, setNote] = useState('');
+  useEffect(() => { if (label) { setCarrier(label.carrier); setTracking(label.tracking); } }, [label?.id]);
+  if (isServiceTrade(state)) {
+    return (
+      <div class="card">
+        <h3>{T('Job done?', '¿Trabajo hecho?')}</h3>
+        <p class="hint">{T('Let the buyer know when the work is finished. They then confirm and the payment is released.', 'Avisa al comprador cuando termines. Él lo confirma y se libera el pago.')}</p>
+        <Field label={T('Note', 'Nota')}><input value={note} onInput={(e) => setNote(e.target.value)} /></Field>
+        <Action class="primary" onClick={() => markShipped(state, { carrier: 'service', tracking: '', note })}>{T('Mark as done', 'Marcar como hecho')}</Action>
+      </div>
+    );
+  }
+  if (isPickup(state)) {
+    return (
+      <div class="card">
+        <h3>🤝 {T('Pick-up', 'Recogida')}</h3>
+        <p class="hint">{T('Agree a time in the chat. Mark it once the buyer has it.', 'Acordad una hora en el chat. Márcalo cuando el comprador lo tenga.')}</p>
+        <Action class="primary" onClick={() => markShipped(state, { carrier: 'pickup', tracking: '', note })}>{T('Handed over', 'Entregado')}</Action>
+      </div>
+    );
+  }
+  const to = state.shipTo;
+  return (
+    <div class="card">
+      <h3>📦 {T('Ship the item', 'Envía el artículo')}</h3>
+      <p class="hint">{T('Tip: film yourself packing it with the label visible. It makes any dispute easy to settle.', 'Consejo: grábate empaquetándolo con la etiqueta visible. Así cualquier disputa se resuelve fácil.')}</p>
+      {to ? <pre class="address">{formatAddress(to)}</pre> : <p class="notice small">{T('Waiting for the buyer\'s address.', 'Esperando la dirección del comprador.')}</p>}
+      {state.servicePointId && <p class="small">{T('To pick-up point', 'Al punto de recogida')} #{state.servicePointId}</p>}
+      {labelsEnabled() && !label && to && <LabelMaker state={state} />}
+      {!labelsEnabled() && !label && carrier(carrierId).label && <p class="muted small">{T('Buy the label at', 'Compra la etiqueta en')} <a href={carrier(carrierId).label} target="_blank" rel="noopener noreferrer">{carrier(carrierId).name}</a></p>}
+      <div class="cols">
+        <Field label={T('Carrier', 'Transportista')}>
+          <select value={carrierId} onChange={(e) => setCarrier(e.target.value)}>
+            <option value="">…</option>
+            {CARRIERS.filter((c) => !c.pickup).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </Field>
+        <Field label={T('Tracking code', 'Código de seguimiento')}><input value={tracking} onInput={(e) => setTracking(e.target.value)} /></Field>
+      </div>
+      <Field label={T('Note', 'Nota')}><input value={note} onInput={(e) => setNote(e.target.value)} /></Field>
+      <Action class="primary" disabled={!carrierId} onClick={() => markShipped(state, { carrier: carrierId, tracking, note })}>{T('Mark as shipped', 'Marcar como enviado')}</Action>
     </div>
   );
 }
@@ -477,134 +741,144 @@ function DisputeBox({ state, role }) {
 function DirectFlow({ state, role }) {
   const dl = deadlines(state);
   const paid = !!(state.paid || state.paymentConfirmed);
+  if (!state.accept) return null;
   return (
     <>
-      <p class="notice small">{T('Direct payment: no escrow and no arbiter. The seller ships after the payment has arrived.', 'Directe betaling: geen escrow en geen arbiter. De verkoper verstuurt nadat de betaling binnen is.')}</p>
-      {state.status === 'offered' && role === 'seller' && <DirectOfferReview state={state} />}
-      {state.status === 'offered' && role === 'buyer' && (
-        <div class="card">
-          <p>{T('Waiting for the seller to accept. You pay after that, with the payment request in the chat.', 'Wacht tot de verkoper accepteert. Daarna betaal je via het betaalverzoek in de chat.')}</p>
-          <Action class="ghost" onClick={() => cancelTrade(state, '')}>{T('Withdraw order', 'Bestelling intrekken')}</Action>
-        </div>
-      )}
-      {state.accept && !state.cancelled && !state.request && role === 'seller' && <RequestForm state={state} />}
-      {state.accept && !state.cancelled && !state.request && role === 'buyer' && <p class="notice">{T('Accepted. Waiting for the seller\'s payment request.', 'Geaccepteerd. Wacht op het betaalverzoek van de verkoper.')}</p>}
-      {state.accept && !state.cancelled && <PaymentBox state={state} role={role} />}
+      {!state.cancelled && !state.request && role === 'seller' && <RequestForm state={state} />}
+      {!state.cancelled && !state.request && role === 'buyer' && <p class="notice">{T('Accepted. The seller sends a payment request in this chat.', 'Aceptado. El vendedor envía una solicitud de pago en este chat.')}</p>}
+      {!state.cancelled && <PaymentBox state={state} role={role} />}
       {state.request && !paid && role === 'seller' && state.request.method === 'lightning' && state.request.expiresAt < Date.now() / 1000 && <RequestForm state={state} />}
       {paid && !state.shipped && role === 'seller' && <ShipForm state={state} />}
-      {paid && !state.shipped && role === 'buyer' && <p class="notice">{T(`Paid. The seller should ship by ${fmtDate(dl.shipBy)}.`, `Betaald. De verkoper moet verzenden voor ${fmtDate(dl.shipBy)}.`)}</p>}
+      {paid && !state.shipped && role === 'buyer' && <p class="notice">{T(`Paid. The seller should ship by ${fmtDate(dl.shipBy)}.`, `Pagado. El vendedor debe enviarlo antes del ${fmtDate(dl.shipBy)}.`)}</p>}
       {state.shipped && !state.received && role === 'buyer' && (
         <div class="card">
           <h3>{receivedQuestion(state)}</h3>
-          <Action class="primary" onClick={() => markReceived(state, '')}>{isServiceTrade(state) ? T('Yes, done well', 'Ja, naar wens') : T('Yes, received', 'Ja, ontvangen')}</Action>
+          <Action class="primary" onClick={() => markReceived(state, '')}>{isServiceTrade(state) ? T('Yes, done well', 'Sí, bien hecho') : T('Yes, received', 'Sí, recibido')}</Action>
         </div>
       )}
-      {state.accept && !paid && !state.cancelled && role && (
-        <Action class="ghost" confirm={T('Cancel this order?', 'Deze bestelling annuleren?')} onClick={() => cancelTrade(state, '')}>{T('Cancel order (nothing paid yet)', 'Bestelling annuleren (nog niets betaald)')}</Action>
+      {!paid && !state.cancelled && role && role !== 'arbiter' && (
+        <Action class="ghost" confirm={T('Cancel this order?', '¿Cancelar este pedido?')} onClick={() => cancelTrade(state, '')}>{T('Cancel order (nothing paid yet)', 'Cancelar pedido (aún no se ha pagado)')}</Action>
       )}
     </>
   );
 }
 
-export function TradePage({ tradeId }) {
+function ConversationStart({ state, role, query }) {
+  const { listing, missing } = useListing(state.listing?.coord);
+  const [ordering, setOrdering] = useState(!!query?.order);
+  if (role !== 'buyer') return <p class="notice small">{T('The buyer can order from this chat when ready. You then accept or reject.', 'El comprador puede pedir desde este chat cuando quiera. Tú aceptas o rechazas.')}</p>;
+  if (!listing) return missing ? <p class="notice warn">{T('This listing is no longer available.', 'Este anuncio ya no está disponible.')}</p> : <Spinner />;
+  if (listing.status !== 'active') return <p class="notice warn">{listing.status === 'reserved' ? T('Reserved: the seller is holding it for someone.', 'Reservado: el vendedor lo guarda para alguien.') : T('No longer for sale.', 'Ya no está en venta.')}</p>;
+  return ordering ? <OrderForm state={state} listing={listing} onClose={() => setOrdering(false)} />
+    : <button class="btn primary wide" onClick={() => setOrdering(true)}>🛒 {T('Order', 'Pedir')}</button>;
+}
+
+function NewOffer({ state }) {
+  const { listing } = useListing(state.listing?.coord);
+  if (!listing || listing.status !== 'active') return null;
+  return <Action class="primary" onClick={async () => { const id = await openConversation({ listing, network: settings.get().network, prev: state.tradeId }); navigate(`/trade/${id}?order=1`); }}>🛒 {T('Make a new order', 'Hacer un nuevo pedido')}</Action>;
+}
+
+export function TradePage({ tradeId, query = {} }) {
   const state = useTrade(tradeId);
   const { syncing } = useStore(inbox);
   const role = state.role;
   const { funding, error: fundErr, refresh } = useFunding(state);
   const [proposing, setProposing] = useState(null);
 
-  if (!state.offer) return <Empty>{syncing ? <><Spinner /> {T('Loading messages…', 'Berichten laden…')}</> : T('Trade not found', 'Trade niet gevonden')}</Empty>;
+  if (!state.participants) return <Empty>{syncing ? <><Spinner /> {T('Loading messages…', 'Cargando mensajes…')}</> : T('Trade not found', 'Compra no encontrada')}</Empty>;
+  const L = state.listing;
+  const o = state.offer;
 
   let keyError = null;
-  try { if (role && state.payment === 'escrow') myEscrowKey(state); } catch (e) { keyError = e.message; }
+  try { if (role && state.escrow) myEscrowKey(state); } catch (e) { keyError = e.message; }
   const direct = state.payment === 'direct';
-
-  const o = state.offer;
-  const need = expectedTotal(state);
+  const need = o ? expectedTotal(state) : 0;
   const fullyFunded = !!funding && funding.confirmedTotal >= need;
   const balance = funding?.confirmedTotal || 0;
-  const paidOut = state.accept && funding && funding.total === 0 && state.broadcasts.length > 0;
+  const paidOut = state.escrow && funding && funding.total === 0 && state.broadcasts.length > 0;
   const status = state.status === 'accepted' && fullyFunded ? 'funded' : state.status;
-  const dl = deadlines(state);
+  const dl = o ? deadlines(state) : null;
   const now = Date.now() / 1000;
   const openProposals = state.proposalOrder.map((id) => state.proposals[id]).reverse();
-  const canPropose = !direct && role && state.accept && balance > 0 && state.status !== 'closed';
-  const counterpart = role === 'buyer' ? state.participants.seller : state.participants.buyer;
+  const canPropose = !direct && role && state.escrow && balance > 0 && state.status !== 'closed';
+  const label = state.labels[state.labels.length - 1];
 
   return (
     <div class="trade">
       <div class="card trade-head">
-        <Img src={o.listing.image} class="thumb-sm" />
+        <a href={L?.coord ? '#/' : undefined}><Img src={L?.image} class="thumb-sm" /></a>
         <div class="grow">
-          <h2>{o.listing.title}</h2>
-          <div class="muted small">{T('Trade', 'Trade')} {tradeId.slice(0, 10)} · {fmtDate(state.offerAt)} · {o.network}</div>
-          <div>{role ? <>{T('You are the', 'Jij bent de')} <b>{roleLabel(role).toLowerCase()}</b>{role !== 'arbiter' && <> · {T('with', 'met')} <Name pk={counterpart} /></>}</> : T('You are not part of this trade', 'Je bent geen partij in deze trade')}</div>
+          <h2>{L?.title}</h2>
+          <div class="muted small">{L && formatFiat(L.price, L.currency)} · {fmtDate(state.open?.at || state.offerAt)}</div>
         </div>
         <div class="right">
-          <span class={`badge status ${status}`}>{status === 'shipped' && isServiceTrade(state) ? T('Job done', 'Klus uitgevoerd') : statusLabel(status)}</span>
-          <div><Coin sats={o.priceSats} /></div>
+          <span class={`badge status ${status}`}>{status === 'shipped' && isServiceTrade(state) ? T('Job done', 'Trabajo hecho') : statusLabel(status)}</span>
+          {o && <div><Coin sats={state.terms.priceSats} /></div>}
         </div>
       </div>
-      {state.status !== 'rejected' && state.status !== 'cancelled' && <Steps state={state} funded={fullyFunded || state.status === 'closed'} />}
+      <RoleBanner state={state} />
+      {o && state.status !== 'rejected' && state.status !== 'cancelled' && <Steps state={state} funded={fullyFunded || state.status === 'closed'} />}
       {keyError && <p class="notice danger">{keyError}</p>}
-      {state.errors.length > 0 && <details class="notice warn small"><summary>{T(`${state.errors.length} ignored messages`, `${state.errors.length} genegeerde berichten`)}</summary><ul>{state.errors.map((e, i) => <li key={i}>{e}</li>)}</ul></details>}
+      {state.errors.length > 0 && <details class="notice warn small"><summary>{T(`${state.errors.length} ignored messages`, `${state.errors.length} mensajes ignorados`)}</summary><ul>{state.errors.map((e, i) => <li key={i}>{e}</li>)}</ul></details>}
 
-      {state.rejected && <p class="notice">{T('The seller rejected this offer.', 'De verkoper heeft dit bod afgewezen.')} {state.rejected.reason}</p>}
-      {state.cancelled && <p class="notice">{T('Cancelled by', 'Geannuleerd door')} {roleLabel(state.cancelled.by).toLowerCase()}. {state.cancelled.reason}</p>}
-      {state.disputes.map((d, i) => <p key={i} class="notice danger">⚖️ {T('Dispute opened by', 'Geschil geopend door')} {roleLabel(d.by).toLowerCase()} ({timeAgo(d.at)}): {d.reason}</p>)}
-      {state.shipped && isServiceTrade(state) && <p class="notice ok">✅ {T('The seller marked the job as done.', 'De verkoper heeft de klus als uitgevoerd gemarkeerd.')} {state.shipped.note}</p>}
-      {state.shipped && !isServiceTrade(state) && <p class="notice ok">📦 {carrier(state.shipped.carrier).pickup ? T('Ready for pick-up', 'Klaar om op te halen') : <>{T('Shipped with', 'Verzonden met')} {carrier(state.shipped.carrier).name}</>}{state.shipped.tracking && <> · <b>{state.shipped.tracking}</b> <Copy text={state.shipped.tracking} />{trackingUrl(state.shipped.carrier, state.shipped.tracking) && <> <a class="btn small" href={trackingUrl(state.shipped.carrier, state.shipped.tracking)} target="_blank" rel="noopener noreferrer">{T('Track', 'Volgen')}</a></>}</>} {state.shipped.note && `· ${state.shipped.note}`}</p>}
-      {state.received && <p class="notice ok">✓ {T('Buyer confirmed receipt', 'Koper heeft ontvangst bevestigd')}</p>}
-      {paidOut && <p class="notice ok">✅ {T('The escrow has been paid out.', 'De escrow is uitbetaald.')}</p>}
+      {state.status === 'chat' && <ConversationStart state={state} role={role} query={query} />}
+      {o && <OfferCard state={state} role={role} />}
+      {state.rejected && <p class="notice">{role === 'buyer' ? T('The seller rejected your order.', 'El vendedor ha rechazado tu pedido.') : T('You rejected this order.', 'Rechazaste este pedido.')} {state.rejected.reason}</p>}
+      {state.cancelled && <p class="notice">{T('Cancelled by the', 'Cancelado por el')} {roleLabel(state.cancelled.by).toLowerCase()}. {state.cancelled.reason}</p>}
+      {(state.rejected || (state.cancelled && !state.escrow)) && role === 'buyer' && <NewOffer state={state} />}
+      {state.disputes.map((d, i) => <p key={i} class="notice danger">⚖️ {T('Dispute opened by the', 'Disputa abierta por el')} {roleLabel(d.by).toLowerCase()} ({timeAgo(d.at)}): {d.reason}</p>)}
+      {o && <ChangeBox state={state} role={role} funded={fullyFunded} />}
+      {o && <DetailsForm state={state} role={role} />}
+      {state.arbiter && !state.checks.arbiterTrusted && role === 'seller' && !state.broadcasts.length && <p class="notice danger">{T('The buyer chose an arbiter who is not on your trusted list. Do not pay your deposit; cancel the trade or ask in the chat.', 'El comprador eligió un árbitro que no está en tu lista de confianza. No pagues tu depósito; cancela la compra o pregunta en el chat.')}</p>}
+      {state.arbiter && <p class="small muted">{T('Arbiter', 'Árbitro')}: <Name pk={state.arbiter.pubkey} /> {state.checks.arbiterTrusted ? <span class="badge ok">✓ {T('approved', 'aprobado')}</span> : <span class="badge danger">{T('not approved', 'no aprobado')}</span>}</p>}
+      {state.shipped && isServiceTrade(state) && <p class="notice ok">✅ {T('The seller marked the job as done.', 'El vendedor ha marcado el trabajo como hecho.')} {state.shipped.note}</p>}
+      {state.shipped && !isServiceTrade(state) && <p class="notice ok">📦 {carrier(state.shipped.carrier).pickup ? T('Handed over', 'Entregado') : <>{T('Shipped with', 'Enviado con')} {carrier(state.shipped.carrier).name}</>}{state.shipped.tracking && <> · <b>{state.shipped.tracking}</b> <Copy text={state.shipped.tracking} />{trackingUrl(state.shipped.carrier, state.shipped.tracking) && <> <a class="btn small" href={trackingUrl(state.shipped.carrier, state.shipped.tracking)} target="_blank" rel="noopener noreferrer">{T('Track', 'Seguir')}</a></>}</>} {state.shipped.note && `· ${state.shipped.note}`}</p>}
+      {label && role === 'seller' && !state.shipped && <LabelCard label={label} />}
+      {state.received && <p class="notice ok">✓ {T('Buyer confirmed receipt', 'El comprador ha confirmado la recepción')}</p>}
+      {paidOut && <p class="notice ok">✅ {T('The escrow has been paid out.', 'El escrow se ha pagado.')}</p>}
 
-      {direct && <DirectFlow state={state} role={role} />}
-      {/* Offer stage */}
-      {!direct && state.status === 'offered' && role === 'seller' && <OfferReview state={state} />}
-      {!direct && state.status === 'offered' && role === 'buyer' && (
-        <div class="card">
-          <p>{T('Waiting for the seller to accept your offer. Nothing to pay yet.', 'Wacht tot de verkoper je bod accepteert. Je hoeft nog niets te betalen.')}</p>
-          <Action class="ghost" onClick={() => cancelTrade(state, '')}>{T('Withdraw offer', 'Bod intrekken')}</Action>
-        </div>
-      )}
+      {o && direct && <DirectFlow state={state} role={role} />}
 
       {state.escrow && state.status !== 'rejected' && <EscrowBox state={state} funding={funding} fundErr={fundErr} refresh={refresh} role={role} done={fullyFunded || state.status === 'closed' || !!state.cancelled} />}
+      {!direct && o && state.accept && !state.escrow && !state.cancelled && role === 'seller' && <p class="notice small">{T('Waiting for the buyer to choose an arbiter; then the escrow address appears.', 'Esperando a que el comprador elija árbitro; luego aparece la dirección del escrow.')}</p>}
 
       {/* Funding stage */}
-      {!direct && state.status === 'accepted' && !fullyFunded && role !== 'arbiter' && funding?.total === 0 && (
-        <Action class="ghost" confirm={T('Cancel this trade?', 'Deze trade annuleren?')} onClick={() => cancelTrade(state, '')}>{T('Cancel trade (nothing paid yet)', 'Trade annuleren (nog niets betaald)')}</Action>
+      {!direct && state.accept && state.status === 'accepted' && !fullyFunded && role && role !== 'arbiter' && (!funding || funding.total === 0) && (
+        <Action class="ghost" confirm={T('Cancel this trade?', '¿Cancelar esta compra?')} onClick={() => cancelTrade(state, '')}>{T('Cancel trade (nothing paid yet)', 'Cancelar compra (aún no se ha pagado)')}</Action>
       )}
       {!direct && state.status === 'accepted' && fullyFunded && role === 'seller' && <ShipForm state={state} />}
-      {state.status === 'accepted' && fullyFunded && role === 'buyer' && (
-        <p class="notice">{T(`Fully paid. The seller should ship by ${fmtDate(dl.shipBy)}.`, `Volledig betaald. De verkoper moet verzenden voor ${fmtDate(dl.shipBy)}.`)}</p>
+      {!direct && state.status === 'accepted' && fullyFunded && role === 'buyer' && (
+        <p class="notice">{T(`Fully paid. The seller should ship by ${fmtDate(dl.shipBy)}.`, `Pagado del todo. El vendedor debe enviarlo antes del ${fmtDate(dl.shipBy)}.`)}</p>
       )}
 
       {/* Shipped stage */}
-      {['shipped', 'accepted', 'disputed'].includes(state.status) && role === 'buyer' && state.shipped && fullyFunded && !openProposals.some((p) => p.purpose === 'release' && p.signedBy.includes('buyer')) && (
+      {!direct && ['shipped', 'accepted', 'disputed'].includes(state.status) && role === 'buyer' && state.shipped && fullyFunded && !openProposals.some((p) => p.purpose === 'release' && p.signedBy.includes('buyer')) && (
         <div class="card">
           <h3>{receivedQuestion(state)}</h3>
-          <p>{T('If it is as described, release the payment. You get your deposit back in the same transaction.', 'Als het klopt met de beschrijving, geef dan de betaling vrij. Je krijgt je borg in dezelfde transactie terug.')}</p>
-          <Action class="primary" confirm={T('Release the payment to the seller? This cannot be undone.', 'Betaling vrijgeven aan de verkoper? Dit kan niet ongedaan worden.')} onClick={async () => {
+          <p>{T('If it is as described, release the payment. You get your deposit back in the same transaction.', 'Si es como se describía, libera el pago. Recuperas tu depósito en la misma transacción.')}</p>
+          <Action class="primary" confirm={T('Release the payment to the seller? This cannot be undone.', '¿Liberar el pago al vendedor? No se puede deshacer.')} onClick={async () => {
             await markReceived(state, '');
             await proposePayout(state, { purpose: 'release', allocations: presetAllocations(state, 'release', balance), note: '' });
-            toast(T('Release signed. The seller will co-sign and broadcast.', 'Vrijgave getekend. De verkoper tekent mee en verzendt.'), 'ok');
-          }}>{T('Everything OK: release payment', 'Alles in orde: betaling vrijgeven')}</Action>
+            toast(T('Release signed. The seller will co-sign and broadcast.', 'Liberación firmada. El vendedor la firmará y la enviará.'), 'ok');
+          }}>{T('Everything OK: release payment', 'Todo bien: liberar el pago')}</Action>
         </div>
       )}
-      {state.status === 'shipped' && role === 'seller' && !openProposals.length && (
-        <p class="notice">{T(`Waiting for the buyer to confirm receipt. If they do not respond by ${fmtDate(dl.confirmBy)}, open a dispute.`, `Wacht tot de koper de ontvangst bevestigt. Reageert die niet voor ${fmtDate(dl.confirmBy)}, open dan een geschil.`)}</p>
+      {!direct && state.status === 'shipped' && role === 'seller' && !openProposals.length && (
+        <p class="notice">{T(`Waiting for the buyer to confirm receipt. If they do not respond by ${fmtDate(dl.confirmBy)}, open a dispute.`, `Esperando a que el comprador confirme la recepción. Si no responde antes del ${fmtDate(dl.confirmBy)}, abre una disputa.`)}</p>
       )}
 
       {/* Proposals */}
-      {openProposals.length > 0 && <h3>{T('Payout proposals', 'Uitbetalingsvoorstellen')}</h3>}
+      {openProposals.length > 0 && <h3>{T('Payout proposals', 'Propuestas de pago')}</h3>}
       {openProposals.map((p) => <Proposal key={p.id} state={state} p={p} role={role} funding={funding} />)}
 
-      {canPropose && fullyFunded !== null && (proposing
+      {canPropose && (proposing
         ? <SplitEditor state={state} balance={balance} purpose={proposing} role={role} onDone={() => setProposing(null)} />
         : (
           <div class="row">
-            {role === 'arbiter' && state.disputes.length > 0 && <button class="btn primary" onClick={() => setProposing('ruling')}>{T('Propose a ruling', 'Doe een uitspraak')}</button>}
-            {role !== 'arbiter' && <button class="btn ghost" onClick={() => setProposing(state.cancelled ? 'refund' : 'custom')}>{T('Propose a payout or refund', 'Stel uitbetaling of terugbetaling voor')}</button>}
-            {role !== 'arbiter' && state.accept && !state.disputes.some((d) => d.by === role) && state.status !== 'closed' && (now > dl.shipBy || state.shipped || fullyFunded) && <DisputeBox state={state} role={role} />}
+            {role === 'arbiter' && state.disputes.length > 0 && <button class="btn primary" onClick={() => setProposing('ruling')}>{T('Propose a ruling', 'Proponer una resolución')}</button>}
+            {role !== 'arbiter' && <button class="btn ghost" onClick={() => setProposing(state.cancelled ? 'refund' : 'custom')}>{T('Propose a payout or refund', 'Proponer un pago o reembolso')}</button>}
+            {role !== 'arbiter' && !state.disputes.some((d) => d.by === role) && state.status !== 'closed' && (now > dl.shipBy || state.shipped || fullyFunded) && <DisputeBox state={state} role={role} />}
           </div>
         ))}
 

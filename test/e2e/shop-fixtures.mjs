@@ -29,6 +29,13 @@ function mpPage(page) {
   return `<html><body><h1>Profiel</h1><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script></body></html>`;
 }
 
+// The seller's own view of one ad (marktplaats.nl/seller/view/m…): the ad sits
+// deep in the page data, and it is reserved ("gereserveerd").
+pages['/seller/view/m2454474184'] = `<html><body><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps: { initialState: { ad: { listing: {
+  itemId: 'm2454474184', title: 'Eiken salontafel', priceInfo: { priceCents: 4500, priceType: 'FIXED' }, reserved: true, location: { cityName: 'Utrecht' },
+  pictures: [{ url: 'https://images.marktplaats.com/api/v1/x/images/t?rule=ecg_mp_eps$_#.jpg' }], vipUrl: '/v/huis-en-inrichting/tafels-salontafels/m2454474184-eiken-salontafel',
+} } } } } })}</script></body></html>`;
+
 http.createServer((req, res) => {
   const p = new URL(req.url, 'http://x').pathname;
   if (p === '/__variant') { variant = Number(new URL(req.url, 'http://x').searchParams.get('v')); return res.end('ok'); }

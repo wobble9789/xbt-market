@@ -7,6 +7,7 @@ import { formatCoin, formatFiat } from '../lib/btc/units.js';
 import { xbtPrice } from '../lib/price.js';
 import { settings } from '../lib/settings.js';
 import { T, PRICE_UNIT_LABELS, label } from './i18n.js';
+import { CountrySelect } from './countries.jsx';
 
 // ---- toasts ------------------------------------------------------------------
 
@@ -43,7 +44,7 @@ export function Copy({ text, label }) {
   const copy = async () => {
     try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1500); } catch { window.prompt('Copy:', text); }
   };
-  return <button class="btn small ghost" onClick={copy} type="button">{done ? '✓' : label || T('Copy', 'Kopieer')}</button>;
+  return <button class="btn small ghost" onClick={copy} type="button">{done ? '✓' : label || T('Copy', 'Copiar')}</button>;
 }
 
 // ---- people ------------------------------------------------------------------
@@ -76,8 +77,22 @@ export function useRate(currency = settings.get().currency) {
   return rates[currency] || null;
 }
 
+// Rates for several currencies at once: { EUR: 1 XBT in EUR, … } (missing until loaded).
+export function useRates(currencies) {
+  const { rates } = useStore(priceCache);
+  const key = [...new Set(currencies)].sort().join(',');
+  useEffect(() => {
+    for (const c of key.split(',').filter(Boolean)) {
+      if (c === 'XBT' || c === 'BTCB2' || rates[c] !== undefined) continue;
+      priceCache.set((st) => ({ rates: { ...st.rates, [c]: null } }));
+      xbtPrice(c).then((p) => priceCache.set((st) => ({ rates: { ...st.rates, [c]: p } }))).catch(() => {});
+    }
+  }, [key]);
+  return Object.fromEntries(Object.entries(rates).filter(([, v]) => v).map(([k, v]) => [k, v.value]));
+}
+
 export function Coin({ sats, fiat = true }) {
-  const cur = settings.get().currency;
+  const cur = useStore(settings, (s) => s.currency);
   const rate = useRate(cur);
   return (
     <span class="coin">
@@ -87,16 +102,38 @@ export function Coin({ sats, fiat = true }) {
   );
 }
 
-// A listing price, shown in its own currency plus the XBT equivalent.
+// Converts an amount between two fiat currencies through the XBT rate of each.
+export function useConvert(from, to) {
+  const isCoin = (c) => c === 'XBT' || c === 'BTCB2';
+  const a = useRate(isCoin(from) ? to : from);
+  const b = useRate(to);
+  if (from === to) return (x) => x;
+  if (isCoin(from)) return b ? (x) => x * b.value : null;
+  return a && b ? (x) => (x / a.value) * b.value : null;
+}
+
+// A listing price in the viewer's currency (converted when the listing uses
+// another one), with the original price and the XBT equivalent.
 export function ListingPrice({ listing, big }) {
+  const display = useStore(settings, (s) => s.currency);
   const isCoin = listing.currency === 'XBT' || listing.currency === 'BTCB2';
-  const rate = useRate(isCoin ? settings.get().currency : listing.currency);
+  const rate = useRate(isCoin ? display : listing.currency);
+  const convert = useConvert(listing.currency, display);
   const sats = isCoin ? Math.round(listing.price * 1e8) : rate ? Math.round((listing.price / rate.value) * 1e8) : null;
+  const same = listing.currency === display;
+  const unit = listing.priceUnit && <span> {label(PRICE_UNIT_LABELS, listing.priceUnit)}</span>;
+  if (same || !convert) {
+    return (
+      <span class={`price ${big ? 'big' : ''}`}>
+        {isCoin ? formatCoin(sats) : formatFiat(listing.price, listing.currency)}{unit}
+        {!isCoin && sats != null && <span class="muted small"> ≈ {formatCoin(sats)}</span>}
+      </span>
+    );
+  }
   return (
     <span class={`price ${big ? 'big' : ''}`}>
-      {isCoin ? formatCoin(sats) : formatFiat(listing.price, listing.currency)}
-      {listing.priceUnit && <span> {label(PRICE_UNIT_LABELS, listing.priceUnit)}</span>}
-      {!isCoin && sats != null && <span class="muted small"> ≈ {formatCoin(sats)}</span>}
+      ≈ {formatFiat(convert(listing.price), display)}{unit}
+      <span class="muted small"> · {isCoin ? formatCoin(sats) : <>{formatFiat(listing.price, listing.currency)}{sats != null && <> ≈ {formatCoin(sats)}</>}</>}</span>
     </span>
   );
 }
@@ -141,4 +178,35 @@ export function Img({ src, alt = '', class: cls }) {
 
 export function Spinner() {
   return <span class="spinner" />;
+}
+
+// ---- addresses ---------------------------------------------------------------
+
+export const formatAddress = (a) => (typeof a === 'string' ? a : a ? [a.name, `${a.street || ''} ${a.number || ''}`.trim(), `${a.postalCode || ''} ${a.city || ''}`.trim(), a.country, a.phone, a.email].filter(Boolean).join('\n') : '');
+export const addressComplete = (a) => !!(a && a.name && a.street && a.number && a.postalCode && a.city && a.country);
+
+// A postal address, structured so a shipping label can be made from it.
+export function AddressForm({ value, onChange, contact = true }) {
+  const a = value || {};
+  const set = (k) => (e) => onChange({ ...a, [k]: e.target.value });
+  return (
+    <div class="address-form">
+      <Field label={T('Full name', 'Nombre completo')}><input value={a.name || ''} onInput={set('name')} autocomplete="name" /></Field>
+      <div class="cols addr-street">
+        <Field label={T('Street', 'Calle')}><input value={a.street || ''} onInput={set('street')} autocomplete="address-line1" /></Field>
+        <Field label={T('Number', 'Número')}><input value={a.number || ''} onInput={set('number')} /></Field>
+      </div>
+      <div class="cols">
+        <Field label={T('Postcode', 'Código postal')}><input value={a.postalCode || ''} onInput={set('postalCode')} autocomplete="postal-code" /></Field>
+        <Field label={T('City', 'Ciudad')}><input value={a.city || ''} onInput={set('city')} autocomplete="address-level2" /></Field>
+      </div>
+      <Field label={T('Country', 'País')}><CountrySelect value={a.country} onChange={(country) => onChange({ ...a, country })} /></Field>
+      {contact && (
+        <div class="cols">
+          <Field label={T('Phone (for the carrier)', 'Teléfono (para el transportista)')}><input type="tel" value={a.phone || ''} onInput={set('phone')} autocomplete="tel" /></Field>
+          <Field label={T('Email (for tracking)', 'Email (para el seguimiento)')}><input type="email" value={a.email || ''} onInput={set('email')} autocomplete="email" /></Field>
+        </div>
+      )}
+    </div>
+  );
 }

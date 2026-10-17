@@ -1,19 +1,23 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useStore } from '../../lib/store.js';
 import { market, upsertLocal } from '../../lib/market.js';
 import { account } from '../../lib/nostr/account.js';
 import { signAndPublish } from '../../lib/nostr/pool.js';
-import { listingTemplate, parseListing, newListingId, CATEGORIES, CONDITIONS, PAYMENT_METHODS } from '../../lib/nostr/listings.js';
-import { CARRIERS, optionsFor } from '../../lib/shipping.js';
-import { isService, normalizeCategory, PRICE_UNITS, DEFAULT_CATEGORY } from '../../lib/categories.js';
+import { useProfile } from '../../lib/nostr/profiles.js';
+import { listingTemplate, parseListing, newListingId, CONDITIONS, PAYMENT_METHODS, DEFAULT_PAYMENTS, PACKAGE_SIZES } from '../../lib/nostr/listings.js';
+import { SHIP_CARRIERS, DEFAULT_CARRIERS, optionsFor } from '../../lib/shipping.js';
+import { isService, normalizeCategory, PRICE_UNITS, DEFAULT_CATEGORY, loadCategoryTree } from '../../lib/categories.js';
+import { CURRENCIES } from '../../lib/countries.js';
 import { aiConfigured, draftListing } from '../../lib/ai/listing.js';
 import { secretNames } from '../../lib/secrets.js';
 import { payLabel } from './Listing.jsx';
 import { uploadImage } from '../../lib/nostr/blossom.js';
 import { settings } from '../../lib/settings.js';
 import { navigate } from '../router.js';
-import { T, CATEGORY_LABELS, CONDITION_LABELS, PRICE_UNIT_LABELS, label } from '../i18n.js';
+import { T, CONDITION_LABELS, PRICE_UNIT_LABELS, label } from '../i18n.js';
 import { Action, Field, Img, Empty, toast, toastError, Spinner } from '../components.jsx';
+import { CountrySelect, ShipsToPicker } from '../countries.jsx';
+import { CategoryPicker, useCategoryTree } from '../categories.jsx';
 import { ListingCard } from './Browse.jsx';
 
 export async function publishListing(data) {
@@ -23,170 +27,238 @@ export async function publishListing(data) {
   return { listing: l, ...res };
 }
 
+const TABS = [['active', ['For sale', 'En venta']], ['reserved', ['Reserved', 'Reservados']], ['sold', ['Sold', 'Vendidos']]];
+
 export function Sell() {
   const { listings } = useStore(market);
   const me = useStore(account, (a) => a.pubkey);
+  const [tab, setTab] = useState('active');
+  const [picked, setPicked] = useState(new Set());
+  const [busy, setBusy] = useState(null);
   const mine = useMemo(() => [...listings.values()].filter((l) => l.pubkey === me && l.status !== 'deleted').sort((a, b) => b.createdAt - a.createdAt), [listings, me]);
+  const shown = mine.filter((l) => (l.status === tab));
+  const counts = Object.fromEntries(TABS.map(([k]) => [k, mine.filter((l) => l.status === k).length]));
+  const toggle = (coord) => { const n = new Set(picked); n.has(coord) ? n.delete(coord) : n.add(coord); setPicked(n); };
+  const selected = shown.filter((l) => picked.has(l.coord));
+  const bulk = async (status) => {
+    let done = 0;
+    setBusy({ done, total: selected.length });
+    try {
+      for (const l of selected) { await publishListing({ ...l, status }); setBusy({ done: ++done, total: selected.length }); }
+      toast(status === 'deleted' ? T(`${done} deleted`, `${done} eliminados`) : status === 'sold' ? T(`${done} marked as sold`, `${done} marcados como vendidos`) : T(`${done} updated`, `${done} actualizados`), 'ok');
+      setPicked(new Set());
+    } finally { setBusy(null); }
+  };
   return (
     <div>
       <div class="page-head">
-        <h2>{T('Your listings', 'Jouw advertenties')}</h2>
+        <h2>{T('Your listings', 'Tus anuncios')}</h2>
         <div class="row">
-          <a class="btn primary" href="#/sell/new">{T('New listing', 'Nieuwe advertentie')}</a>
-          <a class="btn" href="#/import">{T('Import from Vinted / eBay', 'Importeren van Vinted / eBay')}</a>
+          <a class="btn primary" href="#/sell/new">+ {T('New listing', 'Nuevo anuncio')}</a>
+          <a class="btn" href="#/import">⇪ {T('Import from Marktplaats, Vinted…', 'Importar de Marktplaats, Vinted…')}</a>
         </div>
       </div>
-      {mine.length ? <div class="grid">{mine.map((l) => <div key={l.coord}><ListingCard l={l} /><a class="btn small ghost" href={`#/sell/${encodeURIComponent(l.d)}`}>{T('Edit', 'Bewerken')}</a></div>)}</div>
-        : <Empty>{T('You have no listings yet.', 'Je hebt nog geen advertenties.')}</Empty>}
+      <div class="tabs">
+        {TABS.map(([k, l]) => <button key={k} class={`tab ${tab === k ? 'on' : ''}`} onClick={() => { setTab(k); setPicked(new Set()); }}>{T(...l)} <span class="muted">({counts[k]})</span></button>)}
+      </div>
+      {shown.length > 0 && (
+        <div class="bulk-bar">
+          <label class="row nomargin"><input type="checkbox" checked={selected.length === shown.length} onChange={(e) => setPicked(e.target.checked ? new Set(shown.map((l) => l.coord)) : new Set())} /> {selected.length ? T(`${selected.length} selected`, `${selected.length} seleccionados`) : T('Select all', 'Seleccionar todo')}</label>
+          {selected.length > 0 && (
+            <div class="row nomargin">
+              {busy ? <span><Spinner /> {busy.done}/{busy.total}</span> : <>
+                {tab !== 'sold' && <Action class="small" confirm={T(`Mark ${selected.length} listings as sold?`, `¿Marcar ${selected.length} anuncios como vendidos?`)} onClick={() => bulk('sold')}>{T('Mark as sold', 'Marcar como vendidos')}</Action>}
+                {tab !== 'active' && <Action class="small" onClick={() => bulk('active')}>{T('Put back on sale', 'Volver a poner en venta')}</Action>}
+                <Action class="small danger" confirm={T(`Delete ${selected.length} listings?`, `¿Eliminar ${selected.length} anuncios?`)} onClick={() => bulk('deleted')}>{T('Delete', 'Eliminar')}</Action>
+              </>}
+            </div>
+          )}
+        </div>
+      )}
+      {shown.length ? (
+        <div class="grid">
+          {shown.map((l) => (
+            <div key={l.coord} class={`pickable ${picked.has(l.coord) ? 'picked' : ''}`}>
+              <input type="checkbox" class="pick" checked={picked.has(l.coord)} onChange={() => toggle(l.coord)} aria-label={T('Select', 'Seleccionar')} />
+              <ListingCard l={l} />
+              <a class="btn small ghost" href={`#/sell/${encodeURIComponent(l.d)}`}>✏️ {T('Edit', 'Editar')}</a>
+            </div>
+          ))}
+        </div>
+      ) : <Empty>{tab === 'active' ? T('You have nothing for sale yet.', 'Aún no tienes nada en venta.') : T('Nothing here.', 'Nada por aquí.')}</Empty>}
     </div>
   );
 }
 
+const SIZE_LABEL = {
+  S: ['Small: up to 2 kg (a shoebox)', 'Pequeño: hasta 2 kg (una caja de zapatos)'],
+  M: ['Medium: up to 5 kg (a moving box)', 'Mediano: hasta 5 kg (una caja de mudanza)'],
+  L: ['Large: up to 10 kg', 'Grande: hasta 10 kg'],
+  XL: ['Extra large: up to 20 kg', 'Muy grande: hasta 20 kg'],
+};
+
 export function EditListing({ d }) {
   const { listings } = useStore(market);
   const me = useStore(account, (a) => a.pubkey);
+  const profile = useProfile(me);
   const existing = d ? [...listings.values()].find((l) => l.pubkey === me && l.d === d) : null;
   const s = settings.get();
-  // Older listings carry one shipping_cost; they are edited as options.
-  const [f, setF] = useState(() => existing ? { ...existing, images: [...existing.images], shippingOptions: optionsFor(existing).map((o) => ({ ...o })) } : {
-    d: newListingId(), title: '', content: '', price: '', currency: s.currency, category: DEFAULT_CATEGORY, condition: 'good', priceUnit: '',
-    location: '', shipsTo: '', shippingCost: '', sellerDepositPct: s.sellerDepositPct, images: [], status: 'active',
-    shippingOptions: [{ id: 'postnl', price: '' }], payments: [...PAYMENT_METHODS],
+  const myCountry = s.country || profile.xbt_market?.country || '';
+  const [f, setF] = useState(() => existing ? {
+    ...existing, images: [...existing.images],
+    carriers: optionsFor(existing).filter((o) => o.id !== 'pickup' && o.id !== 'other').map((o) => o.id),
+    pickup: optionsFor(existing).some((o) => o.id === 'pickup'),
+    packageSize: existing.packageSize || 'M',
+  } : {
+    d: newListingId(), title: '', content: '', price: '', currency: s.currency, category: DEFAULT_CATEGORY, subcategory: '', condition: 'good', priceUnit: '',
+    country: myCountry, city: '', shipsTo: ['EU'], sellerDepositPct: s.sellerDepositPct, images: [], status: 'active',
+    carriers: [...DEFAULT_CARRIERS], pickup: true, packageSize: 'M', payments: [...DEFAULT_PAYMENTS],
   });
+  const tree = useCategoryTree();
   useStore(secretNames);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiNote, setAiNote] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [imgUrl, setImgUrl] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  useEffect(() => { if (!f.country && myCountry) setF((cur) => ({ ...cur, country: cur.country || myCountry })); }, [myCountry]);
 
-  if (d && !existing) return <Empty>{listings.size ? T('Listing not found', 'Advertentie niet gevonden') : <Spinner />}</Empty>;
+  if (d && !existing) return <Empty>{listings.size ? T('Listing not found', 'Anuncio no encontrado') : <Spinner />}</Empty>;
 
   const onFiles = async (e) => {
     const files = [...e.target.files];
     e.target.value = '';
     setUploading(true);
     try {
-      const urls = [];
-      for (const file of files) urls.push(await uploadImage(file));
-      setF((cur) => ({ ...cur, images: [...cur.images, ...urls].slice(0, 12) }));
+      for (const file of files) { const url = await uploadImage(file); setF((cur) => ({ ...cur, images: [...cur.images, url].slice(0, 12) })); }
     } catch (err) { toastError(err); } finally { setUploading(false); }
   };
 
+  const service = isService(f.category);
+  const escrow = f.payments?.includes('escrow');
+  const subs = tree?.get(f.category) || [];
+
   const save = async (status = f.status) => {
     const price = Number(String(f.price).replace(',', '.'));
-    if (!f.title.trim()) throw new Error(T('Title is required', 'Titel is verplicht'));
-    if (!(price > 0)) throw new Error(T('Enter a price', 'Vul een prijs in'));
-    const service = isService(f.category);
-    const shippingOptions = (service ? [] : f.shippingOptions || []).filter((o) => o.id).map((o) => ({ id: o.id, price: Number(String(o.price || 0).replace(',', '.')), currency: f.currency }));
-    if (shippingOptions.some((o) => !(o.price >= 0))) throw new Error(T('Check the delivery prices', 'Controleer de bezorgprijzen'));
-    if (!f.payments?.length) throw new Error(T('Choose at least one payment method', 'Kies minstens één betaalmethode'));
-    // Kept for older clients that only know one shipping cost.
-    const paidShipping = shippingOptions.filter((o) => o.id !== 'pickup').map((o) => o.price);
-    const shippingCost = paidShipping.length ? Math.min(...paidShipping) : null;
+    if (!f.title.trim()) throw new Error(T('Title is required', 'El título es obligatorio'));
+    if (!(price > 0)) throw new Error(T('Enter a price', 'Introduce un precio'));
+    if (subs.length && !f.subcategory) throw new Error(T('Choose a subcategory', 'Elige una subcategoría'));
+    if (!f.country) throw new Error(T('Choose the country the item is in', 'Elige el país donde está el artículo'));
+    if (!f.payments?.length) throw new Error(T('Choose at least one payment method', 'Elige al menos un método de pago'));
+    if (!service && !f.pickup && !f.carriers.length) throw new Error(T('Offer pick-up or at least one carrier', 'Ofrece recogida o al menos un transportista'));
+    const shippingOptions = service ? [] : [...(f.pickup ? [{ id: 'pickup', price: 0 }] : []), ...f.carriers.map((id) => ({ id }))];
     await publishListing({
-      ...f, title: f.title.trim(), price, shippingCost, shippingOptions, sellerDepositPct: Number(f.sellerDepositPct) || 0, status,
+      ...f, title: f.title.trim(), price, shippingOptions, shippingCost: null, location: '', status,
+      sellerDepositPct: escrow ? Number(f.sellerDepositPct) || 0 : null,
       // A service has no condition or delivery; goods have no price per hour.
-      condition: service ? '' : f.condition, shipsTo: service ? '' : f.shipsTo, priceUnit: service ? f.priceUnit || '' : '',
+      condition: service ? '' : f.condition, shipsTo: service || !f.carriers.length ? [] : f.shipsTo, packageSize: service || !f.carriers.length ? '' : f.packageSize,
+      priceUnit: service ? f.priceUnit || '' : '',
     });
-    toast(T('Published', 'Gepubliceerd'), 'ok');
+    toast(T('Published', 'Publicado'), 'ok');
     navigate('/sell');
   };
 
   const runAi = async () => {
     setAiBusy(true);
     try {
-      const d = await draftListing({ images: f.images, lang: s.lang, currency: f.currency === 'XBT' ? 'EUR' : f.currency, hint: [f.title, f.content].filter(Boolean).join('\n') });
-      setF((cur) => ({ ...cur, title: d.title, content: d.description, category: normalizeCategory(d.category), condition: d.condition, price: d.price > 0 && cur.currency !== 'XBT' ? String(d.price) : cur.price }));
+      const d = await draftListing({ images: f.images, lang: s.lang, currency: f.currency === 'XBT' ? 'EUR' : f.currency, hint: [f.title, f.content].filter(Boolean).join('\n'), tree: await loadCategoryTree() });
+      setF((cur) => ({ ...cur, title: d.title, content: d.description, category: normalizeCategory(d.category), subcategory: d.subcategory || '', condition: d.condition, price: d.price > 0 && cur.currency !== 'XBT' ? String(d.price) : cur.price }));
       setAiNote(d.notes || '');
-      toast(T('Draft filled in. Check it before publishing.', 'Concept ingevuld. Controleer het voor je publiceert.'), 'ok');
+      toast(T('Draft filled in. Check it before publishing.', 'Borrador rellenado. Revísalo antes de publicar.'), 'ok');
     } catch (e) { toastError(e); } finally { setAiBusy(false); }
   };
-  const setOpt = (i, patch) => setF({ ...f, shippingOptions: f.shippingOptions.map((o, j) => (j === i ? { ...o, ...patch } : o)) });
-  const service = isService(f.category);
-  const togglePay = (p) => setF({ ...f, payments: f.payments?.includes(p) ? f.payments.filter((x) => x !== p) : [...(f.payments || []), p] });
+  const toggle = (k, v) => setF({ ...f, [k]: f[k]?.includes(v) ? f[k].filter((x) => x !== v) : [...(f[k] || []), v] });
 
   return (
     <div class="card form">
-      <h2>{existing ? T('Edit listing', 'Advertentie bewerken') : T('New listing', 'Nieuwe advertentie')}</h2>
-      <p class="hint">{T('Start with the photos: the AI assistant can then write the listing for you.', 'Begin met de foto\'s: de AI-hulp kan dan de advertentie voor je schrijven.')}</p>
-      <Field label={T('Photos', 'Foto\'s')}>
+      <h2>{existing ? T('Edit listing', 'Editar anuncio') : T('New listing', 'Nuevo anuncio')}</h2>
+      <p class="hint">{T('Start with the photos: the AI assistant can then write the listing for you.', 'Empieza por las fotos: el asistente de IA puede escribir el anuncio por ti.')}</p>
+      <Field label={T('Photos', 'Fotos')}>
         <div class="photos">
           {f.images.map((u, i) => (
             <div class="photo" key={u}>
               <Img src={u} />
-              <button type="button" class="x" onClick={() => setF({ ...f, images: f.images.filter((_, j) => j !== i) })}>×</button>
+              <button type="button" class="x" aria-label={T('Remove photo', 'Quitar foto')} onClick={() => setF({ ...f, images: f.images.filter((_, j) => j !== i) })}>×</button>
             </div>
           ))}
-          <label class="photo add">{uploading ? <Spinner /> : '+'}<input type="file" accept="image/*" multiple onChange={onFiles} hidden /></label>
-        </div>
-        <div class="row">
-          <input value={imgUrl} onInput={(e) => setImgUrl(e.target.value)} placeholder={T('…or paste an image URL', '…of plak een afbeeldings-URL')} />
-          <button class="btn" type="button" onClick={() => { if (/^https?:\/\//.test(imgUrl)) { setF({ ...f, images: [...f.images, imgUrl] }); setImgUrl(''); } }}>{T('Add', 'Toevoegen')}</button>
+          <label class="photo add" aria-label={T('Add photos', 'Añadir fotos')}>{uploading ? <Spinner /> : '+'}<input type="file" accept="image/*" multiple onChange={onFiles} hidden /></label>
         </div>
       </Field>
       <div class="row">
         {aiConfigured()
-          ? <button type="button" class="btn" disabled={aiBusy || !f.images.length} onClick={runAi}>{aiBusy ? <Spinner /> : '✨'} {T('Write listing from photos', 'Schrijf advertentie op basis van foto\'s')}</button>
-          : <a class="btn ghost" href="#/settings">✨ {T('Set up the AI assistant', 'AI-hulp instellen')}</a>}
+          ? <button type="button" class="btn" disabled={aiBusy || !f.images.length} onClick={runAi}>{aiBusy ? <Spinner /> : '✨'} {T('Write listing from photos', 'Escribir anuncio a partir de las fotos')}</button>
+          : <a class="btn ghost" href="#/settings">✨ {T('Set up the AI assistant', 'Configurar el asistente de IA')}</a>}
       </div>
       {aiNote && <p class="notice small">💡 {aiNote}</p>}
-      <Field label={T('Title', 'Titel')}><input value={f.title} onInput={set('title')} maxLength={200} /></Field>
-      <Field label={T('Description', 'Beschrijving')}><textarea rows="6" value={f.content} onInput={set('content')} /></Field>
+      <Field label={T('Title', 'Título')}><input value={f.title} onInput={set('title')} maxLength={200} /></Field>
+      <Field label={T('Description', 'Descripción')}><textarea rows="6" value={f.content} onInput={set('content')} /></Field>
+      <Field label={T('Category', 'Categoría')}>
+        <div class="cols cat-pick"><CategoryPicker category={f.category} subcategory={f.subcategory} onChange={(c) => setF({ ...f, ...c })} /></div>
+      </Field>
+      {subs.length > 0 && !f.subcategory && <span class="hint error">{T('Choose a subcategory', 'Elige una subcategoría')}</span>}
       <div class="cols">
-        <Field label={T('Category', 'Categorie')}>
-          <select value={f.category} onChange={set('category')}>{CATEGORIES.map((c) => <option key={c} value={c}>{label(CATEGORY_LABELS, c)}</option>)}</select>
-        </Field>
         {!service && (
-          <Field label={T('Condition', 'Staat')}>
+          <Field label={T('Condition', 'Estado')}>
             <select value={f.condition} onChange={set('condition')}>{CONDITIONS.map((c) => <option key={c} value={c}>{label(CONDITION_LABELS, c)}</option>)}</select>
           </Field>
         )}
-      </div>
-      <div class="cols">
-        <Field label={T('Price', 'Prijs')}><input inputmode="decimal" value={f.price} onInput={set('price')} /></Field>
-        <Field label={T('Currency', 'Valuta')}>
-          <select value={f.currency} onChange={set('currency')}>{['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'CZK', 'SEK', 'XBT'].map((c) => <option key={c}>{c}</option>)}</select>
+        <Field label={T('Price', 'Precio')}><input inputmode="decimal" value={f.price} onInput={set('price')} /></Field>
+        <Field label={T('Currency', 'Moneda')}>
+          <select value={f.currency} onChange={set('currency')}>{[...CURRENCIES, 'XBT'].map((c) => <option key={c}>{c}</option>)}</select>
         </Field>
         {service && (
-          <Field label={T('Price per', 'Prijs per')}>
-            <select value={f.priceUnit || ''} onChange={set('priceUnit')}>{PRICE_UNITS.map((u) => <option key={u} value={u}>{u ? label(PRICE_UNIT_LABELS, u) : T('fixed price', 'vaste prijs')}</option>)}</select>
+          <Field label={T('Price per', 'Precio por')}>
+            <select value={f.priceUnit || ''} onChange={set('priceUnit')}>{PRICE_UNITS.map((u) => <option key={u} value={u}>{u ? label(PRICE_UNIT_LABELS, u) : T('fixed price', 'precio fijo')}</option>)}</select>
           </Field>
         )}
       </div>
-      <p class="hint">{T('Prices in fiat are converted to XBT when a buyer makes an offer; you approve the amount.', 'Prijzen in euro e.d. worden omgerekend naar XBT als een koper een bod doet; jij keurt het bedrag goed.')}</p>
+      <p class="hint">{T('Prices in fiat are converted to XBT when a buyer orders; you approve the amount.', 'Los precios en moneda normal se convierten a XBT cuando alguien pide; tú apruebas el importe.')}</p>
       <div class="cols">
-        <Field label={T('Location', 'Locatie')}><input value={f.location} onInput={set('location')} placeholder="Utrecht, NL" /></Field>
-        {!service && <Field label={T('Ships to', 'Verzendt naar')}><input value={f.shipsTo} onInput={set('shipsTo')} placeholder="EU" /></Field>}
+        <Field label={T('Country', 'País')}><CountrySelect value={f.country} onChange={(country) => setF({ ...f, country })} required /></Field>
+        <Field label={T('Town (optional)', 'Ciudad (opcional)')}><input value={f.city || ''} onInput={set('city')} placeholder="Utrecht" /></Field>
       </div>
-      {service ? <p class="hint">{T('A service: no delivery. The buyer pays the agreed amount; with escrow it is released once the job is done.', 'Een dienst: geen bezorging. De koper betaalt het afgesproken bedrag; met escrow wordt het vrijgegeven als de klus klaar is.')}</p> : <Field label={T('Delivery options', 'Bezorgopties')} hint={T('The buyer picks one. Prices in the listing currency; 0 = free.', 'De koper kiest er één. Prijzen in de valuta van de advertentie; 0 = gratis.')}>
-        {(f.shippingOptions || []).map((o, i) => (
-          <div class="row ship-option" key={i}>
-            <select value={o.id} onChange={(e) => setOpt(i, { id: e.target.value })}>{CARRIERS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
-            <input inputmode="decimal" value={o.price} onInput={(e) => setOpt(i, { price: e.target.value })} placeholder={T('Price', 'Prijs')} aria-label={T('Delivery price', 'Bezorgprijs')} />
-            <button type="button" class="btn small ghost" onClick={() => setF({ ...f, shippingOptions: f.shippingOptions.filter((_, j) => j !== i) })}>×</button>
-          </div>
-        ))}
-        <button type="button" class="btn small" onClick={() => setF({ ...f, shippingOptions: [...(f.shippingOptions || []), { id: 'pickup', price: '0' }] })}>+ {T('Add option', 'Optie toevoegen')}</button>
-      </Field>}
-      <div class="cols">
-        <Field label={T('Your deposit (%)', 'Jouw borg (%)')} hint={T('Shows buyers you have skin in the game; returned when the trade completes.', 'Laat kopers zien dat jij ook iets inzet; je krijgt het terug als de trade klaar is.')}>
-          <input type="number" min="0" max="100" value={f.sellerDepositPct} onInput={set('sellerDepositPct')} />
-        </Field>
-      </div>
-      <Field label={T('Payment methods you accept', 'Betaalmethodes die je accepteert')} hint={T('Escrow protects both sides and is recommended above €50. Direct payments are faster and free of deposits.', 'Escrow beschermt beide kanten en is aanbevolen boven €50. Directe betalingen zijn sneller en zonder borg.')}>
+      {service ? <p class="hint">{T('A service: no delivery. The buyer pays the agreed amount; with escrow it is released once the job is done.', 'Un servicio: sin envío. El comprador paga el importe acordado; con escrow se libera cuando el trabajo está hecho.')}</p> : (
+        <fieldset class="delivery">
+          <legend>{T('Delivery', 'Entrega')}</legend>
+          <label class={`choice ${f.pickup ? 'on' : ''}`}><input type="checkbox" checked={f.pickup} onChange={() => setF({ ...f, pickup: !f.pickup })} /><span>🤝 {T('Pick-up', 'Recogida en persona')}</span></label>
+          <Field label={T('Carriers you are willing to use', 'Transportistas que aceptas')} hint={T('You set no price: the buyer picks one of these and pays the shipping on top. You then get a prepaid label in the chat.', 'No pones precio: el comprador elige uno de estos y paga el envío aparte. Luego recibes una etiqueta prepagada en el chat.')}>
+            <div class="choices carriers">
+              {SHIP_CARRIERS.map((c) => (
+                <label key={c.id} class={`choice ${f.carriers.includes(c.id) ? 'on' : ''}`}><input type="checkbox" checked={f.carriers.includes(c.id)} onChange={() => toggle('carriers', c.id)} /><span>{c.name}{c.cheap && <span class="badge ok">{T('cheap abroad', 'barato al extranjero')}</span>}</span></label>
+              ))}
+            </div>
+          </Field>
+          {f.carriers.length > 0 && <>
+            <Field label={T('Parcel size', 'Tamaño del paquete')}>
+              <div class="choices">
+                {PACKAGE_SIZES.map((k) => <label key={k} class={`choice ${f.packageSize === k ? 'on' : ''}`}><input type="radio" name="size" checked={f.packageSize === k} onChange={() => setF({ ...f, packageSize: k })} /><span>{T(...SIZE_LABEL[k])}</span></label>)}
+              </div>
+            </Field>
+            <Field label={T('Ships to', 'Envía a')} hint={T('You always ship within your own country. Add the EU, worldwide or single countries.', 'Siempre envías dentro de tu país. Añade la UE, todo el mundo o países sueltos.')}>
+              <ShipsToPicker value={f.shipsTo || []} onChange={(shipsTo) => setF({ ...f, shipsTo })} />
+            </Field>
+          </>}
+        </fieldset>
+      )}
+      <Field label={T('Payment methods you accept', 'Métodos de pago que aceptas')} hint={T('Lightning is instant and free. Escrow protects both sides and is recommended above €50; it asks a deposit from both.', 'Lightning es instantáneo y gratis. El escrow protege a ambas partes y se recomienda por encima de 50 €; pide un depósito a los dos.')}>
         <div class="choices">
           {PAYMENT_METHODS.map((p) => (
-            <label key={p} class={`choice ${f.payments?.includes(p) ? 'on' : ''}`}><input type="checkbox" checked={f.payments?.includes(p)} onChange={() => togglePay(p)} /><span>{payLabel(p)}</span></label>
+            <label key={p} class={`choice ${f.payments?.includes(p) ? 'on' : ''}`}><input type="checkbox" checked={f.payments?.includes(p)} onChange={() => toggle('payments', p)} /><span>{payLabel(p)}</span></label>
           ))}
         </div>
       </Field>
+      {escrow && (
+        <Field label={T('Your escrow deposit (%)', 'Tu depósito de escrow (%)')} hint={T('Shows buyers you have skin in the game; returned when the trade completes.', 'Muestra a los compradores que tú también arriesgas algo; se devuelve al terminar la compra.')}>
+          <input type="number" min="0" max="100" value={f.sellerDepositPct ?? s.sellerDepositPct} onInput={set('sellerDepositPct')} />
+        </Field>
+      )}
       <div class="row">
-        <Action class="primary" onClick={() => save('active')}>{existing ? T('Save', 'Opslaan') : T('Publish', 'Publiceren')}</Action>
-        {existing && f.status === 'active' && <Action onClick={() => save('sold')}>{T('Mark as sold', 'Markeer als verkocht')}</Action>}
-        {existing && f.status !== 'active' && <Action onClick={() => save('active')}>{T('Re-activate', 'Opnieuw activeren')}</Action>}
-        {existing && <Action class="danger" confirm={T('Delete this listing?', 'Deze advertentie verwijderen?')} onClick={() => save('deleted')}>{T('Delete', 'Verwijderen')}</Action>}
+        <Action class="primary" onClick={() => save(existing && f.status !== 'deleted' ? f.status : 'active')}>{existing ? T('Save', 'Guardar') : T('Publish', 'Publicar')}</Action>
+        {existing && f.status === 'active' && <Action onClick={() => save('reserved')}>{T('Mark as reserved', 'Marcar como reservado')}</Action>}
+        {existing && f.status !== 'sold' && <Action onClick={() => save('sold')}>{T('Mark as sold', 'Marcar como vendido')}</Action>}
+        {existing && f.status !== 'active' && <Action onClick={() => save('active')}>{T('Put back on sale', 'Volver a poner en venta')}</Action>}
+        {existing && <Action class="danger" confirm={T('Delete this listing?', '¿Eliminar este anuncio?')} onClick={() => save('deleted')}>{T('Delete', 'Eliminar')}</Action>}
       </div>
     </div>
   );
 }
+

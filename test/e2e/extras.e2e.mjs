@@ -71,12 +71,12 @@ try {
   await page.goto(APP, { waitUntil: 'load' });
   await page.evaluate((p, relay) => {
     localStorage.setItem('xbt:account', JSON.stringify({ pubkey: p.pk, sk: p.sk, backedUp: true }));
-    localStorage.setItem('xbt:settings', JSON.stringify({ relays: [relay], network: 'regtest', lang: 'en', manualRate: { value: 50000, currency: 'EUR' }, currency: 'EUR' }));
+    localStorage.setItem('xbt:settings', JSON.stringify({ relays: [relay], network: 'regtest', lang: 'en', manualRate: { value: 50000, currency: 'EUR' }, currency: 'EUR', country: 'NL', blossom: 'http://127.0.0.1:3008' }));
   }, me, RELAY);
   await page.reload({ waitUntil: 'load' });
 
   step('blockchain server: known server and own node');
-  await page.evaluate(() => { location.hash = '#/settings'; });
+  await page.evaluate(() => { location.hash = '#/settings?open=network,lightning,ai'; });
   await waitText('Blockchain server');
   await choose('Local (npm run shim)');
   await click('Test connection');
@@ -106,8 +106,10 @@ try {
   step('AI assistant fills in a listing from photos');
   await page.evaluate(() => { location.hash = '#/sell/new'; });
   await waitText('Write listing from photos');
-  await fillPh('…or paste an image URL', new URL('icon-512.png', APP).href);
-  await click('Add');
+  if (await page.$('::-p-xpath(//input[contains(@placeholder,"image URL")])')) throw new Error('adding a photo by URL should be gone');
+  const file = await page.waitForSelector('label.photo.add input[type=file]');
+  await file.uploadFile(new URL('../../public/icon-512.png', import.meta.url).pathname);
+  await page.waitForSelector('.photo img', { timeout: 30000 });
   await fakeAnthropic(page, DRAFT);
   await click('✨ Write listing from photos');
   // The confirmation is a toast outside <main>; wait for the filled-in title instead.
@@ -126,7 +128,11 @@ try {
   await page.reload({ waitUntil: 'load' });
   await page.evaluate(() => { location.hash = '#/sell/new'; });
   await fill('Title', 'Ledger Nano X');
+  const sub = await page.waitForSelector('select[aria-label="Subcategory"]:not([disabled])');
+  await page.waitForFunction(() => document.querySelector('select[aria-label="Subcategory"]').options.length > 1);
+  await sub.select(await sub.evaluate((e) => e.options[1].value));
   await fill('Price', '80');
+  await choose('🛡 Escrow');
   await click('Publish');
   await waitText('Ledger Nano X');
   // A second account looks at the listing.
@@ -137,12 +143,12 @@ try {
   await page.reload({ waitUntil: 'load' });
   await waitText('Ledger Nano X');
   await (await page.waitForSelector('a.listing-card')).click();
-  await click('Buy');
+  await click('🛒 Order now');
   await waitText('recommended');
-  await page.waitForFunction(() => [...document.querySelectorAll('label.choice')].find((l) => l.textContent.startsWith('With escrow'))?.querySelector('input').checked, { timeout: 5000 })
+  await page.waitForFunction(() => [...document.querySelectorAll('label.choice')].find((l) => l.textContent.includes('Escrow (buyer'))?.querySelector('input').checked, { timeout: 5000 })
     .catch(() => { throw new Error('escrow not preselected above €50'); });
   await shot(page, 'Koper: boven €50 is "Met escrow" voorgeselecteerd en gemarkeerd als aanbevolen');
-  await choose('Direct, Lightning');
+  await choose('⚡ Lightning');
   await waitText('we recommend escrow');
   await shot(page, 'Koper: wie boven €50 toch direct kiest, krijgt een waarschuwing');
 

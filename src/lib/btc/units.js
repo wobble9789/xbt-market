@@ -1,3 +1,5 @@
+import { settings } from '../settings.js';
+
 export const SATS = 100_000_000;
 
 export function formatCoin(sats, { unit = true, digits = 8 } = {}) {
@@ -16,7 +18,7 @@ export function parseCoin(text) {
 export function formatFiat(amount, currency = 'EUR') {
   if (amount == null || Number.isNaN(amount)) return '–';
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+    return new Intl.NumberFormat(settings.get().lang === 'es' ? 'es-ES' : 'en-GB', { style: 'currency', currency }).format(amount);
   } catch {
     return `${amount.toFixed(2)} ${currency}`;
   }

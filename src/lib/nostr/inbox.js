@@ -116,6 +116,20 @@ export async function sendTradeMessage(tradeId, type, body, participants) {
   return { rumor: own, delivered: wraps.length - failed.length, total: wraps.length };
 }
 
+// Sends copies of my own earlier messages in a trade to someone who joins it
+// later (the arbiter, chosen after the offer). They stay authenticated: each
+// copy is sealed and signed by me, around the unchanged rumor.
+export async function forwardOwnRumors(tradeId, to) {
+  const sk = secretKey();
+  const me = account.get().pubkey;
+  const mine = rumorsFor(tradeId).filter((r) => r.pubkey === me);
+  const done = loadJSON(`xbt:fwd:${tradeId}:${to}`, []);
+  const todo = mine.filter((r) => !done.includes(r.id));
+  for (const r of todo) await publishEvent(nip59.createWrap(nip59.createSeal(r, sk, to), to));
+  saveJSON(`xbt:fwd:${tradeId}:${to}`, [...done, ...todo.map((r) => r.id)]);
+  return todo.length;
+}
+
 export function tradeIds(rumors = inbox.get().rumors) {
   const by = new Map();
   for (const r of Object.values(rumors)) {

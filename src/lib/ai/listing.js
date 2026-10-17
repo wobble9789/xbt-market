@@ -35,11 +35,11 @@ async function client(apiKey, fetchImpl) {
 
 // images: https URLs (already uploaded to the photo server).
 // apiKey and fetchImpl are for tests; the app uses the stored key.
-export async function draftListing({ images, lang = 'en', currency = 'EUR', hint = '', apiKey, fetchImpl }) {
+export async function draftListing({ images, lang = 'en', currency = 'EUR', hint = '', apiKey, fetchImpl, tree }) {
   if (!images?.length) throw new Error('Add at least one photo first');
   const { jsonSchemaOutputFormat } = await import('@anthropic-ai/sdk/helpers/json-schema');
   const anthropic = await client(apiKey ?? getSecret(NAME), fetchImpl);
-  const language = lang === 'nl' ? 'Dutch' : 'English';
+  const language = lang === 'es' ? 'Spanish' : 'English';
   const response = await anthropic.beta.messages.parse({
     model: AI_MODEL,
     max_tokens: 4000,
@@ -58,5 +58,19 @@ export async function draftListing({ images, lang = 'en', currency = 'EUR', hint
   });
   if (response.stop_reason === 'refusal') throw new Error('The AI declined to describe these photos.');
   if (!response.parsed_output) throw new Error('The AI returned no usable listing. Try again.');
-  return response.parsed_output;
+  const out = { ...response.parsed_output, subcategory: '' };
+  // Second, small text-only step: the subcategory, from that category's own list.
+  const subs = tree?.get(out.category) || [];
+  if (subs.length) {
+    try {
+      const pick = await anthropic.beta.messages.parse({
+        model: AI_MODEL,
+        max_tokens: 200,
+        output_config: { effort: 'low', format: jsonSchemaOutputFormat({ type: 'object', additionalProperties: false, required: ['subcategory'], properties: { subcategory: { type: 'string', enum: subs.map((c) => c[0]) } } }, { transform: false }) },
+        messages: [{ role: 'user', content: `Pick the best subcategory for this listing.\nTitle: ${out.title}\nDescription: ${out.description}\nSubcategories (id: name): ${subs.map((c) => `${c[0]}: ${c[2]}`).join('; ')}` }],
+      });
+      out.subcategory = pick.parsed_output?.subcategory || '';
+    } catch { /* the seller picks it */ }
+  }
+  return out;
 }

@@ -83,16 +83,18 @@ jobs:
             -rpcuser=u -rpcpassword=p -fallbackfee=0.0001 -txindex=1 -daemon
           for i in $(seq 30); do bitcoin-cli -regtest -datadir=$RUNNER_TEMP/regtest -rpcuser=u -rpcpassword=p getblockcount && break; sleep 1; done
 
-      - name: Build app and start relay, Esplora shim, shop fixtures, preview
+      - name: Build app and start relay, Esplora shim, shop fixtures, service, preview
         run: |
-          npm run build
+          VITE_API_URL=http://127.0.0.1:8787 npm run build
+          nohup npm run sendcloud > sendcloud.log 2>&1 &
+          nohup npm run service:dev > service.log 2>&1 &
           nohup npm run relay > relay.log 2>&1 &
           nohup npm run shim > shim.log 2>&1 &
           nohup npm run fixtures > fixtures.log 2>&1 &
           nohup npm run wallets > wallets.log 2>&1 &
           nohup npm run blossom > blossom.log 2>&1 &
           nohup npm run preview -- --port 4173 --strictPort > preview.log 2>&1 &
-          for url in http://127.0.0.1:4173/ http://127.0.0.1:3006/api/blocks/tip/height; do
+          for url in http://127.0.0.1:4173/ http://127.0.0.1:3006/api/blocks/tip/height http://127.0.0.1:8787/; do
             for i in $(seq 30); do curl -sf $url > /dev/null && break; sleep 1; done
           done
 
@@ -106,13 +108,15 @@ jobs:
           KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
         run: npm run test:e2e
 
-      - name: Import button against Marktplaats / Vinted / eBay fixtures
+      - name: Import button and pasted links against Marktplaats / Vinted / eBay fixtures
+        env:
+          API: '1'
         run: npm run test:import
 
       - name: Lightning wallet link (mock NWC wallets)
         run: npm run test:lightning
 
-      - name: Direct Lightning purchase through the UI
+      - name: Direct Lightning purchase with a prepaid label through the UI
         env:
           KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
         run: npm run test:direct
@@ -124,7 +128,7 @@ jobs:
         env:
           KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
         run: |
-          VITE_ADMIN_NPUB=$(node test/e2e/testplan.e2e.mjs --admin-npub) npx vite build --outDir dist-plan
+          VITE_API_URL=http://127.0.0.1:8787 VITE_ADMIN_NPUB=$(node test/e2e/testplan.e2e.mjs --admin-npub) npx vite build --outDir dist-plan
           nohup npx vite preview --outDir dist-plan --port 4174 --strictPort > preview-plan.log 2>&1 &
           for i in $(seq 30); do curl -sf http://127.0.0.1:4174/ > /dev/null && break; sleep 1; done
           APP_URL=http://127.0.0.1:4174/ npm run test:plan
@@ -154,9 +158,32 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # The XBT Market service (usernames, shipping labels, import from a link)
+      # on Cloudflare Workers. Runs only when the repository has the secrets
+      # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (see README "Service");
+      # without them the app is built without those features.
+      - name: Deploy the XBT Market service
+        id: service
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SENDCLOUD_PUBLIC_KEY: ${{ secrets.SENDCLOUD_PUBLIC_KEY }}
+          SENDCLOUD_SECRET_KEY: ${{ secrets.SENDCLOUD_SECRET_KEY }}
+          PLATFORM_LN_ADDRESS: ${{ secrets.PLATFORM_LN_ADDRESS }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "No CLOUDFLARE_API_TOKEN secret: service not deployed"; exit 0; fi
+          cd server
+          npx --yes wrangler@4 deploy | tee deploy.log
+          for k in SENDCLOUD_PUBLIC_KEY SENDCLOUD_SECRET_KEY PLATFORM_LN_ADDRESS; do
+            if [ -n "${!k}" ]; then printf '%s' "${!k}" | npx --yes wrangler@4 secret put $k; fi
+          done
+          url=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)
+          echo "url=$url" >> $GITHUB_OUTPUT
       - run: npm run build
         env:
           VITE_ADMIN_NPUB: ${{ vars.VITE_ADMIN_NPUB }}
+          # A repository variable wins (e.g. a custom domain for the service).
+          VITE_API_URL: ${{ vars.VITE_API_URL || steps.service.outputs.url }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -5,7 +5,7 @@ import * as nip19 from 'nostr-tools/nip19';
 import { MARKET_TAG } from '../../config.js';
 import { tag, tags } from './pool.js';
 import { parseShippingOptions } from '../shipping.js';
-import { normalizeCategory, PRICE_UNITS } from '../categories.js';
+import { normalizeCategory, PRICE_UNITS, isSubcategorySlug } from '../categories.js';
 
 export const LISTING_KIND = 30402;
 
@@ -15,7 +15,13 @@ export const CONDITIONS = ['new', 'like-new', 'good', 'fair', 'for-parts'];
 
 // How a buyer may pay: through 2-of-3 escrow, or directly to the seller on
 // chain or over Lightning. Listings without a `payment` tag accept escrow only.
-export const PAYMENT_METHODS = ['escrow', 'onchain', 'lightning'];
+// Shown in this order; new listings accept Lightning only by default.
+export const PAYMENT_METHODS = ['lightning', 'onchain', 'escrow'];
+export const DEFAULT_PAYMENTS = ['lightning'];
+
+// active: for sale; reserved: visible, but not taking orders; sold; deleted.
+export const STATUSES = ['active', 'reserved', 'sold', 'deleted'];
+export const PACKAGE_SIZES = ['S', 'M', 'L', 'XL'];
 
 export function listingTemplate(l) {
   const t = [
@@ -29,11 +35,16 @@ export function listingTemplate(l) {
     ['status', l.status || 'active'],
   ];
   if (l.category) t.push(['t', l.category]);
+  if (l.subcategory) t.push(['subcategory', l.subcategory]);
   if (l.condition) t.push(['condition', l.condition]);
-  if (l.location) t.push(['location', l.location]);
+  if (l.country) t.push(['country', l.country]);
+  const place = [l.city, l.country].filter(Boolean).join(', ') || l.location;
+  if (place) t.push(['location', place]);
   if (l.shippingCost != null && l.shippingCost !== '') t.push(['shipping_cost', String(l.shippingCost), l.currency]);
-  if (l.shipsTo) t.push(['ships_to', l.shipsTo]);
-  for (const o of l.shippingOptions || []) t.push(['shipping_option', o.id, String(o.price), o.currency || l.currency]);
+  for (const x of [].concat(l.shipsTo || [])) if (x) t.push(['ships_to', x]);
+  // Without a price the buyer pays the carrier's rate for the chosen option.
+  for (const o of l.shippingOptions || []) t.push(['shipping_option', o.id, ...(o.price != null && o.price !== '' ? [String(o.price), o.currency || l.currency] : [])]);
+  if (l.packageSize) t.push(['package_size', l.packageSize]);
   for (const p of l.payments || []) if (PAYMENT_METHODS.includes(p)) t.push(['payment', p]);
   if (l.sellerDepositPct != null) t.push(['seller_deposit_pct', String(l.sellerDepositPct)]);
   for (const img of l.images || []) if (img) t.push(['image', img]);
@@ -63,15 +74,19 @@ export function parseListing(e) {
     currency: (priceTag[2] || 'EUR').toUpperCase(),
     images: tags(e, 'image').map(httpUrl).filter(Boolean),
     category: normalizeCategory(tags(e, 't').find((x) => !known.has(x))),
+    subcategory: isSubcategorySlug(tag(e, 'subcategory')) ? tag(e, 'subcategory') : '',
     priceUnit: PRICE_UNITS.includes(priceTag[3]) ? priceTag[3] || '' : '',
     condition: tag(e, 'condition') || '',
     location: tag(e, 'location') || '',
+    country: /^[A-Z]{2}$/.test(tag(e, 'country') || '') ? tag(e, 'country') : (tag(e, 'location') || '').match(/(?:^|,\s*)([A-Z]{2})$/)?.[1] || '',
+    city: (() => { const loc = tag(e, 'location') || ''; const c = tag(e, 'country'); return c && loc.endsWith(', ' + c) ? loc.slice(0, -(c.length + 2)) : c && loc === c ? '' : loc; })(),
     shippingCost: tag(e, 'shipping_cost') != null ? Number(tag(e, 'shipping_cost')) : null,
-    shipsTo: tag(e, 'ships_to') || '',
+    shipsTo: tags(e, 'ships_to').map((x) => String(x).trim().toUpperCase()).filter((x) => /^([A-Z]{2}|WORLD)$/.test(x)),
+    packageSize: PACKAGE_SIZES.includes(tag(e, 'package_size')) ? tag(e, 'package_size') : '',
     shippingOptions: parseShippingOptions(e.tags, (priceTag[2] || 'EUR').toUpperCase()),
-    payments: (() => { const p = tags(e, 'payment').filter((x) => PAYMENT_METHODS.includes(x)); return p.length ? [...new Set(p)] : ['escrow']; })(),
+    payments: (() => { const p = tags(e, 'payment').filter((x) => PAYMENT_METHODS.includes(x)); return p.length ? PAYMENT_METHODS.filter((x) => p.includes(x)) : ['escrow']; })(),
     sellerDepositPct: tag(e, 'seller_deposit_pct') != null ? Number(tag(e, 'seller_deposit_pct')) : null,
-    status: tag(e, 'status') || 'active',
+    status: STATUSES.includes(tag(e, 'status')) ? tag(e, 'status') : 'active',
     source: httpUrl(tag(e, 'r')),
     importedFrom: tag(e, 'imported_from') || '',
     createdAt: e.created_at,

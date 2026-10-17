@@ -2,7 +2,7 @@
 // escrow key, talk to the chain and send protocol messages.
 
 import { account, secretKey } from '../nostr/account.js';
-import { sendTradeMessage } from '../nostr/inbox.js';
+import { sendTradeMessage, forwardOwnRumors } from '../nostr/inbox.js';
 import { deriveTradeKey, arbiterTradeKey, arbiterBaseKey, pubkeyOf, planPayout, signEscrow, finalizeEscrow } from '../btc/escrow.js';
 import { escrowFunding, Esplora } from '../btc/esplora.js';
 import { settings } from '../settings.js';
@@ -37,45 +37,61 @@ export function myEscrowKey(state) {
   return key;
 }
 
-export async function createOffer({ listing, priceSats, buyerDepositSats, sellerDepositSats, arbiter, payoutAddress, shipTo, note, network, payment = 'escrow', method, shipping }) {
+const listingInfoOf = (listing) => ({
+  coord: listing.coord, sellerPubkey: listing.pubkey, title: listing.title, image: listing.images[0] || '',
+  price: listing.price, currency: listing.currency, payments: listing.payments, country: listing.country || '',
+  ...(isService(listing.category) ? { kind: 'service', priceUnit: listing.priceUnit || '' } : {}),
+});
+
+// Starts a conversation about a listing (like "send a message" on Marktplaats).
+export async function openConversation({ listing, network, text, prev }) {
   const tradeId = newTradeId();
   const me = account.get().pubkey;
   if (listing.pubkey === me) throw new Error('You cannot buy your own listing');
-  const listingInfo = {
-    coord: listing.coord, sellerPubkey: listing.pubkey, title: listing.title, image: listing.images[0] || '',
-    price: listing.price, currency: listing.currency, shippingCost: listing.shippingCost,
-    ...(isService(listing.category) ? { kind: 'service', priceUnit: listing.priceUnit || '' } : {}),
-  };
-  if (payment === 'direct') {
-    const body = {
-      v: 1, tradeId, network, payment: 'direct', method, listing: listingInfo, priceSats,
-      shipping: shipping || null, shipTo: shipTo || '', note: note || '',
-      shipDays: settings.get().shipDays, confirmDays: settings.get().confirmDays,
-    };
-    await sendTradeMessage(tradeId, 'offer', body, [listing.pubkey]);
-    return tradeId;
-  }
-  const body = {
-    v: 1,
-    tradeId,
-    network,
-    listing: listingInfo,
-    shipping: shipping || null,
-    priceSats, buyerDepositSats, sellerDepositSats,
-    arbiter: { pubkey: arbiter.pubkey, escrowBase: arbiter.escrowBase },
-    buyer: { escrowPubkey: pubkeyOf(deriveTradeKey(secretKey(), tradeId)), payoutAddress: payoutAddress.trim() },
-    shipTo: shipTo || '', note: note || '',
-    shipDays: settings.get().shipDays, confirmDays: settings.get().confirmDays,
-  };
-  await sendTradeMessage(tradeId, 'offer', body, [listing.pubkey, arbiter.pubkey]);
+  await sendTradeMessage(tradeId, 'open', { v: 2, network, listing: listingInfoOf(listing), ...(prev ? { prev } : {}) }, [listing.pubkey]);
+  if (text) await sendTradeMessage(tradeId, 'chat', { text }, [listing.pubkey]);
   return tradeId;
 }
 
-export function acceptOffer(state, payoutAddress) {
-  if (state.payment === 'direct') return send(state, 'accept', {});
-  const key = deriveTradeKey(secretKey(), state.tradeId);
-  return send(state, 'accept', { seller: { escrowPubkey: pubkeyOf(key), payoutAddress: payoutAddress.trim() } });
+// The order: price, payment method and delivery only. Addresses and the
+// arbiter follow once the seller accepts (sendDetails).
+export async function createOffer({ tradeId, listing, priceSats, buyerDepositSats, sellerDepositSats, note, network, payment = 'escrow', method, shipping }) {
+  const me = account.get().pubkey;
+  if (listing.pubkey === me) throw new Error('You cannot buy your own listing');
+  const s = settings.get();
+  const body = {
+    v: 2, tradeId, network, listing: listingInfoOf(listing), payment, priceSats,
+    ...(payment === 'direct' ? { method } : { buyerDepositSats, sellerDepositSats }),
+    buyer: { escrowPubkey: pubkeyOf(deriveTradeKey(secretKey(), tradeId)) },
+    shipping: shipping || null, note: note || '', shipDays: s.shipDays, confirmDays: s.confirmDays,
+  };
+  await sendTradeMessage(tradeId, 'offer', body, [listing.pubkey]);
+  return tradeId;
 }
+
+// Seller: accept. The escrow key is always included, so the trade can still
+// switch to escrow later.
+export function acceptOffer(state, payoutAddress) {
+  const key = deriveTradeKey(secretKey(), state.tradeId);
+  return send(state, 'accept', { seller: { escrowPubkey: pubkeyOf(key), ...(payoutAddress ? { payoutAddress: payoutAddress.trim() } : {}) } });
+}
+
+// Buyer: delivery address, and with escrow the arbiter and a refund address.
+// Seller: payout address. The arbiter, once chosen, receives the messages so far.
+export async function sendDetails(state, { shipTo, payoutAddress, arbiter, servicePointId }) {
+  const body = {
+    ...(shipTo ? { shipTo } : {}), ...(payoutAddress ? { payoutAddress: payoutAddress.trim() } : {}), ...(servicePointId ? { servicePointId: String(servicePointId) } : {}),
+    ...(arbiter ? { arbiter: { pubkey: arbiter.pubkey, escrowBase: arbiter.escrowBase } } : {}),
+  };
+  const to = [state.participants.buyer, state.participants.seller, arbiter?.pubkey || state.participants.arbiter].filter(Boolean);
+  await sendTradeMessage(state.tradeId, 'details', body, to);
+  if (arbiter) await forwardOwnRumors(state.tradeId, arbiter.pubkey).catch(() => {});
+}
+
+export const requestChange = (state, { method, buyerDepositSats, sellerDepositSats, note }) =>
+  send(state, 'change', { method, ...(method === 'escrow' ? { buyerDepositSats, sellerDepositSats } : {}), ...(note ? { note } : {}) });
+export const answerChange = (state, change, ok, reason = '') => send(state, ok ? 'change_ok' : 'change_no', { changeId: change.id, ...(reason ? { reason } : {}) });
+export const sendLabel = (state, label) => send(state, 'label', label);
 
 export const rejectOffer = (state, reason) => send(state, 'reject', { reason });
 export const cancelTrade = (state, reason) => send(state, 'cancel', { reason });
@@ -90,7 +106,7 @@ export const sendFundedHint = (state, txid) => send(state, 'funded', { txid });
 // Seller: ask for payment. Lightning invoices come from the connected wallet,
 // a Lightning address, or are pasted; on-chain requests name an address.
 export async function requestLightning(state, { invoice, lightningAddress }) {
-  const sats = state.offer.priceSats;
+  const sats = state.terms.priceSats;
   const memo = `XBT Market: ${state.offer.listing.title}`.slice(0, 100);
   let pr = (invoice || '').trim();
   if (!pr && lightningAddress) pr = (await invoiceFromAddress(lightningAddress, sats, memo)).invoice;
@@ -101,7 +117,7 @@ export async function requestLightning(state, { invoice, lightningAddress }) {
   return send(state, 'request', { method: 'lightning', invoice: inv.invoice });
 }
 
-export const requestOnchain = (state, address) => send(state, 'request', { method: 'onchain', address: address.trim(), amountSats: state.offer.priceSats });
+export const requestOnchain = (state, address) => send(state, 'request', { method: 'onchain', address: address.trim(), amountSats: state.terms.priceSats });
 
 // Buyer: pay the current Lightning request with the connected wallet; the
 // preimage the wallet returns proves the payment to everyone in the trade.

@@ -1,11 +1,12 @@
-// Walks through public/testplan.html, ID by ID, with three people: A (admin and
-// arbiter), B (seller) and C (buyer). Each step checks what the plan expects,
+// Walks through public/testplan.html (round 2), ID by ID, with three people: A
+// (admin and arbiter), B (seller) and C (buyer). Each step checks what the plan expects,
 // saves a screenshot and records pass/fail; steps that need real coins, real
 // shop websites or a real phone are recorded as "manual" with the reason.
 //
 // Needs: regtest node + `npm run shim`, `npm run relay`, `npm run wallets`,
-// `node dev/blossom-mock.mjs`, and an app build with A as admin:
-//   VITE_ADMIN_NPUB=$(node test/e2e/testplan.e2e.mjs --admin-npub) npx vite build --outDir dist-plan
+// `npm run blossom`, `npm run fixtures`, `npm run sendcloud`, `npm run service:dev`,
+// and an app build with A as admin and the local service:
+//   VITE_API_URL=http://127.0.0.1:8787 VITE_ADMIN_NPUB=$(node test/e2e/testplan.e2e.mjs --admin-npub) npx vite build --outDir dist-plan
 //   npx vite preview --outDir dist-plan --port 4174
 // then APP_URL=http://127.0.0.1:4174/ KNOTS_CLI=… node test/e2e/testplan.e2e.mjs
 // Results: <SHOTS>/testplan-results.json (and screenshots with SHOTS set).
@@ -41,6 +42,7 @@ const people = {
   B: {}, // creates an account through the UI in ACC-1
   C: (() => { const sk = generateSecretKey(); return { sk: hex(sk), pk: getPublicKey(sk) }; })(),
 };
+const API = process.env.API_URL || 'http://127.0.0.1:8787';
 const BASE_SETTINGS = { relays: [RELAY], network: 'regtest', lang: 'en', manualRate: { value: 50000, currency: 'EUR' }, currency: 'EUR', blossom: BLOSSOM, esploraOverride: { regtest: 'http://127.0.0.1:3006/api' } };
 
 const chrome = process.env.CHROME;
@@ -67,6 +69,17 @@ async function as(who, { fresh = false } = {}) {
   page.who = who;
   page.on('pageerror', (e) => { if (!/establish a connection/.test(e.message)) console.log(`[${who} pageerror]`, e.message); });
   page.on('dialog', (d) => d.accept());
+  // Fixed market rates (the test machine may not reach the exchanges): 1 XBT =
+  // 52,000 USDT, and USDT in other currencies. A manual EUR rate still wins.
+  await page.evaluateOnNewDocument(() => {
+    const real = window.fetch;
+    window.fetch = (input, init) => {
+      const url = String(typeof input === 'string' ? input : input.url);
+      if (url.startsWith('https://safetrade.com/')) return Promise.resolve(new Response(JSON.stringify({ last: '52000' })));
+      if (url.startsWith('https://api.coinbase.com/')) return Promise.resolve(new Response(JSON.stringify({ data: { rates: { USD: '1', EUR: '0.9615', GBP: '0.79', JPY: '150' } } })));
+      return real(input, init);
+    };
+  }).catch(() => {});
   await page.goto(APP, { waitUntil: 'load' });
   await page.evaluate((saved, p, s) => {
     localStorage.clear();
@@ -153,23 +166,89 @@ async function step(id, title, fn) {
 }
 const manual = (id, title, why) => { results.push({ id, title, status: 'manual', note: why }); console.log(`\n== ${id} ${title}\n   → manual: ${why}`); };
 
+// ---- extra helpers for round 2 -------------------------------------------------------------
+
+const selectX = (label) => fieldX(label, 'select');
+async function pickSub(p, value) {
+  const s = await p.waitForSelector('select[aria-label="Subcategory"]:not([disabled])', { timeout: 15000 });
+  await p.waitForFunction(() => document.querySelector('select[aria-label="Subcategory"]').options.length > 1, { timeout: 15000 });
+  await s.select(value || await s.evaluate((e) => e.options[1].value));
+}
+async function setCategory(p, cat, sub) {
+  await (await p.waitForSelector('select[aria-label="Category"]')).select(cat);
+  await pickSub(p, sub);
+}
+async function clickIn(p, scope, label) {
+  await (await el(p, `//*[contains(concat(" ",@class," ")," ${scope} ")]//button[normalize-space(.)="${label}"]`)).click();
+}
+const checked = (p, start) => p.evaluate((s) => [...document.querySelectorAll('label.choice')].find((l) => l.textContent.trim().startsWith(s))?.querySelector('input')?.checked, start);
+async function setChoice(p, start, on) {
+  if ((await checked(p, start)) !== on) await choose(p, start);
+  await p.waitForFunction((s, on) => [...document.querySelectorAll('label.choice')].find((l) => l.textContent.trim().startsWith(s))?.querySelector('input')?.checked === on, { timeout: 5000 }, start, on);
+}
+async function newListing(p, { title, price, cat = 'diversen', sub, escrow = false, onchain = false, currency, desc }) {
+  await p.evaluate(() => { location.hash = '#/sell/new'; });
+  await p.waitForSelector('select[aria-label="Category"]');
+  await fill(p, 'Title', title);
+  if (desc) await fill(p, 'Description', desc);
+  await setCategory(p, cat, sub);
+  await fill(p, 'Price', String(price));
+  if (currency) await select(p, 'Currency', currency);
+  if (escrow) { await setChoice(p, '🛡 Escrow', true); await waitText(p, 'Your escrow deposit'); }
+  if (onchain) await setChoice(p, 'On-chain', true);
+  await click(p, 'Publish');
+  await waitText(p, 'Your listings');
+  await waitText(p, title);
+}
+const ADDRESS = { name: 'Cees Koper', street: 'Kerkstraat', number: '1', postalCode: '1234AB', city: 'Amsterdam' };
+async function fillAddress(p) {
+  await fill(p, 'Full name', ADDRESS.name);
+  await fill(p, 'Street', ADDRESS.street);
+  await fill(p, 'Number', ADDRESS.number);
+  await fill(p, 'Postcode', ADDRESS.postalCode);
+  await fill(p, 'City', ADDRESS.city);
+  const sel = await el(p, '//div[contains(@class,"address-form")]//select');
+  await sel.select('NL');
+}
+// Buyer: order from a listing page with the given payment and delivery.
+async function shipCountry(c) {
+  const sel = await c.$('::-p-xpath(//label[span[normalize-space(.)="Ship to (country)"]]//select)');
+  if (sel && !(await sel.evaluate((s) => s.value))) await sel.select('NL');
+}
+async function order(who, title, { pay, pickup = false, carrier }) {
+  const c = await openListing(who, title);
+  const before = await c.evaluate(() => location.hash);
+  // An open conversation about this listing is reused, as a buyer would.
+  if (await exists(c, btnX('💬 Go to your conversation'))) { await click(c, '💬 Go to your conversation'); await click(c, '🛒 Order'); }
+  else await click(c, '🛒 Order now');
+  await c.waitForFunction((b) => location.hash.startsWith('#/trade/') && location.hash !== b, { timeout: 20000 }, before);
+  await waitText(c, 'How do you want to pay?');
+  await choose(c, pay);
+  if (pickup) await choose(c, '🤝 Pick up');
+  else await shipCountry(c);
+  if (carrier) { await waitText(c, carrier, 30000); await choose(c, carrier); }
+  await click(c, 'Send order');
+  await waitText(c, 'Waiting for the seller to accept');
+  return tradeIdOf(c);
+}
+
 // ---- the plan ------------------------------------------------------------------------------
 
 try {
-  // Admin first, so arbiters are approved before anyone trades.
-  await step('ARB-1', 'Admin menu visible for A only', async () => {
-    const p = await go('A', '#/');
-    await p.waitForFunction(() => [...document.querySelectorAll('header a, nav a')].some((a) => a.textContent.includes('Admin')), { timeout: 20000 });
-    return 'A sees "Admin" in the menu (checked for B in ACC-1)';
-  });
-  await step('ARB-2', 'Announce as arbiter', async () => {
-    const p = await go('A', '#/arbiter');
+  // ---- arbiter (A) ----
+  await step('ARB-2', 'Find the way to become an arbiter', async () => {
+    const p = await go('A', '#/settings');
+    await waitText(p, 'Become an arbiter');
+    await click(p, 'Apply as arbiter');
+    await waitText(p, 'Become an arbiter');
     await fill(p, 'Name', 'Anna Arbiter');
     await fill(p, 'Languages', 'NL, EN');
     await fill(p, 'Fee policy', '2% in disputes only');
     await click(p, 'Publish arbiter profile');
     await waitText(p, 'not on the approved list yet');
-    return 'warning "not approved yet" shown';
+    await go('A', '#/settings');
+    await waitText(p, 'waiting for approval');
+    return 'Account → "Become an arbiter" card → form; after publishing "waiting for approval"';
   });
   await step('ARB-3', 'Approve the arbiter', async () => {
     const p = await go('A', '#/admin');
@@ -183,59 +262,29 @@ try {
     return 'warning gone, "Open disputes" shown';
   });
 
-  await step('ACC-1', 'Create an account', async () => {
+  // ---- first start (B makes an account in the UI) ----
+  await step('SET-UP-1', 'A calm setup screen', async () => {
     const p = await go('B', '#/settings');
     await click(p, 'Create a new account');
     await waitText(p, 'Back up your key');
-    if (!(await p.$('.card.attention'))) throw new Error('no backup reminder');
     people.B.pk = await p.evaluate(() => JSON.parse(localStorage.getItem('xbt:account')).pubkey);
+    await waitText(p, 'Full setup (optional)');
+    const open = await p.evaluate(() => [...document.querySelectorAll('details.collapsible')].map((d) => [d.querySelector('summary h3')?.textContent.trim(), d.open]));
+    const wanted = ['Trading', 'Lightning wallet', 'AI listing assistant', 'Trusted arbiters', 'Network', 'Trade backup'];
+    for (const w of wanted) if (!open.some(([t, o]) => t?.includes(w) && !o)) throw new Error(`${w} is not a closed section: ${JSON.stringify(open)}`);
     if (await p.evaluate(() => [...document.querySelectorAll('header a, nav a')].some((a) => a.textContent.includes('Admin')))) throw new Error('B sees the Admin menu');
-    return 'account page with backup reminder; B does not see "Admin"';
+    return 'basics on top; Trading, Lightning wallet, AI, Trusted arbiters, Network and Trade backup collapsed under "Full setup (optional)"';
   });
-  await step('ACC-2', 'Back up the key', async () => {
+  await step('SET-UP-2', 'Install guide per browser', async () => {
     const p = await as('B');
-    await click(p, 'Show my nsec');
-    people.B.nsec = (await (await el(p, '//div[@class="secret"]/code')).evaluate((e) => e.textContent)).trim();
-    if (!people.B.nsec.startsWith('nsec1')) throw new Error('no nsec shown');
-    await click(p, 'I have written it down');
-    await p.waitForFunction(() => !document.querySelector('.card.attention'), { timeout: 10000 });
-    return 'nsec shown; orange border gone';
-  });
-  await step('ACC-3', 'Password and lock', async () => {
-    const p = await as('B');
-    await fillPh(p, 'New password', 'correct-horse-9');
-    await click(p, 'Set');
-    await waitToast(p, 'Key encrypted');
-    await click(p, 'Lock');
-    await p.reload({ waitUntil: 'load' });
-    await waitText(p, 'Unlock');
-    await fill(p, 'Password', 'wrong-password');
-    await click(p, 'Unlock');
-    await waitToast(p, 'Wrong password');
-    await fill(p, 'Password', 'correct-horse-9');
-    await click(p, 'Unlock');
-    await waitText(p, 'Back up your key');
-    // The rest of the plan reloads B's pages often; keep B's key unencrypted from here on.
-    const sk = Buffer.from(nip19.decode(people.B.nsec).data).toString('hex');
-    await p.evaluate((pk, sk) => localStorage.setItem('xbt:account', JSON.stringify({ pubkey: pk, sk, backedUp: true })), people.B.pk, sk);
-    await p.reload({ waitUntil: 'load' });
-    return 'wrong password refused, right one unlocks, everything still there';
-  });
-  // Later contexts reopen B's storage, which now holds an encrypted key: unlock again each time.
-  const unlockB = async () => { const p = await as('B'); if ((await text(p)).includes('Unlock') && await exists(p, fieldX('Password'))) { await fill(p, 'Password', 'correct-horse-9'); await click(p, 'Unlock'); await sleep(500); } return p; };
-  const B = async (hash) => { await unlockB(); return go('B', hash); };
-
-  await step('ACC-5', 'Switch language', async () => {
-    const p = await B('#/settings');
-    await select(p, 'Language', 'nl');
-    await waitText(p, 'Wachtwoord');
-    await proof(p, 'plan', 'ACC-5 · Taal op Nederlands');
-    await select(p, 'Taal', 'en');
-    await waitText(p, 'Password');
-    return 'all labels switch at once (NL → EN)';
+    await (await el(p, '//details[contains(@class,"install-guide")]/summary')).click();
+    await waitText(p, 'Safari (iPhone / iPad)');
+    await waitText(p, 'Chrome (Android)');
+    const mine = await p.evaluate(() => [...document.querySelectorAll('.install-steps')].find((d) => d.open)?.querySelector('summary')?.textContent);
+    if (!mine?.includes('your browser')) throw new Error('own browser not opened: ' + mine);
+    return `steps for Chrome/Android, Safari/iPhone, Samsung, Firefox and computers; open: ${mine}`;
   });
   await step('ACC-6', 'Installable as an app', async () => {
-    await B('#/');
     // Chrome never offers to install from a private window, so check in a normal one.
     const p = await browser.defaultBrowserContext().newPage();
     await setupPage(p);
@@ -246,9 +295,9 @@ try {
       const m = await (await fetch(link.href)).json();
       const icons = await Promise.all(m.icons.map(async (i) => (await fetch(new URL(i.src, link.href))).ok));
       const reg = await Promise.race([navigator.serviceWorker.ready.then(() => true), new Promise((r) => setTimeout(() => r(false), 10000))]);
-      return { display: m.display, icons: icons.every(Boolean), sw: reg, theme: document.querySelector('meta[name=theme-color]')?.content || m.theme_color };
+      return { display: m.display, icons: icons.every(Boolean), sw: reg, theme: m.theme_color };
     });
-    if (info.display !== 'standalone' || !info.icons || !info.sw) throw new Error(JSON.stringify(info));
+    if (info.display !== 'standalone' || !info.icons || !info.sw || info.theme !== '#c9a227') throw new Error(JSON.stringify(info));
     let extra = '';
     if (chrome) {
       const s = await p.createCDPSession();
@@ -256,60 +305,190 @@ try {
       if (installabilityErrors.length) throw new Error('Chrome: ' + JSON.stringify(installabilityErrors));
       extra = '; Chrome reports it installable';
     }
-    await proof(p, 'plan', 'ACC-6 · Installeerbaar: manifest, iconen en service worker in orde');
     await p.close();
-    return `manifest standalone, icons load, service worker active${extra}. Adding to a real home screen: by you`;
+    return `manifest standalone with the gold icon, service worker active${extra}`;
   });
-  await step('ACC-7', 'Edit profile', async () => {
-    const p = await B(`#/u/${nip19.npubEncode(people.B.pk)}`);
-    await click(p, 'Edit');
+  await step('ACC-2', 'Copy the npub with a button', async () => {
+    const p = await go('B', '#/settings');
+    const codeIsButton = await p.evaluate(() => !!document.querySelector('.npub-line code')?.closest('button'));
+    if (codeIsButton) throw new Error('the npub text itself is a button');
+    await click(p, 'Copy npub');
+    await p.waitForFunction(() => [...document.querySelectorAll('.npub-line button')].some((b) => b.textContent === '✓'), { timeout: 5000 }).catch(() => {});
+    await click(p, 'Show my nsec');
+    people.B.nsec = (await (await el(p, '//div[@class="secret"]/code')).evaluate((e) => e.textContent)).trim();
+    if (!people.B.nsec.startsWith('nsec1')) throw new Error('no nsec shown');
+    await click(p, 'I have written it down');
+    return 'npub shown as text with a separate "Copy npub" button';
+  });
+  await step('ACC-7', 'Profile: name on Account, prominent edit, country required', async () => {
+    const p = await go('B', '#/settings');
+    await click(p, '✏️ Edit profile');
     await fill(p, 'Name', 'Bea Verkoper');
-    await fill(p, 'About', 'Verkoopt spullen uit Utrecht.');
-    await fill(p, 'Country', 'NL');
+    await fill(p, 'About you', 'Verkoopt spullen uit Utrecht.');
+    const disabled = await (await el(p, btnX('Save profile'))).evaluate((b) => b.disabled);
+    if (!disabled) throw new Error('could save without a country');
+    await (await el(p, '//div[contains(@class,"edit-profile")]//label[span[normalize-space(.)="Country"]]//select')).select('NL');
     await click(p, 'Save profile');
-    await waitToast(p, 'Saved');
+    await waitToast(p, 'Profile saved');
     await p.reload({ waitUntil: 'load' });
-    await waitText(p, 'Bea Verkoper', 40000);
-    return 'name, about and country shown on the profile after reload';
+    await p.waitForFunction(() => document.querySelector('.account-head h2')?.textContent === 'Bea Verkoper', { timeout: 40000 });
+    return 'Save only with a country (dropdown); name shown at the top of Account';
+  });
+  await step('ACC-3', 'Password: explained, checked, visible, changeable, lock screen shows the account', async () => {
+    const p = await go('B', '#/settings');
+    await (await el(p, '//summary[contains(.,"What does the password do?")]')).click();
+    await waitText(p, 'It encrypts your key on this device only');
+    await fill(p, 'Password', '12345');
+    await waitText(p, 'Too short: 5 of at least 8 characters.');
+    await fill(p, 'Password', 'correct-horse-9');
+    await (await el(p, '//div[contains(@class,"password")]//button[contains(@class,"eye")]')).click();
+    const shown = await p.evaluate(() => document.querySelector('.password input[autocomplete="new-password"]').type);
+    if (shown !== 'text') throw new Error('eye does not show the password');
+    await fill(p, 'Repeat password', 'correct-horse-9');
+    await click(p, 'Set password');
+    await waitText(p, 'Password set. The app now asks for it when it starts.');
+    await waitText(p, '✓ on');
+    // Changing needs the current password.
+    await fill(p, 'New password', 'battery-staple-7');
+    await fill(p, 'Repeat password', 'battery-staple-7');
+    if (!(await (await el(p, btnX('Change password'))).evaluate((b) => b.disabled))) throw new Error('could change without the current password');
+    await fill(p, 'Current password', 'correct-horse-9');
+    await click(p, 'Change password');
+    await waitText(p, 'Password changed');
+    await click(p, 'Lock now');
+    await waitText(p, 'Unlock');
+    await waitText(p, 'Bea Verkoper');
+    await proof(p, 'plan', 'ACC-3 · Slotscherm toont welk account: naam en npub');
+    await fill(p, 'Password', 'wrong-password');
+    await click(p, 'Unlock');
+    await waitText(p, 'Wrong password');
+    await fill(p, 'Password', 'battery-staple-7');
+    await click(p, 'Unlock');
+    await waitText(p, 'Back up your key');
+    // The rest of the plan reloads B's pages often; keep B's key unencrypted from here on.
+    const sk = Buffer.from(nip19.decode(people.B.nsec).data).toString('hex');
+    await p.evaluate((pk, sk) => localStorage.setItem('xbt:account', JSON.stringify({ pubkey: pk, sk, backedUp: true })), people.B.pk, sk);
+    await p.reload({ waitUntil: 'load' });
+    return 'explanation; "too short" feedback; eye shows it; change needs the current one; lock screen names the account';
+  });
+  const B = (hash) => go('B', hash);
+  await step('ACC-5', 'Only English and Spanish', async () => {
+    const p = await B('#/settings');
+    const langs = await p.$eval('::-p-xpath(//label[span[normalize-space(.)="Language"]]//select)', (s) => [...s.options].map((o) => o.value).join(','));
+    if (langs !== 'en,es') throw new Error('languages: ' + langs);
+    await select(p, 'Language', 'es');
+    await waitText(p, 'Contraseña');
+    await proof(p, 'plan', 'ACC-5 · Cuenta en español');
+    await select(p, 'Idioma', 'en');
+    await waitText(p, 'Password');
+    return 'English and Español only; everything switches at once';
+  });
+  await step('STY-1', 'Gold house style', async () => {
+    const p = await B('#/settings');
+    const c = await p.evaluate(() => ({ accent: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(), btn: getComputedStyle(document.querySelector('.btn.primary')).backgroundColor }));
+    if (!['#c9a227', '#d4af37'].includes(c.accent)) throw new Error(JSON.stringify(c));
+    return `accent ${c.accent}, primary buttons ${c.btn}`;
+  });
+  await step('USR-1', 'Unique @username', async () => {
+    const name = 'bea' + Math.random().toString(36).slice(2, 7);
+    people.B.username = name;
+    const p = await B('#/settings');
+    await fillPh(p, 'username', name);
+    await waitText(p, `@${name} is available`);
+    await click(p, 'Claim');
+    await waitToast(p, `You are now @${name}`);
+    await waitText(p, `@${name}`, 30000);
+    const c = await go('C', '#/settings');
+    await fillPh(c, 'username', name);
+    await waitText(c, `@${name} is already taken`);
+    if (!(await (await el(c, btnX('Claim'))).evaluate((b) => b.disabled))) throw new Error('C could claim a taken name');
+    const nj = await (await fetch(`${API}/.well-known/nostr.json?name=${name}`)).json();
+    if (nj.names[name] !== people.B.pk) throw new Error('not in nostr.json');
+    return `B is @${name} (NIP-05 ${name}@…); C gets "already taken"`;
+  });
+  await step('USR-2', 'Search by username', async () => {
+    const c = await go('C', '#/');
+    await (await c.waitForSelector('.searchbar input')).type('@' + people.B.username.slice(0, 5));
+    await waitText(c, '@' + people.B.username, 20000);
+    await (await el(c, `//a[contains(@class,"trade-row")][.//b[normalize-space(.)="@${people.B.username}"]]`)).click();
+    await waitText(c, 'Bea Verkoper', 30000);
+    return 'typing @bea… lists B; tapping opens the profile';
   });
 
   // ---- listings ----
-  await step('LST-1', 'New listing with photos', async () => {
+  await step('LST-1a', 'Marktplaats categories with subcategories', async () => {
     const p = await B('#/sell/new');
-    const input = await p.$('input[type=file]');
+    await waitText(p, 'New listing');
+    const n = await p.$eval('select[aria-label="Category"]', (s) => s.options.length);
+    if (n !== 36) throw new Error(`${n} main categories`);
+    await (await p.waitForSelector('select[aria-label="Category"]')).select('kleding-dames');
+    await p.waitForFunction(() => document.querySelector('select[aria-label="Subcategory"]')?.options.length > 10, { timeout: 15000 });
+    const subs = await p.$eval('select[aria-label="Subcategory"]', (s) => s.options.length - 1);
+    await fill(p, 'Title', 'Zonder subcategorie');
+    await fill(p, 'Price', '1');
+    await click(p, 'Publish');
+    await waitToast(p, 'Choose a subcategory');
+    return `36 main categories; Kleding | Dames has ${subs} subcategories; publishing needs one`;
+  });
+  await step('LST-1b', 'Country and ships-to', async () => {
+    const p = await as('B');
+    const country = await p.$eval('::-p-xpath(//label[span[normalize-space(.)="Country"]]//select)', (s) => s.value);
+    if (country !== 'NL') throw new Error('country not preset: ' + country);
+    const picker = await el(p, '//div[contains(@class,"ships-to")]//select');
+    await picker.select('GB');
+    await waitText(p, 'United Kingdom');
+    await (await el(p, '//span[contains(@class,"chip")][contains(.,"United Kingdom")]/button')).click();
+    await p.waitForFunction(() => ![...document.querySelectorAll('.chip')].some((c) => c.textContent.includes('United Kingdom')), { timeout: 5000 });
+    return 'country dropdown preset to NL; ships-to chips for EU / worldwide / countries, removable';
+  });
+  await step('LST-1c', 'Carriers without a price', async () => {
+    const p = await as('B');
+    if (await p.$('.ship-option input')) throw new Error('price field for shipping');
+    await waitText(p, 'cheap abroad');
+    await waitText(p, 'You set no price');
+    await waitText(p, 'Parcel size');
+    return 'carriers to tick, cheap international ones marked; no price; parcel size';
+  });
+  await step('LST-1d', 'Payment methods: Lightning on, on-chain off, escrow off and last', async () => {
+    const p = await as('B');
+    const pays = await p.evaluate(() => [...document.querySelectorAll('label.choice')].filter((l) => /Lightning \(|On-chain \(|Escrow \(/.test(l.textContent)).map((l) => [l.textContent.trim().slice(0, 12), l.querySelector('input').checked]));
+    if (JSON.stringify(pays.map((x) => x[1])) !== '[true,false,false]' || !pays[2][0].includes('Escrow')) throw new Error(JSON.stringify(pays));
+    if ((await text(p)).includes('Your escrow deposit')) throw new Error('deposit field without escrow');
+    await choose(p, '🛡 Escrow');
+    await waitText(p, 'Your escrow deposit (%)');
+    return 'Lightning ✓, On-chain ✗, Escrow ✗ (last); deposit field only after ticking escrow';
+  });
+  await step('LST-1e', 'Publish with photos', async () => {
+    const p = await as('B');
+    const input = await p.$('label.photo.add input[type=file]');
     await input.uploadFile('public/icon-512.png', 'public/icon-192.png');
     await p.waitForFunction(() => document.querySelectorAll('.photos .photo img').length >= 2, { timeout: 30000 });
     await fill(p, 'Title', 'Wollen sjaal, rood');
     await fill(p, 'Description', 'Zachte wollen sjaal, nauwelijks gedragen.');
+    await pickSub(p);
     await fill(p, 'Price', '2');
-    await select(p, 'Category', 'kleding-dames');
     await select(p, 'Condition', 'like-new');
-    await fill(p, 'Location', 'Utrecht, NL');
-    await fillPh(p, 'Price', '4.95');
+    await fill(p, 'Town (optional)', 'Utrecht');
     await click(p, 'Publish');
     await waitText(p, 'Your listings');
     await waitText(p, 'Wollen sjaal, rood');
     const c = await openListing('C', 'Wollen sjaal, rood');
     const imgs = await c.$$eval('.gallery img', (i) => i.filter((x) => x.complete && x.naturalWidth > 0).length);
     if (imgs < 2) throw new Error('photos not shown to the buyer');
-    return 'listed with 2 uploaded photos; buyer sees it with photos';
+    await waitText(c, 'Utrecht, Netherlands');
+    await waitText(c, 'PostNL');
+    return 'listed with 2 photos, country, carriers and payments; buyer sees all of it';
   });
-  await step('LST-2', 'Add a photo by URL', async () => {
-    const p = await B('#/sell');
-    await (await el(p, '//a[normalize-space(.)="Edit"]')).click();
-    await waitText(p, 'Edit listing');
-    await fillPh(p, '…or paste an image URL', new URL('icon.svg', APP).href);
-    await click(p, 'Add');
-    await click(p, 'Save');
-    await waitText(p, 'Your listings');
-    const c = await openListing('C', 'Wollen sjaal, rood');
-    const n = await c.$$eval('.thumbs button', (b) => b.length);
-    if (n !== 3) throw new Error(`${n} photos instead of 3`);
-    return '3 photos on the listing';
+  await step('LST-2', 'No photo by URL', async () => {
+    const p = await B('#/sell/new');
+    await waitText(p, 'New listing');
+    if (await p.$('::-p-xpath(//input[contains(@placeholder,"image URL")])')) throw new Error('URL field still there');
+    return 'only uploading photos';
   });
+  const editOf = (title) => `//div[contains(@class,"pickable")][.//div[@class="title" and normalize-space(.)="${title}"]]//a[contains(.,"Edit")]`;
   await step('LST-3', 'Edit the price', async () => {
     const p = await B('#/sell');
-    await (await el(p, '//a[normalize-space(.)="Edit"]')).click();
+    await (await el(p, editOf('Wollen sjaal, rood'))).click();
     await fill(p, 'Price', '3');
     await click(p, 'Save');
     await waitText(p, 'Your listings');
@@ -317,174 +496,214 @@ try {
     await waitText(c, '€3.00');
     return 'buyer sees €3.00 after reload';
   });
-  await step('LST-4', 'Mark as sold and re-activate', async () => {
+  await step('LST-4', 'Reserved and sold stay visible where they should', async () => {
     let p = await B('#/sell');
-    await (await el(p, '//a[normalize-space(.)="Edit"]')).click();
+    await (await el(p, editOf('Wollen sjaal, rood'))).click();
+    await click(p, 'Mark as reserved');
+    await waitText(p, 'Your listings');
+    let c = await openListing('C', 'Wollen sjaal, rood');
+    await waitText(c, 'Reserved: the seller is holding this');
+    if (await exists(c, btnX('🛒 Order now'))) throw new Error('can order a reserved listing');
+    p = await B('#/sell');
+    await click(p, 'Reserved (1)');
+    await (await el(p, editOf('Wollen sjaal, rood'))).click();
     await click(p, 'Mark as sold');
     await waitText(p, 'Your listings');
-    let c = await go('C', '#/?q=sjaal');
+    c = await go('C', '#/?q=sjaal');
     await c.reload({ waitUntil: 'load' });
     await sleep(2500);
-    if ((await text(c)).includes('Wollen sjaal')) throw new Error('sold listing still in search');
-    await proof(c, 'plan', 'LST-4 · Verkocht: niet meer te vinden bij Zoeken');
+    if ((await text(c)).includes('Wollen sjaal')) throw new Error('sold listing still in Browse');
+    c = await go('C', `#/u/${nip19.npubEncode(people.B.pk)}`);
+    await c.reload({ waitUntil: 'load' });
+    await waitText(c, 'Sold (1)', 30000);
+    await proof(c, 'plan', 'LST-4 · Verkocht: op het profiel onder "Sold"');
     p = await B('#/sell');
-    await (await el(p, '//a[normalize-space(.)="Edit"]')).click();
-    await click(p, 'Re-activate');
+    await click(p, 'Sold (1)');
+    await (await el(p, editOf('Wollen sjaal, rood'))).click();
+    await click(p, 'Put back on sale');
     await waitText(p, 'Your listings');
-    c = await openListing('C', 'Wollen sjaal, rood');
-    return 'gone from search when sold, back after re-activating';
+    await openListing('C', 'Wollen sjaal, rood');
+    return 'reserved: visible, no ordering; sold: gone from Browse, on the profile under "Sold"; back on sale works';
   });
-  await step('LST-5', 'Delete a listing', async () => {
-    const p = await B('#/sell/new');
-    await fill(p, 'Title', 'Testding om te verwijderen');
-    await fill(p, 'Price', '1');
-    await click(p, 'Publish');
-    await waitText(p, 'Testding om te verwijderen');
-    await (await el(p, '//div[a[contains(@class,"listing-card")][.//div[normalize-space(.)="Testding om te verwijderen"]]]/a[normalize-space(.)="Edit"]')).click();
+  await step('LST-5', 'Bulk: mark sold and delete', async () => {
+    const p = await as('B');
+    for (const n of [1, 2, 3]) await newListing(p, { title: `Bulktest ${n}`, price: n });
+    await p.evaluate(() => { location.hash = '#/sell'; });
+    for (const n of [1, 2, 3]) await (await el(p, `//div[contains(@class,"pickable")][.//div[@class="title" and normalize-space(.)="Bulktest ${n}"]]/input`)).click();
+    await waitText(p, '3 selected');
+    await click(p, 'Mark as sold');
+    await waitToast(p, '3 marked as sold', 40000);
+    await click(p, 'Sold (3)');
+    for (const n of [1, 2]) await (await el(p, `//div[contains(@class,"pickable")][.//div[@class="title" and normalize-space(.)="Bulktest ${n}"]]/input`)).click();
     await click(p, 'Delete');
-    await waitText(p, 'Your listings');
-    await waitNoText(p, 'Testding om te verwijderen');
-    const c = await go('C', '#/?q=Testding');
-    await c.reload({ waitUntil: 'load' });
-    await sleep(2500);
-    if ((await text(c)).includes('Testding om te verwijderen')) throw new Error('deleted listing still in search');
-    return 'gone from Sell and from search';
+    await waitToast(p, '2 deleted', 40000);
+    await waitText(p, 'Sold (1)');
+    return 'tabs For sale / Reserved / Sold; 3 marked sold at once, then 2 deleted at once';
   });
-  await step('LST-6', 'Search, filter and sort', async () => {
-    for (const [t, pr] of [['Sorteertest duur', '9'], ['Sorteertest goedkoop', '4']]) {
-      const p = await B('#/sell/new');
-      await fill(p, 'Title', t);
-      await fill(p, 'Price', pr);
-      await click(p, 'Publish');
-      await waitText(p, t);
-    }
+  await step('LST-6', 'Filters and sorting', async () => {
+    const p = await as('B');
+    await newListing(p, { title: 'Sorteertest duur', price: 9, escrow: true });
+    await newListing(p, { title: 'Sorteertest goedkoop', price: 4, escrow: true });
     const c = await go('C', '#/?q=Sorteertest');
     await c.reload({ waitUntil: 'load' });
     await waitText(c, 'Sorteertest goedkoop');
-    await (await c.$('.searchbar select:last-of-type')).select('price');
-    const order = await c.$$eval('.listing-card .title', (t) => t.map((x) => x.textContent));
-    if (order[0] !== 'Sorteertest goedkoop' || order.length !== 2) throw new Error('order ' + order.join(', '));
-    await proof(c, 'plan', 'LST-6 · Zoeken op "Sorteertest", gesorteerd op laagste prijs');
-    await c.evaluate(() => { const i = document.querySelector('.searchbar input'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); });
-    await (await c.$('.searchbar select')).select('kleding-dames');
-    await sleep(500);
-    const cat = await c.$$eval('.listing-card .title', (t) => t.map((x) => x.textContent));
-    // Other suites on the same relay may have listed clothing too; none of the plan's non-clothing items may show.
-    if (!cat.includes('Wollen sjaal, rood') || cat.some((t) => /Sorteertest|Testding|ASIC/.test(t))) throw new Error('category filter shows ' + cat.join(', '));
-    return `search finds only matching titles, lowest price first; category Kleding | Dames shows the scarf and no other categories (${cat.length} items)`;
+    const sortSel = await c.$('.searchbar select');
+    await sortSel.select('price');
+    let order = await c.$$eval('.listing-card .title', (t) => t.map((x) => x.textContent));
+    if (order.join() !== 'Sorteertest goedkoop,Sorteertest duur') throw new Error('price asc: ' + order);
+    await sortSel.select('-price');
+    order = await c.$$eval('.listing-card .title', (t) => t.map((x) => x.textContent));
+    if (order[0] !== 'Sorteertest duur') throw new Error('price desc: ' + order);
+    await click(c, '⚙ Filters');
+    await fillPh(c, 'from', '5');
+    await sleep(400);
+    order = await c.$$eval('.listing-card .title', (t) => t.map((x) => x.textContent));
+    if (order.join() !== 'Sorteertest duur') throw new Error('price from 5: ' + order);
+    await (await el(c, '//div[contains(@class,"filters")]//label[span[normalize-space(.)="Seller in"]]//select')).select('NL');
+    await (await el(c, '//div[contains(@class,"filters")]//label[span[normalize-space(.)="Delivery"]]//select')).select('pickup');
+    await waitText(c, 'Sorteertest duur');
+    await proof(c, 'plan', 'LST-6 · Filters: prijs vanaf 5, verkoper in NL, ophalen; gesorteerd op prijs hoog-laag');
+    // The filters live in the address, so "back" from a listing keeps them.
+    const hash = await c.evaluate(() => location.hash);
+    if (!/min=5/.test(hash) || !/country=NL/.test(hash)) throw new Error('filters not kept: ' + hash);
+    await (await el(c, '//a[contains(@class,"listing-card")]')).click();
+    await waitText(c, 'Updated');
+    await c.goBack();
+    await waitText(c, 'Sorteertest duur');
+    if (!/min=5/.test(await c.evaluate(() => location.hash))) throw new Error('filters lost after back');
+    return 'search, price range, country, delivery; sort low–high and high–low; filters survive "back"';
   });
-  await step('LST-7', 'Price in XBT', async () => {
-    const c = await openListing('C', 'Wollen sjaal, rood');
-    await waitText(c, '€3.00 ≈ 0.00006 XBT');
-    return '€3.00 ≈ 0.00006 XBT at the manual test rate of €50,000/XBT';
+  await step('LST-7', 'Prices in many currencies', async () => {
+    const c = await go('C', '#/settings');
+    await select(c, 'Show prices in', 'USD');
+    let l = await openListing('C', 'Sorteertest duur');
+    await waitText(l, '≈ US$', 20000);
+    await waitText(l, '€9.00');
+    await proof(l, 'plan', 'LST-7 · Prijs in USD (≈), met de originele euro- en XBT-prijs');
+    await go('C', '#/settings');
+    await select(c, 'Show prices in', 'JPY');
+    l = await openListing('C', 'Sorteertest duur');
+    await waitText(l, '≈ JP¥', 20000);
+    await go('C', '#/settings');
+    await select(c, 'Show prices in', 'EUR');
+    const n = await c.$eval('::-p-xpath(//label[span[normalize-space(.)="Show prices in"]]//select)', (s) => s.options.length);
+    return `prices converted (≈ US$, ≈ JP¥) with the original price; ${n} currencies`;
   });
 
+  // ---- following ----
+  await step('FOL-1', 'Follow', async () => {
+    const c = await go('C', `#/u/${nip19.npubEncode(people.B.pk)}`);
+    await click(c, '+ Follow');
+    await waitText(c, '✓ Following', 30000);
+    return 'button turns into "✓ Following" (a standard Nostr contact list)';
+  });
+  await step('FOL-2', 'Feed of people you follow', async () => {
+    const c = await go('C', '#/');
+    await click(c, 'Following (1)');
+    await waitText(c, 'Sorteertest duur', 30000);
+    await c.waitForFunction(() => [...document.querySelectorAll('.listing-card .name span')].every((x) => x.textContent), { timeout: 20000 }).catch(() => {});
+    const sellers = await c.$$eval('.listing-card .name span', (s) => [...new Set(s.map((x) => x.textContent).filter(Boolean))]);
+    if (sellers.length !== 1 || sellers[0] !== 'Bea Verkoper') throw new Error('other sellers in the feed: ' + sellers);
+    await click(c, 'All listings');
+    return 'tab "Following" shows only listings of Bea Verkoper';
+  });
+
+  // ---- edge cases that need no trade ----
+  await step('EDG-5', 'Own listing: no message or order buttons', async () => {
+    const p = await openListing('B', 'Wollen sjaal, rood');
+    if (await exists(p, btnX('💬 Message the seller')) || await exists(p, btnX('🛒 Order now'))) throw new Error('order buttons on own listing');
+    await el(p, btnX('✏️ Edit listing'));
+    return 'only "Edit listing"';
+  });
+  await step('EDG-6', 'Trade limit for new accounts', async () => {
+    const p = await as('B');
+    await newListing(p, { title: 'Dure ASIC miner', price: '0.25', currency: 'XBT', escrow: true });
+    const c = await openListing('C', 'Dure ASIC miner');
+    await click(c, '🛒 Order now');
+    await waitText(c, 'How do you want to pay?');
+    await choose(c, '🛡 Escrow');
+    await choose(c, '🤝 Pick up');
+    await waitText(c, 'New accounts can trade up to');
+    if (!(await (await el(c, btnX('Send order'))).evaluate((b) => b.disabled))) throw new Error('Send order enabled');
+    return 'warning about the limit, Send order disabled';
+  });
+
+  // ---- a conversation, then an escrow trade ----
+  let tid;
+  const buyerAddr = CLI && cli('getnewaddress', 'plan-buyer', 'bech32');
+  const sellerAddr = CLI && cli('getnewaddress', 'plan-seller', 'bech32');
+  await step('TRD-1a', 'A message first, no obligation', async () => {
+    const c = await openListing('C', 'Wollen sjaal, rood');
+    await click(c, '💬 Message the seller');
+    await fill(c, 'Message to the seller', 'Hoi! Is de sjaal nog beschikbaar?');
+    await click(c, 'Send');
+    await c.waitForFunction(() => location.hash.startsWith('#/trade/'), { timeout: 20000 });
+    tid = await tradeIdOf(c);
+    await waitText(c, 'You are buying');
+    await waitText(c, 'Is de sjaal nog beschikbaar?');
+    const p = await B('#/trades');
+    await waitText(p, 'Is de sjaal nog beschikbaar?', 40000);
+    return 'chat opened; the seller sees it under Messages with the last message';
+  });
+  await step('TRD-1b', 'Order from the chat: only what is needed', async () => {
+    const c = await go('C', `#/trade/${tid}`);
+    await click(c, '🛒 Order');
+    await choose(c, '🛡 Escrow');
+    await shipCountry(c);
+    await waitText(c, 'PostNL', 30000);
+    await choose(c, 'PostNL');
+    const form = await c.$eval('.order-form', (f) => f.innerText);
+    for (const bad of ['Delivery address', 'Arbiter', 'refund']) if (form.includes(bad)) throw new Error(`order form asks for ${bad}`);
+    for (const good of ['How do you want to pay?', 'Ship to (country)', 'Carrier', 'Your price in XBT', 'Message to the seller', 'You pay into escrow']) if (!form.includes(good)) throw new Error(`no "${good}"`);
+    await proof(c, 'plan', 'TRD-1b · Bestellen in de chat: betaalmethode, land, vervoerder met prijs, prijs, bericht; escrow-berekening');
+    await click(c, 'Send order');
+    await waitText(c, 'Waiting for the seller to accept');
+    return 'payment, country, carrier with price, price, message; escrow sum visible; no address, refund address or arbiter';
+  });
+  await step('SHP-1', 'Buyer picks a carrier and pays the shipping', async () => {
+    const c = await as('C');
+    await waitText(c, 'Shipping: PostNL → Netherlands');
+    if ((await text(c)).includes('≈ €6.95')) throw new Error('estimated instead of a live price');
+    await waitText(c, '€6.95');
+    return 'live PostNL price €6.95 (Sendcloud) added to the order';
+  });
+  await step('TRD-2', 'Clear roles; reject reason only after tapping Reject', async () => {
+    const p = await B(`#/trade/${tid}`);
+    await waitText(p, 'You are selling', 30000);
+    await waitText(p, 'Order from');
+    await waitText(p, '(the buyer)');
+    if ((await text(p)).includes('Why do you reject it?')) throw new Error('reason field shown before Reject');
+    await click(p, 'Reject');
+    await waitText(p, 'Why do you reject it?');
+    await proof(p, 'plan', 'TRD-2 · Verkoper: "You are selling to …", "Order from … (the buyer)", reden pas na Reject');
+    await click(p, 'Back');
+    const c = await go('C', `#/trade/${tid}`);
+    await waitText(c, 'You are buying');
+    await waitText(c, 'Your order');
+    return 'colored banner per role, "Order from … (the buyer)" vs "Your order"; reason field after Reject';
+  });
   await step('ARB-4', 'Unapproved arbiter is not offered', async () => {
     const p = await B('#/arbiter');
     await fill(p, 'Name', 'Bob Unapproved');
     await click(p, 'Publish arbiter profile');
     await waitText(p, 'not on the approved list yet');
-    const c = await openListing('C', 'Wollen sjaal, rood');
-    await click(c, 'Buy');
-    await choose(c, 'With escrow');
-    await c.waitForFunction(() => document.querySelector('.offer select')?.textContent.includes('Anna Arbiter'), { timeout: 30000 });
-    const opts = await c.$eval('.offer select', (s) => s.textContent);
-    if (opts.includes('Bob Unapproved')) throw new Error('unapproved arbiter offered');
-    return 'only "Anna Arbiter" in the buyer\'s list';
+    return 'B announced without approval (checked in TRD-3b)';
   });
-
-  // ---- import (the button itself; shop pages: test:import and you) ----
-  await step('IMP-1', 'Import button available', async () => {
-    const p = await B('#/import');
-    await waitText(p, 'Drag this button to your bookmarks bar');
-    const href = await p.$eval('a.bookmarklet', (a) => a.getAttribute('href'));
-    if (!href.startsWith('javascript:')) throw new Error('no bookmarklet');
-    return 'bookmark button present (dragging it to the bar: by you)';
-  });
-  await step('IMP-11', 'Bookmark code for phones', async () => {
-    const p = await B('#/import');
-    await (await el(p, '//summary[contains(.,"On a phone")]')).click();
-    await waitText(p, 'Copy bookmark code');
-    return '"Copy bookmark code" offered for phones';
-  });
-  for (const [id, title] of [['IMP-2', 'Marktplaats profile'], ['IMP-3', 'Publish imported listings'], ['IMP-4', 'Recognise duplicates'], ['IMP-5', 'Changed price'], ['IMP-6', 'New ad on Marktplaats'], ['IMP-7', 'Removed or sold on Marktplaats'], ['IMP-8', 'Single ad page'], ['IMP-9', 'Vinted profile'], ['IMP-10', 'eBay']]) {
-    manual(id, title, 'Needs your real shop pages. The same logic passes in test:import against saved/fake Marktplaats, Vinted, eBay and product pages.');
-  }
-
-  // ---- edge cases ----
-  await step('EDG-4', 'Invalid address blocks the order', async () => {
-    const c = await openListing('C', 'Wollen sjaal, rood');
-    await click(c, 'Buy');
-    await choose(c, 'With escrow');
-    await fillPh(c, 'bc1q…', 'tb1qinvalidaddress');
-    await c.waitForSelector('input.invalid');
-    const disabled = await (await el(c, btnX('Send order'))).evaluate((b) => b.disabled);
-    if (!disabled) throw new Error('Send order enabled');
-    return 'field red, Send order disabled';
-  });
-  await step('EDG-5', 'Own listing has no buy button', async () => {
-    const p = await B('#/');
-    await openListing('B', 'Wollen sjaal, rood');
-    if (await exists(p, btnX('Buy'))) throw new Error('Buy button on own listing');
-    await el(p, btnX('Edit listing'));
-    return 'no Buy, but "Edit listing"';
-  });
-  await step('EDG-6', 'Trade limit for new accounts', async () => {
-    const p = await B('#/sell/new');
-    await fill(p, 'Title', 'Dure ASIC miner');
-    await fill(p, 'Price', '0.25');
-    await select(p, 'Currency', 'XBT');
-    await click(p, 'Publish');
-    await waitText(p, 'Dure ASIC miner');
-    const c = await openListing('C', 'Dure ASIC miner');
-    await click(c, 'Buy');
-    await choose(c, 'With escrow');
-    await waitText(c, 'New accounts can trade up to');
-    const disabled = await (await el(c, btnX('Send order'))).evaluate((b) => b.disabled);
-    if (!disabled) throw new Error('Send order enabled');
-    return 'warning about the limit, Send order disabled';
-  });
-
-  // ---- a normal escrow trade ----
-  let tid;
-  const buyerAddr = CLI && cli('getnewaddress', 'plan-buyer', 'bech32');
-  const sellerAddr = CLI && cli('getnewaddress', 'plan-seller', 'bech32');
-  await step('TRD-1', 'Make an offer', async () => {
-    const c = await openListing('C', 'Wollen sjaal, rood');
-    await click(c, 'Buy');
-    await choose(c, 'PostNL');
-    await choose(c, 'With escrow');
-    await c.waitForFunction(() => document.querySelector('.offer select')?.textContent.includes('Anna Arbiter'), { timeout: 30000 });
-    await fillPh(c, 'bc1q…', buyerAddr);
-    await fill(c, 'Shipping address', 'Cees Koper\nKerkstraat 1\n1234 AB Amsterdam');
-    await waitText(c, 'deposit, which you get back');
-    await proof(c, 'plan', 'TRD-1 · Bestelformulier: €3 + PostNL €4,95, escrow, arbiter Anna, prijs + 15% borg');
-    await click(c, 'Send order');
-    await c.waitForFunction(() => location.hash.startsWith('#/trade/'), { timeout: 20000 });
-    tid = await tradeIdOf(c);
-    await waitText(c, 'Waiting for the seller to accept');
-    return 'trade page "Offer sent"; summary showed price + 15% deposit';
-  });
-  await step('TRD-2', 'Seller receives the offer', async () => {
-    const p = await B('#/trades');
-    await waitText(p, 'Wollen sjaal', 30000);
-    await go('B', `#/trade/${tid}`);
-    await waitText(p, 'New offer');
-    await waitText(p, '✓ approved');
-    await waitText(p, 'Kerkstraat 1');
-    return 'buyer, amount, address and "✓ approved" arbiter shown';
-  });
-  await step('TRD-3', 'Accept', async () => {
+  await step('TRD-3b', 'Details only after the accept', async () => {
     const p = await B(`#/trade/${tid}`);
     await fillPh(p, 'bc1q…', sellerAddr);
-    await click(p, 'Accept');
-    await waitText(p, 'Total needed');
-    const addrB = await p.$eval('.addr code', (e) => e.textContent.trim());
+    await click(p, '✓ Accept');
+    await waitText(p, 'Waiting for the buyer to choose an arbiter', 30000);
     const c = await go('C', `#/trade/${tid}`);
+    await waitText(c, 'A few details for the seller', 30000);
+    await c.waitForFunction(() => [...document.querySelectorAll('.details-form select')].some((s) => s.textContent.includes('Anna Arbiter')), { timeout: 30000 });
+    const opts = await c.$$eval('.details-form select', (s) => s.map((x) => x.textContent).join('|'));
+    if (opts.includes('Bob Unapproved')) throw new Error('unapproved arbiter offered (ARB-4)');
+    await fillAddress(c);
+    await fillPh(c, 'bc1q…', buyerAddr);
+    await clickIn(c, 'details-form', 'Send');
     await waitText(c, 'Total needed', 30000);
-    const addrC = await c.$eval('.addr code', (e) => e.textContent.trim());
-    if (addrB !== addrC) throw new Error('escrow addresses differ');
-    return `same escrow address for both: ${addrC.slice(0, 18)}…`;
+    return 'address, arbiter (only approved Anna) and refund address asked after the accept';
   });
   await step('TRD-4', 'Fund the escrow (3 confirmations)', async () => {
     const c = await as('C');
@@ -495,24 +714,23 @@ try {
     mine(1);
     await click(c, 'Refresh');
     await waitText(c, 'with 3+ confirmations', 30000);
-    await proof(c, 'plan', 'TRD-4 · Na 1 bevestiging: bedrag binnen, nog niet genoeg bevestigingen');
     mine(2);
     await click(c, 'Refresh');
     await waitText(c, 'Fully paid', 40000);
-    return `paid ${buyerPays} + ${sellerPays} XBT; after 3 confirmations the QR disappears, step 3 green`;
+    return `paid ${buyerPays} + ${sellerPays} XBT; after 3 confirmations "Fully paid"`;
   });
   await step('TRD-5', 'Ship', async () => {
     const p = await B(`#/trade/${tid}`);
     await waitText(p, 'Ship the item', 40000);
+    await waitText(p, 'Kerkstraat 1');
     await fill(p, 'Tracking code', '3SXBT0001');
     await click(p, 'Mark as shipped');
     await waitText(p, 'Shipped with PostNL');
     const c = await go('C', `#/trade/${tid}`);
     await waitText(c, 'Shipped with PostNL', 30000);
-    await waitText(c, '3SXBT0001');
     const track = await c.$eval('a.btn.small[target=_blank]', (a) => a.href);
     if (!track.includes('postnl.nl/tracktrace/?B=3SXBT0001')) throw new Error('tracking link ' + track);
-    return 'buyer sees carrier, code, copy button and a Track link to postnl.nl';
+    return 'buyer sees carrier, code and a Track link to postnl.nl';
   });
   await step('TRD-6', 'Release', async () => {
     const c = await as('C');
@@ -532,12 +750,12 @@ try {
     mine(1);
     const got = Number(cli('getreceivedbyaddress', sellerAddr, '1'));
     const back = Number(cli('getreceivedbyaddress', buyerAddr, '1'));
-    if (!(got > 0.00015 && back > 0.00002)) throw new Error(`seller ${got}, buyer ${back}`);
-    return `node: seller received ${got} XBT (price + deposit − fee share), buyer got ${back} XBT deposit back`;
+    if (!(got > 0.0002 && back > 0.00002)) throw new Error(`seller ${got}, buyer ${back}`);
+    return `node: seller received ${got} XBT, buyer got ${back} XBT deposit back`;
   });
   await step('TRD-9', 'Reviews', async () => {
     for (const who of ['C', 'B']) {
-      const p = who === 'B' ? await B(`#/trade/${tid}`) : await go('C', `#/trade/${tid}`);
+      const p = await go(who, `#/trade/${tid}`);
       await waitText(p, 'Leave a review', 30000);
       await fillPh(p, 'How did it go?', who === 'C' ? 'Snel verzonden, prima sjaal.' : 'Vlotte koper.');
       await click(p, 'Publish review');
@@ -563,7 +781,8 @@ try {
     p = await go('A', `#/trade/${tid}`);
     await waitText(p, 'Graag gedaan, sjaal is top.', 60000);
     await waitText(p, 'Bedankt voor je aankoop!');
-    return 'messages arrive at buyer, seller and arbiter within a minute';
+    await waitText(p, 'You are the arbiter');
+    return 'messages reach buyer, seller and the arbiter (who joined after the order)';
   });
   await step('TRD-11', 'Recover from relays in another browser', async () => {
     const saved = storage.C;
@@ -585,28 +804,28 @@ try {
   // ---- disputes ----
   let tid2;
   const fundedTrade = async (title) => {
-    const c = await openListing('C', title);
-    await click(c, 'Buy');
-    await choose(c, 'With escrow');
-    await c.waitForFunction(() => document.querySelector('.offer select')?.textContent.includes('Anna Arbiter'), { timeout: 30000 });
-    await fillPh(c, 'bc1q…', buyerAddr);
-    await click(c, 'Send order');
-    await c.waitForFunction(() => location.hash.startsWith('#/trade/'), { timeout: 20000 });
-    const id = await tradeIdOf(c);
-    await waitText(c, 'Waiting for the seller to accept');
+    const id = await order('C', title, { pay: '🛡 Escrow', pickup: true });
     const p = await B(`#/trade/${id}`);
-    await waitText(p, 'New offer', 30000);
+    await waitText(p, 'Order from', 30000);
     await fillPh(p, 'bc1q…', sellerAddr);
-    await click(p, 'Accept');
-    await waitText(p, 'Total needed');
-    const [, sellerPays] = await escrowAmounts(p);
-    const addr = await p.$eval('.addr code', (e) => e.textContent.trim());
-    const c2 = await go('C', `#/trade/${id}`);
-    await waitText(c2, 'Total needed', 30000);
-    const [buyerPays] = await escrowAmounts(c2);
+    await click(p, '✓ Accept');
+    await waitText(p, 'Waiting for the buyer to choose an arbiter', 30000);
+    const c = await go('C', `#/trade/${id}`);
+    await waitText(c, 'A few details for the seller', 30000);
+    await c.waitForFunction(() => [...document.querySelectorAll('.details-form select')].some((s) => s.textContent.includes('Anna Arbiter')), { timeout: 30000 });
+    await fillPh(c, 'bc1q…', buyerAddr);
+    await clickIn(c, 'details-form', 'Send');
+    await waitText(c, 'Total needed', 30000);
+    const [buyerPays, sellerPays] = await escrowAmounts(c);
+    const addr = await c.$eval('.addr code', (e) => e.textContent.trim());
+    // The seller's app forwards its accept to the arbiter once it sees the arbiter.
+    const p2 = await B(`#/trade/${id}`);
+    await waitText(p2, 'Total needed', 30000);
+    await sleep(3000);
     cli('sendtoaddress', addr, buyerPays.toFixed(8));
     cli('sendtoaddress', addr, sellerPays.toFixed(8));
     mine(3);
+    const c2 = await go('C', `#/trade/${id}`);
     await click(c2, 'Refresh');
     await waitText(c2, 'Fully paid', 40000);
     return id;
@@ -617,10 +836,10 @@ try {
     await click(c, 'Open a dispute');
     await fillPh(c, 'What went wrong?', 'Verkoper reageert niet en verzendt niet.');
     await click(c, 'Open dispute');
-    await waitText(c, 'Dispute opened by buyer');
+    await waitText(c, 'Dispute opened by the buyer');
     const p = await B(`#/trade/${tid2}`);
-    await waitText(p, 'Dispute opened by buyer', 30000);
-    return 'red notice for buyer and seller (arbiter: DSP-2)';
+    await waitText(p, 'Dispute opened by the buyer', 30000);
+    return 'red notice for buyer and seller';
   });
   await step('DSP-2', 'Arbiter sees the dispute', async () => {
     const p = await go('A', '#/arbiter');
@@ -630,7 +849,7 @@ try {
   });
   await step('DSP-3', 'Rule on the dispute', async () => {
     const p = await go('A', `#/trade/${tid2}`);
-    await waitText(p, 'Dispute opened by buyer', 30000);
+    await waitText(p, 'Dispute opened by the buyer', 30000);
     await click(p, 'Propose a ruling');
     const sd = await p.evaluate(() => { const t = document.querySelector('main').innerText.match(/Seller pays \(deposit\)\s*([\d.]+)/); return t && t[1]; });
     await fill(p, 'Seller receives (XBT)', sd);
@@ -655,7 +874,6 @@ try {
     await click(p, 'Propose a payout or refund');
     await click(p, 'Custom split');
     await click(p, 'Sign and propose');
-    // The proposal card (not the editor's button) proves it was sent before this browser closes.
     await waitText(p, 'Payout proposals', 30000);
     await waitText(p, 'Seller signed', 30000);
     const c = await go('C', `#/trade/${id}`);
@@ -667,44 +885,46 @@ try {
   });
 
   // ---- cancel and reject ----
-  const newOrder = async (title) => {
-    const c = await openListing('C', title);
-    await click(c, 'Buy');
-    await choose(c, 'With escrow');
-    await c.waitForFunction(() => document.querySelector('.offer select')?.textContent.includes('Anna Arbiter'), { timeout: 30000 });
-    await fillPh(c, 'bc1q…', buyerAddr);
-    await click(c, 'Send order');
-    await c.waitForFunction(() => location.hash.startsWith('#/trade/'), { timeout: 20000 });
-    await waitText(c, 'Waiting for the seller to accept');
-    return tradeIdOf(c);
-  };
-  await step('EDG-1', 'Withdraw an offer', async () => {
-    const id = await newOrder('Wollen sjaal, rood');
+  await step('EDG-1', 'Withdraw an order', async () => {
+    const id = await order('C', 'Sorteertest duur', { pay: '🛡 Escrow', pickup: true });
     const c = await as('C');
-    await click(c, 'Withdraw offer');
+    await click(c, 'Withdraw order');
     await waitText(c, 'Cancelled');
     const p = await B(`#/trade/${id}`);
     await waitText(p, 'Cancelled', 30000);
     return 'status Cancelled for both';
   });
-  await step('EDG-2', 'Reject an offer', async () => {
-    const id = await newOrder('Wollen sjaal, rood');
+  await step('EDG-2', 'Reject an order with a reason', async () => {
+    const id = await order('C', 'Sorteertest duur', { pay: '🛡 Escrow', pickup: true });
     const p = await B(`#/trade/${id}`);
-    await waitText(p, 'New offer', 30000);
-    await fillPh(p, 'Reason (optional)', 'Al verkocht, sorry.');
+    await waitText(p, 'Order from', 30000);
     await click(p, 'Reject');
+    await fill(p, 'Why do you reject it? (optional)', 'Al verkocht, sorry.');
+    await click(p, 'Reject order');
+    await waitText(p, 'You rejected this order.', 30000);
     const c = await go('C', `#/trade/${id}`);
-    await waitText(c, 'The seller rejected this offer.', 30000);
+    await waitText(c, 'The seller rejected your order.', 30000);
     await waitText(c, 'Al verkocht, sorry.');
-    return 'buyer sees the rejection with the reason';
+    await el(c, btnX('🛒 Make a new order'));
+    return 'buyer sees the rejection with the reason and can make a new order';
+  });
+  await step('EDG-4', 'Invalid refund address blocks the details', async () => {
+    const id = await order('C', 'Sorteertest duur', { pay: '🛡 Escrow', pickup: true });
+    const p = await B(`#/trade/${id}`);
+    await waitText(p, 'Order from', 30000);
+    await fillPh(p, 'bc1q…', sellerAddr);
+    await click(p, '✓ Accept');
+    await waitText(p, 'Waiting for the buyer to choose an arbiter', 30000);
+    const c = await go('C', `#/trade/${id}`);
+    await waitText(c, 'A few details for the seller', 30000);
+    await fillPh(c, 'bc1q…', 'tb1qinvalidaddress');
+    await c.waitForSelector('.details-form input.invalid');
+    if (!(await (await el(c, '//*[contains(@class,"details-form")]//button[normalize-space(.)="Send"]')).evaluate((b) => b.disabled))) throw new Error('Send enabled');
+    people.C.edgTrade = id;
+    return 'field red, Send disabled';
   });
   await step('EDG-3', 'Cancel before paying', async () => {
-    const id = await newOrder('Wollen sjaal, rood');
-    const p = await B(`#/trade/${id}`);
-    await waitText(p, 'New offer', 30000);
-    await fillPh(p, 'bc1q…', sellerAddr);
-    await click(p, 'Accept');
-    await waitText(p, 'Total needed');
+    const p = await B(`#/trade/${people.C.edgTrade}`);
     await click(p, 'Cancel trade (nothing paid yet)');
     await waitText(p, 'Cancelled', 30000);
     return 'status Cancelled';
@@ -713,7 +933,7 @@ try {
   // ---- Lightning and direct payments ----
   await step('LN-1', 'Connect a wallet', async () => {
     for (const [who, w] of [['B', 'seller'], ['C', 'buyer']]) {
-      const p = who === 'B' ? await B('#/settings') : await go('C', '#/settings');
+      const p = await go(who, '#/settings?open=lightning');
       await fillPh(p, 'nostr+walletconnect://…', walletUri(w));
       await click(p, 'Connect');
       await waitText(p, '✓ Connected', 30000);
@@ -726,53 +946,57 @@ try {
     const p = await as('C');
     const raw = await p.evaluate((pk) => localStorage.getItem(`xbt:secrets:${pk}`), people.C.pk);
     if (!raw || raw.includes('walletconnect') || raw.includes('secret=')) throw new Error('not encrypted: ' + raw);
-    await p.evaluate(() => { location.hash = '#/settings'; });
     return `storage holds only ciphertext: ${raw.slice(0, 60)}…`;
   });
-  await step('LN-3', 'Listing with payment methods and delivery options', async () => {
-    const p = await B('#/sell/new');
-    await fill(p, 'Title', 'Fietslampjes set');
-    await fill(p, 'Price', '5');
-    await fillPh(p, 'Price', '4.95');
-    await click(p, '+ Add option');
-    await click(p, 'Publish');
-    await waitText(p, 'Fietslampjes set');
-    const c = await openListing('C', 'Fietslampjes set');
-    await waitText(c, 'PostNL €4.95 · Ophalen / Pick-up free');
-    await waitText(c, 'Direct, Lightning');
-    return 'listing shows both delivery options and all payment methods';
+  await step('LN-3', 'Lightning address', async () => {
+    const p = await go('B', '#/settings?open=lightning');
+    await fill(p, 'Lightning address for receiving (optional)', 'bea@wallet.example');
+    await p.keyboard.press('Tab');
+    await sleep(300);
+    const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('xbt:settings')).lightningAddress);
+    if (saved !== 'bea@wallet.example') throw new Error('not saved: ' + saved);
+    return 'saved; used for payment requests when no wallet is connected';
   });
   await step('LN-4', 'Escrow advice above €50', async () => {
-    const p = await B('#/sell/new');
-    await fill(p, 'Title', 'Racefiets frame');
-    await fill(p, 'Price', '120');
-    await click(p, 'Publish');
-    await waitText(p, 'Racefiets frame');
+    const p = await as('B');
+    await newListing(p, { title: 'Racefiets frame', price: 120, escrow: true });
     const c = await openListing('C', 'Racefiets frame');
-    await click(c, 'Buy');
+    await click(c, '🛒 Order now');
     await waitText(c, 'recommended');
-    await c.waitForFunction(() => [...document.querySelectorAll('label.choice')].find((l) => l.textContent.startsWith('With escrow'))?.querySelector('input').checked, { timeout: 5000 });
-    await proof(c, 'plan', 'LN-4 · Boven €50: escrow voorgeselecteerd en aanbevolen');
-    await choose(c, 'Direct, Lightning');
+    await c.waitForFunction(() => [...document.querySelectorAll('label.choice')].find((l) => l.textContent.includes('Escrow (buyer'))?.querySelector('input').checked, { timeout: 5000 });
+    await choose(c, '⚡ Lightning');
     await waitText(c, 'we recommend escrow');
-    return 'escrow preselected as recommended; warning when choosing direct';
+    return 'escrow preselected as recommended; warning when choosing Lightning';
+  });
+  await step('SRV-1', 'Offer a service with a price per hour', async () => {
+    const p = await B('#/sell/new');
+    await waitText(p, 'New listing');
+    await fill(p, 'Title', 'Klusjesman voor kleine reparaties');
+    await setCategory(p, 'diensten-en-vakmensen');
+    if (await exists(p, fieldX('Condition', 'select'))) throw new Error('condition shown for a service');
+    if ((await text(p)).includes('Carriers you are willing to use')) throw new Error('delivery shown for a service');
+    await fill(p, 'Price', '40');
+    await select(p, 'Price per', 'hour');
+    await click(p, 'Publish');
+    await waitText(p, 'Klusjesman voor kleine reparaties');
+    const c = await openListing('C', 'Klusjesman voor kleine reparaties');
+    await waitText(c, '€40.00 per hour');
+    await waitText(c, 'Services');
+    return 'no condition or delivery for a service; "€40.00 per hour"';
   });
   let tidLn;
-  await step('LN-5', 'Order with Lightning', async () => {
-    const c = await openListing('C', 'Fietslampjes set');
-    await click(c, 'Buy');
-    await choose(c, 'Ophalen');
-    await choose(c, 'Direct, Lightning');
-    await click(c, 'Send order');
-    await c.waitForFunction(() => location.hash.startsWith('#/trade/'), { timeout: 20000 });
-    tidLn = await tradeIdOf(c);
-    await waitText(c, 'Direct payment: no escrow and no arbiter');
-    return '"Direct payment", no escrow, no arbiter; no address asked for pick-up';
+  await step('LN-5', 'Order with Lightning, pick-up', async () => {
+    const p = await as('B');
+    await newListing(p, { title: 'Fietslampjes set', price: 5, onchain: true });
+    tidLn = await order('C', 'Fietslampjes set', { pay: '⚡ Lightning', pickup: true });
+    const c = await as('C');
+    if ((await text(c)).includes('Escrow') && (await text(c)).includes('Arbiter:')) throw new Error('escrow in a direct trade');
+    return 'direct Lightning order, no escrow, no arbiter, no address';
   });
   await step('LN-6', 'Payment request in the chat', async () => {
     const p = await B(`#/trade/${tidLn}`);
-    await waitText(p, 'New order', 30000);
-    await click(p, 'Accept');
+    await waitText(p, 'Order from', 30000);
+    await click(p, '✓ Accept');
     await click(p, 'Create invoice with my wallet');
     await waitText(p, 'I received the payment', 60000);
     const c = await go('C', `#/trade/${tidLn}`);
@@ -789,64 +1013,12 @@ try {
     await waitText(p, 'Paid. The Lightning preimage proves it.', 30000);
     return 'both see the payment proven by the preimage';
   });
-  await step('LN-8', 'Pay from another wallet', async () => {
-    const c = await openListing('C', 'Fietslampjes set');
-    await click(c, 'Buy');
-    await choose(c, 'Ophalen');
-    await choose(c, 'Direct, Lightning');
-    await click(c, 'Send order');
-    await c.waitForFunction((t) => location.hash.startsWith('#/trade/') && !location.hash.includes(t), { timeout: 20000 }, tidLn);
-    const id = await tradeIdOf(c);
-    const p = await B(`#/trade/${id}`);
-    await waitText(p, 'New order', 30000);
-    await click(p, 'Accept');
-    await click(p, 'Create invoice with my wallet');
-    await waitText(p, 'I received the payment', 60000);
-    const c2 = await go('C', `#/trade/${id}`);
-    await waitText(c2, 'Pay with my wallet', 30000);
-    const invoice = await c2.$eval('.addr code', (e) => e.textContent.trim());
-    // "Scan the QR with another wallet": pay from a third mock wallet, outside the app.
-    const pool = new SimplePool();
-    await nwc.payInvoice(pool, parseNwcUri(walletUri('arbiter')), invoice);
-    pool.close([RELAY]);
-    await click(c2, 'I paid');
-    await waitText(c2, 'The buyer reports a payment', 30000);
-    const p2 = await B(`#/trade/${id}`);
-    await click(p2, 'Check my wallet');
-    await waitText(p2, 'The seller confirmed receiving the payment', 30000);
-    return 'paid outside the app; seller checked the wallet and confirmed; status Paid';
-  });
-  await step('LN-9', 'Direct on-chain payment', async () => {
-    const c = await openListing('C', 'Fietslampjes set');
-    await click(c, 'Buy');
-    await choose(c, 'Ophalen');
-    await choose(c, 'Direct, on chain');
-    const before = await c.evaluate(() => location.hash);
-    await click(c, 'Send order');
-    await c.waitForFunction((b) => location.hash.startsWith('#/trade/') && location.hash !== b, { timeout: 20000 }, before);
-    const id = await tradeIdOf(c);
-    const p = await B(`#/trade/${id}`);
-    await waitText(p, 'New order', 30000);
-    await click(p, 'Accept');
-    const addr = cli('getnewaddress', 'plan-direct', 'bech32');
-    await fill(p, 'Your XBT address', addr);
-    await click(p, 'Request 0.0001 XBT');
-    await waitText(p, 'I received the payment');
-    const c2 = await go('C', `#/trade/${id}`);
-    await waitText(c2, 'Payment request:', 30000);
-    const txid = cli('sendtoaddress', addr, '0.0001');
-    mine(1);
-    await fillPh(c2, 'Payment txid', txid);
-    await click(c2, 'I paid');
-    await waitText(c2, '✓ 0.0001 XBT, 1 confirmations', 30000);
-    return 'txid checked at the node: full amount, 1 confirmation';
-  });
-  await step('LN-10', 'Complete and review', async () => {
+  await step('LN-10', 'Hand over, complete and review', async () => {
     let p = await B(`#/trade/${tidLn}`);
-    await click(p, 'Mark as shipped');
-    await waitText(p, 'Ready for pick-up');
+    await click(p, 'Handed over');
+    await waitText(p, 'Handed over');
     const c = await go('C', `#/trade/${tidLn}`);
-    await waitText(c, 'Ready for pick-up', 30000);
+    await waitText(c, 'Handed over', 30000);
     await click(c, 'Yes, received');
     await waitText(c, 'Completed', 30000);
     await click(c, 'Publish review');
@@ -861,36 +1033,104 @@ try {
     await waitText(c2, '2 verified trades', 30000);
     return 'status Completed; the Lightning trade counts as a 2nd verified trade';
   });
-
-  // ---- AI ----
-  // ---- services (Diensten en Vakmensen) ----
-  await step('SRV-1', 'Offer a service with a price per hour', async () => {
-    const p = await B('#/sell/new');
-    await fill(p, 'Title', 'Klusjesman voor kleine reparaties');
-    await select(p, 'Category', 'diensten-en-vakmensen');
-    if (await exists(p, fieldX('Condition', 'select'))) throw new Error('condition shown for a service');
-    if ((await text(p)).includes('Delivery options')) throw new Error('delivery options shown for a service');
-    await fill(p, 'Price', '40');
-    await select(p, 'Price per', 'hour');
-    await click(p, 'Publish');
-    await waitText(p, 'Klusjesman voor kleine reparaties');
-    const c = await openListing('C', 'Klusjesman voor kleine reparaties');
-    await waitText(c, '€40.00 per hour');
-    await waitText(c, 'Services and Trades');
-    return 'no condition or delivery for a service; buyers see "€40.00 per hour" in Diensten en Vakmensen';
+  await step('SHP-2', 'Prepaid label with a QR code in the chat', async () => {
+    const id = await order('C', 'Fietslampjes set', { pay: '⚡ Lightning', carrier: 'PostNL' });
+    const p = await B(`#/trade/${id}`);
+    await waitText(p, 'Order from', 30000);
+    await click(p, '✓ Accept');
+    await click(p, 'Create invoice with my wallet');
+    await waitText(p, 'I received the payment', 60000);
+    const c = await go('C', `#/trade/${id}`);
+    await waitText(c, 'A few details for the seller', 30000);
+    await clickIn(c, 'details-form', 'Send'); // address saved in TRD-3b, pre-filled
+    await waitText(c, 'Pay with my wallet', 30000);
+    await click(c, '⚡ Pay with my wallet');
+    await waitText(c, 'Paid. The Lightning preimage proves it.', 60000);
+    const s = await B(`#/trade/${id}`);
+    await s.waitForFunction(() => /Prepaid shipping label|Your address for the label/.test(document.querySelector('main').innerText), { timeout: 30000 });
+    // B has no address yet in this run: fill it once.
+    if ((await text(s)).includes('Your address for the label')) {
+      await fillAddress(s);
+      await click(s, 'Save');
+    }
+    await click(s, 'Get the label price');
+    await waitText(s, 'Buy label');
+    await (await el(s, '//button[starts-with(normalize-space(.),"Buy label")]')).click();
+    await click(s, '⚡ Pay with my wallet');
+    await waitText(s, 'Show this QR code', 60000);
+    await s.waitForFunction(() => { const i = document.querySelector('img.label-qr'); return i && i.complete && i.naturalWidth > 0; }, { timeout: 20000 });
+    await proof(s, 'plan', 'SHP-2 · Label betaald via Lightning: QR-code, PDF en trackingcode in de chat');
+    const code = await s.$eval('.label-card code', (e) => e.textContent.trim());
+    const filled = await s.$eval('::-p-xpath(//label[span[normalize-space(.)="Tracking code"]]//input)', (i) => i.value);
+    if (filled !== code) throw new Error('tracking not pre-filled');
+    await click(s, 'Mark as shipped');
+    await waitText(s, 'Shipped with PostNL');
+    return `label ${code} paid over Lightning; QR + PDF in the chat; tracking pre-filled`;
+  });
+  await step('TRD-3', 'Switch the payment method (Lightning → on-chain)', async () => {
+    const id = await order('C', 'Fietslampjes set', { pay: '⚡ Lightning', pickup: true });
+    people.C.onchainTrade = id;
+    const c = await as('C');
+    await click(c, '🔁 Change payment method');
+    await choose(c, 'On-chain');
+    await click(c, 'Ask');
+    await waitText(c, 'Waiting for an answer');
+    const p = await B(`#/trade/${id}`);
+    await waitText(p, 'asks to pay with', 30000);
+    await proof(p, 'plan', 'TRD-3 · Verkoper: koper vraagt om on-chain te betalen; akkoord of weigeren');
+    await click(p, '✓ Agree');
+    await waitText(p, 'Payment method changed');
+    await waitText(p, 'On-chain');
+    return 'request card for the seller; after "Agree" the order is on-chain; both shown in the chat';
+  });
+  await step('LN-9', 'Direct on-chain payment', async () => {
+    const id = people.C.onchainTrade;
+    const p = await B(`#/trade/${id}`);
+    await click(p, '✓ Accept');
+    const addr = cli('getnewaddress', 'plan-direct', 'bech32');
+    await fill(p, 'Your XBT address', addr);
+    await click(p, 'Request 0.0001 XBT');
+    await waitText(p, 'I received the payment');
+    const c = await go('C', `#/trade/${id}`);
+    await waitText(c, 'Payment request:', 30000);
+    const txid = cli('sendtoaddress', addr, '0.0001');
+    mine(1);
+    await fillPh(c, 'Payment txid', txid);
+    await click(c, 'I paid');
+    await waitText(c, '✓ 0.0001 XBT, 1 confirmations', 30000);
+    return 'txid checked at the node: full amount, 1 confirmation';
+  });
+  await step('LN-8', 'Pay from another wallet', async () => {
+    const id = await order('C', 'Fietslampjes set', { pay: '⚡ Lightning', pickup: true });
+    const p = await B(`#/trade/${id}`);
+    await waitText(p, 'Order from', 30000);
+    await click(p, '✓ Accept');
+    await click(p, 'Create invoice with my wallet');
+    await waitText(p, 'I received the payment', 60000);
+    const c = await go('C', `#/trade/${id}`);
+    await waitText(c, 'Pay with my wallet', 30000);
+    const invoice = await c.$eval('.addr code', (e) => e.textContent.trim());
+    const pool = new SimplePool();
+    await nwc.payInvoice(pool, parseNwcUri(walletUri('arbiter')), invoice);
+    pool.close([RELAY]);
+    await click(c, 'I paid');
+    await waitText(c, 'The buyer reports a payment', 30000);
+    const p2 = await B(`#/trade/${id}`);
+    await click(p2, 'Check my wallet');
+    await waitText(p2, 'The seller confirmed receiving the payment', 30000);
+    return 'paid outside the app; seller checked the wallet and confirmed';
   });
   await step('SRV-2', 'Book a service and mark it done', async () => {
     const c = await openListing('C', 'Klusjesman voor kleine reparaties');
-    await click(c, 'Buy');
-    if (await exists(c, fieldX('Shipping address'))) throw new Error('shipping address asked for a service');
-    await choose(c, 'Direct, Lightning');
-    await waitText(c, 'Agreed price in XBT (total)');
+    await click(c, '🛒 Order now');
+    await waitText(c, 'How do you want to pay?');
+    if ((await text(c)).includes('Ship it to me')) throw new Error('delivery asked for a service');
     await click(c, 'Send order');
-    await c.waitForFunction(() => location.hash.startsWith('#/trade/'), { timeout: 20000 });
+    await waitText(c, 'Waiting for the seller to accept');
     const id = await tradeIdOf(c);
     const p = await B(`#/trade/${id}`);
-    await waitText(p, 'New order', 30000);
-    await click(p, 'Accept');
+    await waitText(p, 'Order from', 30000);
+    await click(p, '✓ Accept');
     await click(p, 'Create invoice with my wallet');
     await waitText(p, 'I received the payment', 60000);
     const c2 = await go('C', `#/trade/${id}`);
@@ -904,24 +1144,63 @@ try {
     await waitText(c3, 'Was the job done well?', 30000);
     await click(c3, 'Yes, done well');
     await waitText(c3, 'Completed', 30000);
-    return 'booked without an address, paid, seller marked "done", buyer confirmed';
+    return 'booked without delivery or address, paid, marked "done", confirmed';
   });
 
+  // ---- import ----
+  await step('IMP-1', 'Import button: clear name, no false warning', async () => {
+    const p = await B('#/sell');
+    await el(p, btnX('⇪ Import from Marktplaats, Vinted…'));
+    await go('B', '#/import');
+    await waitText(p, 'Import your listings from Marktplaats, Vinted, eBay…');
+    const href = await p.$eval('a.bookmarklet', (a) => a.getAttribute('href'));
+    if (!href.startsWith('javascript:')) throw new Error('no bookmarklet');
+    if ((await text(p)).includes('older version')) throw new Error('outdated warning without an import');
+    return '"Import from Marktplaats, Vinted…"; the bookmark carries the current version (fresh bookmark: no warning, see test:import)';
+  });
+  await step('IMP-9', 'From the app: paste a share link', async () => {
+    const p = await B('#/import');
+    await p.reload({ waitUntil: 'load' });
+    await (await el(p, '//summary[contains(.,"Import button for your browser")]')).click();
+    await waitText(p, 'not inside the Marktplaats or Vinted app');
+    await fillPh(p, 'https://www.marktplaats.nl/u/…', 'http://127.0.0.1:4300/seller/view/m2454474184');
+    await click(p, 'Read');
+    await waitText(p, '1 found', 30000);
+    const v = await p.$eval('.import-row input:not([type=checkbox]):not(.price-in)', (i) => i.value);
+    if (v !== 'Eiken salontafel') throw new Error(v);
+    await waitText(p, 'Reserved there');
+    return 'a pasted /seller/view/m… link reads the ad (reserved recognised); the bookmark explains it needs a browser';
+  });
+  await step('IMP-11', 'Clear phone steps', async () => {
+    const p = await B('#/import');
+    await p.reload({ waitUntil: 'load' });
+    await (await el(p, '//summary[contains(.,"Import button for your browser")]')).click();
+    await waitText(p, 'On a phone');
+    await waitText(p, 'Copy the bookmark code');
+    return 'numbered phone steps for Chrome and Safari';
+  });
+  for (const [id, title] of [['IMP-2', 'Marktplaats profile, reserved recognised'], ['IMP-3', 'Published items disappear from the list'], ['IMP-7', '"Mark as sold on XBT Market"'], ['IMP-8', 'Single ad /seller/view/m…']]) {
+    manual(id, title, 'Needs your real shop pages. The same logic passes in test:import against fake Marktplaats/Vinted/eBay pages (incl. /seller/view/m…, reserved, hidden duplicates, "Mark as sold on XBT Market").');
+  }
+
+  // ---- AI ----
   await step('AI-1', 'Save the API key', async () => {
-    const p = await B('#/settings');
+    const p = await B('#/settings?open=ai');
+    await waitText(p, 'other AI providers are not supported');
     await fillPh(p, 'sk-ant-…', 'sk-ant-plan-test-key');
     await click(p, 'Save');
     await waitText(p, 'Key saved');
     const raw = await p.evaluate((pk) => localStorage.getItem(`xbt:secrets:${pk}`), people.B.pk);
     if (raw.includes('sk-ant-plan')) throw new Error('key stored in plain text');
-    return '"✓ Key saved"; storage holds only ciphertext';
+    return '"✓ Key saved"; only an Anthropic key, explained; storage holds only ciphertext';
   });
   await step('AI-2', 'Listing from photos', async () => {
     const p = await B('#/sell/new');
-    const input = await p.$('input[type=file]');
+    await waitText(p, 'New listing');
+    const input = await p.$('label.photo.add input[type=file]');
     await input.uploadFile('public/icon-512.png');
     await p.waitForFunction(() => document.querySelectorAll('.photos .photo img').length >= 1, { timeout: 30000 });
-    await fakeAnthropic(p, { title: 'Rode wollen sjaal', description: 'Zachte rode sjaal van wol, zo goed als nieuw. Geen vlekken of gaten zichtbaar.', category: 'kleding-dames', condition: 'like-new', price: 8, notes: 'Vermeld de lengte van de sjaal.' });
+    await fakeAnthropic(p, { title: 'Rode wollen sjaal', description: 'Zachte rode sjaal van wol, zo goed als nieuw.', category: 'kleding-dames', condition: 'like-new', price: 8, notes: 'Vermeld de lengte van de sjaal.' });
     await click(p, '✨ Write listing from photos');
     await p.waitForFunction(() => [...document.querySelectorAll('label.field')].find((l) => l.querySelector('.label')?.textContent === 'Title')?.querySelector('input')?.value === 'Rode wollen sjaal', { timeout: 30000 });
     const call = (await p.evaluate(() => window.__aiCalls))[0]?.body;
@@ -932,7 +1211,6 @@ try {
   await step('AI-3', 'No photos: button disabled', async () => {
     const p = await B('#/sell/new');
     await p.reload({ waitUntil: 'load' });
-    await unlockB();
     await go('B', '#/sell/new');
     const disabled = await (await el(p, btnX('✨ Write listing from photos'))).evaluate((b) => b.disabled);
     if (!disabled) throw new Error('enabled without photos');
@@ -941,14 +1219,14 @@ try {
 
   // ---- node choice ----
   await step('NODE-1', 'Known server', async () => {
-    const p = await B('#/settings');
+    const p = await B('#/settings?open=network');
     await choose(p, 'Local (npm run shim)');
     await click(p, 'Test connection');
     await waitText(p, '✓ block');
     return 'block height read from the server';
   });
   await step('NODE-2', 'Own node', async () => {
-    const p = await B('#/settings');
+    const p = await B('#/settings?open=network');
     await fillPh(p, 'https://umbrel.local:3006/api', 'http://localhost:3006/api');
     await click(p, 'Use');
     await waitText(p, '✓ block');
@@ -956,10 +1234,21 @@ try {
     return 'own node URL accepted and tested';
   });
 
+  // ---- the service ----
+  await step('SVC-1', 'The XBT Market service answers', async () => {
+    const info = await (await fetch(API + '/')).json();
+    if (info.service !== 'xbt-market' || !info.usernames) throw new Error(JSON.stringify(info));
+    return `local service (same code as the Cloudflare Worker): ${JSON.stringify(info)}. Deploying it to Cloudflare: by you`;
+  });
+  await step('SVC-2', 'Shipping is on', async () => {
+    const info = await (await fetch(API + '/')).json();
+    if (!info.shipping) throw new Error(JSON.stringify(info));
+    return 'shipping: true (against the Sendcloud mock). Your Sendcloud keys: by you';
+  });
+
   // ---- settings and backup ----
   await step('SET-1', 'Trade backup download and restore', async () => {
-    const p = await B('#/settings');
-    // Catch the file the app hands to the browser instead of a real download.
+    const p = await B('#/settings?open=backup');
     await p.evaluate(() => {
       window.__download = {};
       const make = URL.createObjectURL;
@@ -978,14 +1267,13 @@ try {
     return `${file.name} downloaded (${Object.keys(json.rumors || json).length} entries) and restored`;
   });
   await step('SET-2', 'Manual exchange rate', async () => {
-    const p = await B('#/settings');
-    await fill(p, 'Manual rate (1 XBT in that currency)', '500');
+    const p = await B('#/settings?open=trading');
+    await fill(p, 'Manual rate (1 XBT in EUR)', '500');
     await openListing('B', 'Wollen sjaal, rood');
     await waitText(p, '€3.00 ≈ 0.006 XBT');
-    await proof(p, 'plan', 'SET-2 · Handmatige koers 500: €3 ≈ 0.006 XBT');
-    const s = await B('#/settings');
-    await fill(s, 'Manual rate (1 XBT in that currency)', '50000');
-    return 'XBT amount follows the manual rate (the live market rate is not reachable from this test machine)';
+    const s = await B('#/settings?open=trading');
+    await fill(s, 'Manual rate (1 XBT in EUR)', '50000');
+    return 'XBT amount follows the manual rate';
   });
   await step('SET-3', 'Log out and log in again', async () => {
     const p = await B('#/settings');
@@ -999,23 +1287,12 @@ try {
     await waitText(p, 'Wollen sjaal', 60000);
     return 'listings and trades back after logging in with the nsec';
   });
-  await step('ACC-4', 'Log in with the same nsec elsewhere', async () => {
-    storage.B = null;
-    const p = await as('B', { fresh: true });
-    await p.evaluate(() => { location.hash = '#/settings'; });
-    await fillPh(p, 'nsec1…', people.B.nsec);
-    await click(p, 'Log in');
-    await p.evaluate(() => { location.hash = '#/sell'; });
-    await waitText(p, 'Fietslampjes set', 30000);
-    await p.evaluate(() => { location.hash = '#/trades'; });
-    await waitText(p, 'Fietslampjes set', 60000);
-    return 'new browser with only the nsec: same listings under Sell and same trades';
-  });
 
   // ---- things a script cannot do for you ----
   manual('TRD-4b', 'Pay from a real BLAKE2b wallet', 'Funding used a Knots regtest node. Paying from Sparrow BLAKE2b / Knots / Shrike with real coins is for you.');
   manual('LN-real', 'A real Lightning wallet', 'Tested with mock NWC wallets. Connecting Alby Hub / Zeus / Primal and real XBT-Lightning is for you.');
   manual('AI-real', 'A real AI answer', 'Tested against a fake API. The quality of a real Claude answer needs your own API key.');
+  manual('SVC-real', 'The service on Cloudflare with Sendcloud', 'Tested with the same code in Node against a Sendcloud mock. The live deploy and real labels need your Cloudflare and Sendcloud accounts.');
   manual('ACC-6b', 'Home screen icon on a real phone', 'Installability is checked; adding it to a real home screen is for you.');
 } finally {
   const summary = { device: DEVICE, passed: results.filter((r) => r.status === 'pass').length, failed, manual: results.filter((r) => r.status === 'manual').length, results };

@@ -1,4 +1,4 @@
-# XBT Market protocol, version 1
+# XBT Market protocol, version 2
 
 This document specifies everything XBT Market puts on Nostr and on chain. Another client that follows it can trade with this one. The reference implementation is `src/lib/trade/protocol.js` (pure) and `src/lib/btc/escrow.js`; where they disagree with this text, file a bug.
 
@@ -128,6 +128,23 @@ Both offer types may carry `shipping: { id, price, currency }`, the delivery opt
 
 `reject`, `cancel`, `shipped`, `received` and chat work as above. `funded`, `dispute`, `proposal`, `sign` and `broadcast` are refused in a direct trade, and the direct-only types are refused in an escrow trade.
 
+### 4.5 Version 2: chat first, details after the accept
+
+Version 2 adds a conversation before the order and moves everything not needed for the decision to after the accept. Version 1 offers (with `arbiter` and `buyer.payoutAddress` in the offer) remain valid.
+
+| type | from | body |
+|---|---|---|
+| `open` | buyer | `{ v:2, network, listing:{coord, sellerPubkey, title, image, price, currency, payments, country, kind?, priceUnit?}, prev? }`: starts the conversation (wrapped to the seller); `prev` links an earlier trade about the same listing |
+| `offer` | buyer (the one who opened) | `{ v:2, tradeId, network, listing, payment:"escrow"\|"direct", method? , priceSats, buyerDepositSats?, sellerDepositSats?, buyer:{escrowPubkey}, shipping:{carrier, country, price, currency, size, servicePoint?, estimate?} \| {carrier:"pickup"} \| null, note, shipDays, confirmDays }` |
+| `accept` | seller | `{ seller:{ escrowPubkey, payoutAddress? } }`: the escrow key is always included, so a direct trade can still switch to escrow |
+| `details` | buyer | `{ shipTo?:{name, street, number, postalCode, city, country, phone?, email?}, servicePointId?, payoutAddress?, arbiter?:{pubkey, escrowBase} }` |
+| `details` | seller | `{ payoutAddress }` |
+| `change` | buyer or seller | `{ method:"lightning"\|"onchain"\|"escrow", buyerDepositSats?, sellerDepositSats?, note? }` |
+| `change_ok` / `change_no` | the other side | `{ changeId, reason? }` |
+| `label` | seller | `{ carrier, service, tracking, trackingUrl, labelUrl, qrUrl }` |
+
+When the arbiter is chosen (`details` from the buyer), the arbiter was not a recipient of earlier messages. Buyer and seller each re-send their own earlier rumors to the arbiter, unchanged, in new seals signed by themselves (so they stay authenticated); later messages are wrapped to all three.
+
 ## 5. State rules
 
 The state is a pure function of the set of rumors. Sort by `created_at`, then `id`. Then:
@@ -146,7 +163,15 @@ The state is a pure function of the set of rumors. Sort by `created_at`, then `i
    A `sign` is valid when its signatures verify for the signer's key. Two valid signers make a proposal final.
 7. **Status.** In order of precedence: `rejected`, `closed` (any `broadcast`), `cancelled` (cancel before accept), `cancelling`, `disputed`, `shipped`, `accepted`, `offered`. Whether the escrow is funded is read from the chain (Esplora UTXOs with at least N confirmations), not from messages.
 
-8. **Direct trades.**
+8. **Version 2.**
+   - Without an `offer`, a valid `open` makes a conversation (status `chat`) between its sender (buyer) and `listing.sellerPubkey`; only chat is accepted. The offer must come from the sender of the `open`.
+   - `details` count only after the accept. The first buyer `details` with an `arbiter` while the payment is escrow fixes the arbiter (later ones are ignored); the arbiter must differ from buyer and seller, and the three escrow keys must be distinct. The escrow address exists from then on.
+   - Payout addresses from `details` (buyer: refund, seller: payout) apply until the first payout proposal.
+   - A `change` is valid until anything is paid (direct: no `paid`/`confirm_paid`; escrow: no escrow address yet), for a method the listing accepts. A `change_ok` from the other side applies it: the payment type, method and deposits change, and a payment request for the old method no longer counts. A side's newer `change` replaces its open one.
+   - A `label` comes from the seller after the accept; its links must be http(s).
+   - `dispute` needs the escrow address.
+
+9. **Direct trades.**
    - The offer has no arbiter and no deposits; buyer and seller must differ.
    - A `request` comes from the seller after the accept and before any payment. A Lightning invoice must be for exactly `priceSats × 1000` msat (an invoice without an amount is refused); a client may pin the expected network prefix (`lightningNetwork` in config). An on-chain request must name a valid address for `network` and `amountSats = priceSats`. The latest valid request is the current one.
    - A `paid` comes from the buyer. A Lightning `preimage` must hash (SHA-256) to the invoice's payment hash; that makes the payment **verified** for everyone. Without a preimage the payment is only claimed. An on-chain `txid` is a claim; clients check it against the chain.

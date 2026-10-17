@@ -2,13 +2,16 @@
 
 A peer-to-peer marketplace paid in **Bitcoin BLAKE2b** (XBT / BTCB2), the chain that split from Bitcoin at block 961,640 (Bitcoin Knots `v29.4.1.knots20260508`).
 
-- **No server, no app store.** It is a static web app (PWA) you can install on phone or desktop from any URL. Listings, profiles, reviews and encrypted trade chat live on **Nostr** relays.
+- **No app store, almost no server.** It is a static web app (PWA) you can install on phone or desktop from any URL. Listings, profiles, follows, reviews and encrypted trade chat live on **Nostr** relays. A small optional service (a free Cloudflare Worker, see *Service*) adds @usernames, live shipping rates with prepaid labels, and importing from a pasted link.
+- **Chat first, like Marktplaats and Vinted.** A buyer sends a no-obligation message, and orders from the chat when ready: only the payment method, the price and the delivery country and carrier. Address, arbiter and refund address are asked once the seller accepts. Either side can ask to switch the payment method (say Lightning → on chain) until something is paid.
 - **Bisq-style escrow.** Every trade uses a **2-of-3 P2WSH multisig** between buyer, seller and a community **arbiter**. Both sides post a deposit. Buyer and seller release together; in a dispute the arbiter signs with one of them. Nobody can move the coins alone.
 - **Or pay directly.** For smaller items the buyer can skip escrow and pay the seller straight away, on chain or over **Lightning**. The app recommends escrow above €50. The seller sends a payment request in the chat; with a connected wallet the buyer pays with one tap, and the Lightning preimage proves the payment to both sides.
 - **Your own Lightning wallet.** Connect any wallet that supports **Nostr Wallet Connect** (NWC): Alby Hub, Zeus, Primal, Coinos and others. A Lightning address works too for receiving.
 - **Replay-safe.** Every escrow spend is signed with `SIGHASH_ALL|SIGHASH_UNIFIED` (0x21), so it is valid on the BLAKE2b chain only.
 - **Import from Marktplaats / 2dehands / Vinted / eBay.** A bookmark button reads your own listings from your profile page and copies them over. An eBay Seller Hub CSV works too. Re-importing recognises what is already here (by Marktplaats ad number, Vinted item id or eBay item number, falling back to title + price). It only adds what is new, updates listings whose price or title changed, and offers to mark listings as sold that disappeared from your profile there.
-- **Delivery options.** The seller lists the carriers they offer with a price (PostNL, DHL, DPD, Budbee, InPost, Mondial Relay, pick-up…), the buyer picks one when ordering, and the tracking code becomes a tracking link. Labels are bought on the carrier's site or a label service such as Sendcloud or Packlink.
+- **Shipping like Vinted.** The seller ticks the carriers they are willing to use (PostNL, DHL, Mondial Relay, InPost, DPD, GLS, Colissimo, Correos…) and a parcel size; no price. The buyer picks a carrier for their country and pays its rate on top. With the service, the seller then buys a prepaid label (Sendcloud) paid over Lightning, and gets a QR code to show at the drop-off point (or a PDF) in the chat; the tracking code becomes a tracking link.
+- **Marktplaats categories.** All 36 main categories and 1,954 subcategories of Marktplaats, so imports keep theirs. Listings carry a country and where the seller ships to (EU, worldwide, countries); buyers filter on category, country, price, condition, delivery and payment, and sort by date or price.
+- **People.** Unique @usernames (NIP-05, like name@primal.net), search by @name, follow sellers (the standard Nostr contact list) and a feed of only the people you follow. English and Spanish; prices shown in 30+ currencies.
 - **AI listing assistant.** Upload photos and Claude writes the title, description, category, condition and a price suggestion, like Marktplaats does. Each user brings their own Anthropic API key (see *AI assistant* below).
 
 > **Snel aan de slag (NL):** zet de app online (zie *Deploy*), maak in de app een account, zet jouw npub als `VITE_ADMIN_NPUB` en bouw opnieuw. Vraag een paar bekende community-leden om zich onder *Arbiter* aan te melden en keur ze goed onder *Admin*. Daarna kan iedereen handelen.
@@ -21,8 +24,8 @@ A peer-to-peer marketplace paid in **Bitcoin BLAKE2b** (XBT / BTCB2), the chain 
 
 ## How a trade works
 
-1. **Offer.** The buyer offers an XBT amount (suggested from the SafeTrade XBT/USDT rate), picks an arbiter and sends the shipping address. Everything is NIP-17 encrypted to seller and arbiter.
-2. **Accept.** The seller checks that the arbiter is approved and accepts. All three parties now derive the same escrow address.
+1. **Message and order.** The buyer starts a conversation about a listing, and orders from the chat: an XBT amount (suggested from the SafeTrade XBT/USDT rate, item + shipping), the payment method and the delivery. Everything is NIP-17 encrypted.
+2. **Accept, then details.** The seller accepts. The buyer then sends the delivery address and, with escrow, picks an approved arbiter and a refund address. The arbiter receives the trade so far, and all three derive the same escrow address. The seller's app warns not to pay into an escrow whose arbiter is not approved.
 3. **Fund.** The buyer pays price + deposit (default 15%); the seller pays a deposit (default 15%, set per listing). The app waits for the configured number of confirmations.
 4. **Ship.** The seller ships and adds the carrier and tracking code.
 5. **Release.** The buyer signs a payout (seller: price + deposit, buyer: deposit back). The seller co-signs and broadcasts. The network fee is shared in proportion.
@@ -78,6 +81,24 @@ Users install it via the browser's *Add to Home screen* / *Install app*. No stor
 
 **Recommended later:** run a community Nostr relay (for example strfry or nostr-rs-relay) and add it to `DEFAULTS.relays` in `src/config.js`, so listings and messages do not depend on public relays only.
 
+## Service (usernames, shipping labels, import from a link)
+
+`server/` holds a small service that runs as a **Cloudflare Worker** (free plan; no server to maintain) with a Durable Object as its only storage. It never sees keys or listings. It provides:
+
+- `/.well-known/nostr.json` and `/api/names`: unique usernames (`name@<worker domain>`, NIP-05), first come, first served, claimed with a NIP-98 signed request;
+- `/api/shipping/quote`, `/api/shipping/labels`: live rates and prepaid labels through **Sendcloud API v3**. The seller pays the label over Lightning to the platform's Lightning address (LUD-16 with LUD-21 *verify*); once paid, the Worker announces the shipment and serves the label PDF and, where the carrier supports it, a QR code;
+- `/api/import`: reads a public Marktplaats or Vinted page from a pasted link (for phones and the Marktplaats/Vinted apps).
+
+Without it, the app hides usernames and link import, shows estimated shipping prices and lets the seller buy labels on the carrier's site.
+
+**Set it up (once, on a computer):**
+1. Create a free account at cloudflare.com. *My Profile → API Tokens → Create Token → "Edit Cloudflare Workers"* template. Copy the token, and your *Account ID* (right column of the Workers & Pages overview).
+2. In GitHub: *Settings → Secrets and variables → Actions → New repository secret*: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+3. For shipping labels, also add: `SENDCLOUD_PUBLIC_KEY`, `SENDCLOUD_SECRET_KEY` (sendcloud.com → *Settings → Integrations → Sendcloud API*) and `PLATFORM_LN_ADDRESS` (a Lightning address whose provider supports LUD-21 *verify*, e.g. Alby, LNbits, BTCPay). Sendcloud bills postage to the platform's account; the label price the seller pays covers it (`LABEL_MARKUP_PCT` adds a margin).
+4. Re-run the *Test and deploy* workflow. It deploys the Worker, then builds the app with its address (`VITE_API_URL`, or set that repository variable to use your own domain).
+
+Locally: `npm run sendcloud` (a Sendcloud mock), `npm run wallets` (includes the platform's mock Lightning address) and `npm run service:dev`, then build with `VITE_API_URL=http://127.0.0.1:8787`.
+
 ## Configuration
 
 `src/config.js` holds the defaults: relays, Esplora API (`https://mempool.guide/api`), the list of known servers per chain (`ESPLORA_PRESETS`), Blossom photo server, deposits, confirmations, trade limits, the escrow advice threshold and the AI model. Users can override most of these under *Account*. Like Sparrow, they pick a known server or enter their own node (any Esplora/mempool REST API that follows the BLAKE2b chain, e.g. mempool or electrs on Umbrel or Start9) and test the connection. Browsers cannot talk to Electrum servers directly, so an Electrum-only node needs an Esplora/mempool front end.
@@ -89,6 +110,7 @@ Build-time variables:
 | `VITE_ADMIN_NPUB` | the npub whose arbiter list the app trusts (required for escrow) |
 | `VITE_RELAYS` | comma-separated default relays (used by `npm run demo`) |
 | `VITE_NETWORK` | default chain: `mainnet`, `testnet4` or `regtest` |
+| `VITE_API_URL` | the XBT Market service (set automatically by the workflow when it deploys the Worker) |
 
 ## Develop
 

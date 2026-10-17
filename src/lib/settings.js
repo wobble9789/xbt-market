@@ -4,7 +4,10 @@ import { Esplora } from './btc/esplora.js';
 
 const KEY = 'xbt:settings';
 
-export const settings = createStore({ ...DEFAULTS, ...loadJSON(KEY, {}) });
+const saved = loadJSON(KEY, {});
+// Only English and Spanish are offered; an older saved language falls back.
+if (saved.lang && !['en', 'es'].includes(saved.lang)) delete saved.lang;
+export const settings = createStore({ ...DEFAULTS, ...saved });
 
 export function updateSettings(patch) {
   settings.set(patch);

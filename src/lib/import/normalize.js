@@ -12,7 +12,7 @@ const CONDITION_WORDS = [
 
 // Marktplaats categories (see categories.js). Marktplaats imports carry their
 // own category; other shops are guessed from the title.
-import { CATEGORIES, DEFAULT_CATEGORY } from '../categories.js';
+import { CATEGORIES, DEFAULT_CATEGORY, isSubcategorySlug } from '../categories.js';
 const CATEGORY_WORDS = [
   ['kleding-heren', /\b(heren|men'?s|mannen)\b/i],
   ['kleding-dames', /shoe|sneaker|boot|schoen|laars|sandal|heel|shirt|jacket|jas|jeans|broek|dress|jurk|hoodie|sweater|trui|coat|skirt|rok|blouse|vest|pants|shorts/i],
@@ -103,6 +103,8 @@ export function normalizeItem(raw, importedFrom = '') {
     source: /^https?:\/\//.test(raw.url || '') ? raw.url : '',
     importedFrom: importedFrom || raw.source || '',
     location: cleanText(raw.location, 100),
+    subcategory: CATEGORIES.includes(raw.category) && isSubcategorySlug(raw.subcategory) ? raw.subcategory : '',
+    reserved: !!raw.reserved,
   };
 }
 
