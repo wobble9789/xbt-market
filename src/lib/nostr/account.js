@@ -26,15 +26,22 @@ function persist(extra = {}) {
   saveJSON(KEY, { ...prev, ...extra });
 }
 
+// Forgiving about what phones do to a pasted key: a capital first letter from
+// autocorrect, spaces or line breaks from wrapped text, a "nostr:" prefix.
+// Clear messages for the usual mix-ups (npub instead of nsec, a typo).
 export function parseSecret(input) {
-  const s = input.trim();
-  if (s.startsWith('nsec1')) {
-    const d = nip19.decode(s);
-    if (d.type !== 'nsec') throw new Error('not an nsec');
-    return d.data;
-  }
-  if (/^[0-9a-f]{64}$/i.test(s)) return hexToBytes(s.toLowerCase());
-  throw new Error('Enter an nsec1… key or 64 hex characters');
+  const s = String(input || '').replace(/\s+/g, '').replace(/^nostr:/i, '');
+  const lower = s.toLowerCase();
+  if (/^[0-9a-f]{64}$/.test(lower)) return hexToBytes(lower);
+  if (lower.startsWith('npub1')) throw new Error('This is an npub (your public address). Log in with your nsec, which starts with nsec1. / Dit is een npub (je openbare adres). Log in met je nsec, die begint met nsec1.');
+  if (lower.startsWith('ncryptsec1')) throw new Error('This key is password-protected (ncryptsec). Use the nsec itself. / Deze sleutel is met een wachtwoord versleuteld (ncryptsec). Gebruik de nsec zelf.');
+  if (!lower.startsWith('nsec1')) throw new Error('Enter your nsec: it starts with nsec1. / Vul je nsec in: die begint met nsec1.');
+  if (s !== lower && s !== s.toUpperCase() && s.slice(1) !== lower.slice(1)) throw new Error('The nsec has capital letters in it; it should be all lower case. / Er staan hoofdletters in de nsec; die hoort helemaal in kleine letters.');
+  try {
+    const d = nip19.decode(lower);
+    if (d.type === 'nsec') return d.data;
+  } catch { /* reported below */ }
+  throw new Error(`This nsec is not valid: ${lower.length} characters instead of 63, or a typo. Copy it again from your backup. / Deze nsec klopt niet: ${lower.length} tekens in plaats van 63, of een typefout. Kopieer hem opnieuw uit je back-up.`);
 }
 
 function setSecret(sk, { backedUp }) {
@@ -61,9 +68,17 @@ export function setPassword(password) {
   account.set({ encrypted: true });
 }
 
+// Unlocks with the password, or with the account's own nsec when the
+// password is forgotten.
 export function unlock(password) {
-  const { ncryptsec } = loadJSON(KEY, {});
-  const sk = nip49.decrypt(ncryptsec, password); // throws on a wrong password
+  const { ncryptsec, pubkey } = loadJSON(KEY, {});
+  let sk;
+  if (/^\s*(nostr:)?nsec1/i.test(password)) {
+    sk = parseSecret(password);
+    if (getPublicKey(sk) !== pubkey) throw new Error('This nsec belongs to another account. / Deze nsec hoort bij een ander account.');
+  } else {
+    sk = nip49.decrypt(ncryptsec, password); // throws on a wrong password
+  }
   secret = sk;
   account.set({ locked: false });
 }

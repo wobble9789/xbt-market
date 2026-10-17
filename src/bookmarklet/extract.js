@@ -6,7 +6,7 @@
 // Bump BOOKMARKLET_VERSION whenever extraction changes: the import page warns
 // users whose saved bookmark is older, because bookmarks never update themselves.
 
-export const BOOKMARKLET_VERSION = 2;
+export const BOOKMARKLET_VERSION = 3;
 
 export const absUrl = (u, base) => { try { return new URL(u, base).href; } catch { return ''; } };
 
@@ -54,6 +54,8 @@ export function fromMp(l, base) {
     condition: attr('condition'),
     location: l.location?.cityName || '',
     url: absUrl(l.vipUrl || '', base),
+    // Ad URLs are /v/<main category>/<subcategory>/m…; the app uses the same slugs.
+    category: (l.vipUrl || '').match(/^\/v\/([a-z0-9-]+)\//)?.[1] || '',
   };
 }
 

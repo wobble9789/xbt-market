@@ -16,7 +16,7 @@ function fakeApi(reply) {
 }
 
 test('AI draft: sends the photos and a JSON schema, returns the parsed listing', async () => {
-  const draft = { title: 'IKEA Ranarp desk lamp, black', description: 'Works. Small scratch on the base.', category: 'home', condition: 'good', price: 15, notes: 'Add the cable length.' };
+  const draft = { title: 'IKEA Ranarp desk lamp, black', description: 'Works. Small scratch on the base.', category: 'huis-en-inrichting', condition: 'good', price: 15, notes: 'Add the cable length.' };
   const { seen, fetchImpl } = fakeApi({ text: JSON.stringify(draft) });
   const res = await draftListing({ images: ['https://blossom.example/a.jpg', 'https://blossom.example/b.jpg'], lang: 'nl', apiKey: 'sk-ant-test', fetchImpl });
   assert.deepEqual(res, draft);
@@ -25,7 +25,7 @@ test('AI draft: sends the photos and a JSON schema, returns the parsed listing',
   assert.equal(headers['x-api-key'], 'sk-ant-test');
   assert.equal(body.model, 'claude-opus-5-5');
   assert.equal(body.output_config.format.type, 'json_schema');
-  assert.ok(body.output_config.format.schema.properties.category.enum.includes('home'));
+  assert.ok(body.output_config.format.schema.properties.category.enum.includes('huis-en-inrichting'));
   assert.deepEqual(body.messages[0].content.slice(0, 2).map((c) => c.source.url), ['https://blossom.example/a.jpg', 'https://blossom.example/b.jpg']);
   assert.match(body.messages[0].content[2].text, /Dutch/);
 });

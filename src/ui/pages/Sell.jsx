@@ -5,13 +5,14 @@ import { account } from '../../lib/nostr/account.js';
 import { signAndPublish } from '../../lib/nostr/pool.js';
 import { listingTemplate, parseListing, newListingId, CATEGORIES, CONDITIONS, PAYMENT_METHODS } from '../../lib/nostr/listings.js';
 import { CARRIERS, optionsFor } from '../../lib/shipping.js';
+import { isService, normalizeCategory, PRICE_UNITS, DEFAULT_CATEGORY } from '../../lib/categories.js';
 import { aiConfigured, draftListing } from '../../lib/ai/listing.js';
 import { secretNames } from '../../lib/secrets.js';
 import { payLabel } from './Listing.jsx';
 import { uploadImage } from '../../lib/nostr/blossom.js';
 import { settings } from '../../lib/settings.js';
 import { navigate } from '../router.js';
-import { T, CATEGORY_LABELS, CONDITION_LABELS, label } from '../i18n.js';
+import { T, CATEGORY_LABELS, CONDITION_LABELS, PRICE_UNIT_LABELS, label } from '../i18n.js';
 import { Action, Field, Img, Empty, toast, toastError, Spinner } from '../components.jsx';
 import { ListingCard } from './Browse.jsx';
 
@@ -48,7 +49,7 @@ export function EditListing({ d }) {
   const s = settings.get();
   // Older listings carry one shipping_cost; they are edited as options.
   const [f, setF] = useState(() => existing ? { ...existing, images: [...existing.images], shippingOptions: optionsFor(existing).map((o) => ({ ...o })) } : {
-    d: newListingId(), title: '', content: '', price: '', currency: s.currency, category: 'other', condition: 'good',
+    d: newListingId(), title: '', content: '', price: '', currency: s.currency, category: DEFAULT_CATEGORY, condition: 'good', priceUnit: '',
     location: '', shipsTo: '', shippingCost: '', sellerDepositPct: s.sellerDepositPct, images: [], status: 'active',
     shippingOptions: [{ id: 'postnl', price: '' }], payments: [...PAYMENT_METHODS],
   });
@@ -76,13 +77,18 @@ export function EditListing({ d }) {
     const price = Number(String(f.price).replace(',', '.'));
     if (!f.title.trim()) throw new Error(T('Title is required', 'Titel is verplicht'));
     if (!(price > 0)) throw new Error(T('Enter a price', 'Vul een prijs in'));
-    const shippingOptions = (f.shippingOptions || []).filter((o) => o.id).map((o) => ({ id: o.id, price: Number(String(o.price || 0).replace(',', '.')), currency: f.currency }));
+    const service = isService(f.category);
+    const shippingOptions = (service ? [] : f.shippingOptions || []).filter((o) => o.id).map((o) => ({ id: o.id, price: Number(String(o.price || 0).replace(',', '.')), currency: f.currency }));
     if (shippingOptions.some((o) => !(o.price >= 0))) throw new Error(T('Check the delivery prices', 'Controleer de bezorgprijzen'));
     if (!f.payments?.length) throw new Error(T('Choose at least one payment method', 'Kies minstens één betaalmethode'));
     // Kept for older clients that only know one shipping cost.
     const paidShipping = shippingOptions.filter((o) => o.id !== 'pickup').map((o) => o.price);
     const shippingCost = paidShipping.length ? Math.min(...paidShipping) : null;
-    await publishListing({ ...f, title: f.title.trim(), price, shippingCost, shippingOptions, sellerDepositPct: Number(f.sellerDepositPct) || 0, status });
+    await publishListing({
+      ...f, title: f.title.trim(), price, shippingCost, shippingOptions, sellerDepositPct: Number(f.sellerDepositPct) || 0, status,
+      // A service has no condition or delivery; goods have no price per hour.
+      condition: service ? '' : f.condition, shipsTo: service ? '' : f.shipsTo, priceUnit: service ? f.priceUnit || '' : '',
+    });
     toast(T('Published', 'Gepubliceerd'), 'ok');
     navigate('/sell');
   };
@@ -91,12 +97,13 @@ export function EditListing({ d }) {
     setAiBusy(true);
     try {
       const d = await draftListing({ images: f.images, lang: s.lang, currency: f.currency === 'XBT' ? 'EUR' : f.currency, hint: [f.title, f.content].filter(Boolean).join('\n') });
-      setF((cur) => ({ ...cur, title: d.title, content: d.description, category: d.category, condition: d.condition, price: d.price > 0 && cur.currency !== 'XBT' ? String(d.price) : cur.price }));
+      setF((cur) => ({ ...cur, title: d.title, content: d.description, category: normalizeCategory(d.category), condition: d.condition, price: d.price > 0 && cur.currency !== 'XBT' ? String(d.price) : cur.price }));
       setAiNote(d.notes || '');
       toast(T('Draft filled in. Check it before publishing.', 'Concept ingevuld. Controleer het voor je publiceert.'), 'ok');
     } catch (e) { toastError(e); } finally { setAiBusy(false); }
   };
   const setOpt = (i, patch) => setF({ ...f, shippingOptions: f.shippingOptions.map((o, j) => (j === i ? { ...o, ...patch } : o)) });
+  const service = isService(f.category);
   const togglePay = (p) => setF({ ...f, payments: f.payments?.includes(p) ? f.payments.filter((x) => x !== p) : [...(f.payments || []), p] });
 
   return (
@@ -127,25 +134,32 @@ export function EditListing({ d }) {
       <Field label={T('Title', 'Titel')}><input value={f.title} onInput={set('title')} maxLength={200} /></Field>
       <Field label={T('Description', 'Beschrijving')}><textarea rows="6" value={f.content} onInput={set('content')} /></Field>
       <div class="cols">
+        <Field label={T('Category', 'Categorie')}>
+          <select value={f.category} onChange={set('category')}>{CATEGORIES.map((c) => <option key={c} value={c}>{label(CATEGORY_LABELS, c)}</option>)}</select>
+        </Field>
+        {!service && (
+          <Field label={T('Condition', 'Staat')}>
+            <select value={f.condition} onChange={set('condition')}>{CONDITIONS.map((c) => <option key={c} value={c}>{label(CONDITION_LABELS, c)}</option>)}</select>
+          </Field>
+        )}
+      </div>
+      <div class="cols">
         <Field label={T('Price', 'Prijs')}><input inputmode="decimal" value={f.price} onInput={set('price')} /></Field>
         <Field label={T('Currency', 'Valuta')}>
           <select value={f.currency} onChange={set('currency')}>{['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'CZK', 'SEK', 'XBT'].map((c) => <option key={c}>{c}</option>)}</select>
         </Field>
+        {service && (
+          <Field label={T('Price per', 'Prijs per')}>
+            <select value={f.priceUnit || ''} onChange={set('priceUnit')}>{PRICE_UNITS.map((u) => <option key={u} value={u}>{u ? label(PRICE_UNIT_LABELS, u) : T('fixed price', 'vaste prijs')}</option>)}</select>
+          </Field>
+        )}
       </div>
       <p class="hint">{T('Prices in fiat are converted to XBT when a buyer makes an offer; you approve the amount.', 'Prijzen in euro e.d. worden omgerekend naar XBT als een koper een bod doet; jij keurt het bedrag goed.')}</p>
       <div class="cols">
-        <Field label={T('Category', 'Categorie')}>
-          <select value={f.category} onChange={set('category')}>{CATEGORIES.map((c) => <option key={c} value={c}>{label(CATEGORY_LABELS, c)}</option>)}</select>
-        </Field>
-        <Field label={T('Condition', 'Staat')}>
-          <select value={f.condition} onChange={set('condition')}>{CONDITIONS.map((c) => <option key={c} value={c}>{label(CONDITION_LABELS, c)}</option>)}</select>
-        </Field>
-      </div>
-      <div class="cols">
         <Field label={T('Location', 'Locatie')}><input value={f.location} onInput={set('location')} placeholder="Utrecht, NL" /></Field>
-        <Field label={T('Ships to', 'Verzendt naar')}><input value={f.shipsTo} onInput={set('shipsTo')} placeholder="EU" /></Field>
+        {!service && <Field label={T('Ships to', 'Verzendt naar')}><input value={f.shipsTo} onInput={set('shipsTo')} placeholder="EU" /></Field>}
       </div>
-      <Field label={T('Delivery options', 'Bezorgopties')} hint={T('The buyer picks one. Prices in the listing currency; 0 = free.', 'De koper kiest er één. Prijzen in de valuta van de advertentie; 0 = gratis.')}>
+      {service ? <p class="hint">{T('A service: no delivery. The buyer pays the agreed amount; with escrow it is released once the job is done.', 'Een dienst: geen bezorging. De koper betaalt het afgesproken bedrag; met escrow wordt het vrijgegeven als de klus klaar is.')}</p> : <Field label={T('Delivery options', 'Bezorgopties')} hint={T('The buyer picks one. Prices in the listing currency; 0 = free.', 'De koper kiest er één. Prijzen in de valuta van de advertentie; 0 = gratis.')}>
         {(f.shippingOptions || []).map((o, i) => (
           <div class="row ship-option" key={i}>
             <select value={o.id} onChange={(e) => setOpt(i, { id: e.target.value })}>{CARRIERS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
@@ -154,7 +168,7 @@ export function EditListing({ d }) {
           </div>
         ))}
         <button type="button" class="btn small" onClick={() => setF({ ...f, shippingOptions: [...(f.shippingOptions || []), { id: 'pickup', price: '0' }] })}>+ {T('Add option', 'Optie toevoegen')}</button>
-      </Field>
+      </Field>}
       <div class="cols">
         <Field label={T('Your deposit (%)', 'Jouw borg (%)')} hint={T('Shows buyers you have skin in the game; returned when the trade completes.', 'Laat kopers zien dat jij ook iets inzet; je krijgt het terug als de trade klaar is.')}>
           <input type="number" min="0" max="100" value={f.sellerDepositPct} onInput={set('sellerDepositPct')} />

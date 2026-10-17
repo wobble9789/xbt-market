@@ -32,6 +32,11 @@ export const STATUS = {
 };
 export const statusLabel = (s) => T(...(STATUS[s] || STATUS.unknown));
 
+// Services are carried out, not shipped.
+const isServiceTrade = (state) => state.offer?.listing?.kind === 'service';
+const shippedWord = (state) => (isServiceTrade(state) ? T('Done', 'Uitgevoerd') : T('Shipped', 'Verzonden'));
+const receivedQuestion = (state) => (isServiceTrade(state) ? T('Was the job done well?', 'Is de klus naar wens uitgevoerd?') : T('Received the item?', 'Item ontvangen?'));
+
 export function useTrade(tradeId) {
   const { rumors } = useStore(inbox);
   const me = useStore(account, (a) => a.pubkey);
@@ -61,13 +66,13 @@ function Steps({ state, funded }) {
     ['accept', T('Accepted', 'Geaccepteerd'), !!state.accept],
     ['request', T('Payment request', 'Betaalverzoek'), !!state.request],
     ['paid', T('Paid', 'Betaald'), !!(state.paid || state.paymentConfirmed)],
-    ['ship', T('Shipped', 'Verzonden'), !!state.shipped],
+    ['ship', shippedWord(state), !!state.shipped],
     ['done', T('Received', 'Ontvangen'), !!state.received],
   ] : [
     ['offer', T('Offer', 'Bod'), true],
     ['accept', T('Accepted', 'Geaccepteerd'), !!state.accept],
     ['fund', T('Paid into escrow', 'Betaald in escrow'), funded],
-    ['ship', T('Shipped', 'Verzonden'), !!state.shipped],
+    ['ship', shippedWord(state), !!state.shipped],
     ['done', T('Paid out', 'Uitbetaald'), state.status === 'closed'],
   ];
   return <ol class="steps">{steps.map(([k, l, done]) => <li key={k} class={done ? 'done' : ''}>{l}</li>)}</ol>;
@@ -206,7 +211,7 @@ function eventText(state, e) {
     case 'paid': return `💸 ${T('Buyer paid', 'Koper heeft betaald')}`;
     case 'confirm_paid': return `✅ ${T('Seller received the payment', 'Verkoper heeft de betaling ontvangen')}`;
     case 'funded': return `💸 ${T('Paid into escrow', 'Betaald in escrow')}`;
-    case 'shipped': return `📦 ${T('Shipped', 'Verzonden')}`;
+    case 'shipped': return isServiceTrade(state) ? `✅ ${T('Job done', 'Klus uitgevoerd')}` : `📦 ${T('Shipped', 'Verzonden')}`;
     case 'received': return `🎉 ${T('Received', 'Ontvangen')}`;
     case 'dispute': return `⚖️ ${T('Dispute opened', 'Geschil geopend')}`;
     case 'proposal': return `✍️ ${T('Payout proposed', 'Uitbetaling voorgesteld')}`;
@@ -421,6 +426,16 @@ function ShipForm({ state }) {
   const [carrierId, setCarrier] = useState(state.offer.shipping?.id || '');
   const [tracking, setTracking] = useState('');
   const [note, setNote] = useState('');
+  if (isServiceTrade(state)) {
+    return (
+      <div class="card">
+        <h3>{T('Job done?', 'Klus uitgevoerd?')}</h3>
+        <p class="hint">{T('Let the buyer know when the work is finished. They then confirm and the payment is released.', 'Laat de koper weten wanneer het werk af is. Die bevestigt dan en de betaling wordt vrijgegeven.')}</p>
+        <Field label={T('Note', 'Toelichting')}><input value={note} onInput={(e) => setNote(e.target.value)} /></Field>
+        <Action class="primary" onClick={() => markShipped(state, { carrier: 'service', tracking: '', note })}>{T('Mark as done', 'Markeer als uitgevoerd')}</Action>
+      </div>
+    );
+  }
   return (
     <div class="card">
       <h3>{T('Ship the item', 'Verstuur het item')}</h3>
@@ -480,8 +495,8 @@ function DirectFlow({ state, role }) {
       {paid && !state.shipped && role === 'buyer' && <p class="notice">{T(`Paid. The seller should ship by ${fmtDate(dl.shipBy)}.`, `Betaald. De verkoper moet verzenden voor ${fmtDate(dl.shipBy)}.`)}</p>}
       {state.shipped && !state.received && role === 'buyer' && (
         <div class="card">
-          <h3>{T('Received the item?', 'Item ontvangen?')}</h3>
-          <Action class="primary" onClick={() => markReceived(state, '')}>{T('Yes, received', 'Ja, ontvangen')}</Action>
+          <h3>{receivedQuestion(state)}</h3>
+          <Action class="primary" onClick={() => markReceived(state, '')}>{isServiceTrade(state) ? T('Yes, done well', 'Ja, naar wens') : T('Yes, received', 'Ja, ontvangen')}</Action>
         </div>
       )}
       {state.accept && !paid && !state.cancelled && role && (
@@ -526,7 +541,7 @@ export function TradePage({ tradeId }) {
           <div>{role ? <>{T('You are the', 'Jij bent de')} <b>{roleLabel(role).toLowerCase()}</b>{role !== 'arbiter' && <> · {T('with', 'met')} <Name pk={counterpart} /></>}</> : T('You are not part of this trade', 'Je bent geen partij in deze trade')}</div>
         </div>
         <div class="right">
-          <span class={`badge status ${status}`}>{statusLabel(status)}</span>
+          <span class={`badge status ${status}`}>{status === 'shipped' && isServiceTrade(state) ? T('Job done', 'Klus uitgevoerd') : statusLabel(status)}</span>
           <div><Coin sats={o.priceSats} /></div>
         </div>
       </div>
@@ -537,7 +552,8 @@ export function TradePage({ tradeId }) {
       {state.rejected && <p class="notice">{T('The seller rejected this offer.', 'De verkoper heeft dit bod afgewezen.')} {state.rejected.reason}</p>}
       {state.cancelled && <p class="notice">{T('Cancelled by', 'Geannuleerd door')} {roleLabel(state.cancelled.by).toLowerCase()}. {state.cancelled.reason}</p>}
       {state.disputes.map((d, i) => <p key={i} class="notice danger">⚖️ {T('Dispute opened by', 'Geschil geopend door')} {roleLabel(d.by).toLowerCase()} ({timeAgo(d.at)}): {d.reason}</p>)}
-      {state.shipped && <p class="notice ok">📦 {carrier(state.shipped.carrier).pickup ? T('Ready for pick-up', 'Klaar om op te halen') : <>{T('Shipped with', 'Verzonden met')} {carrier(state.shipped.carrier).name}</>}{state.shipped.tracking && <> · <b>{state.shipped.tracking}</b> <Copy text={state.shipped.tracking} />{trackingUrl(state.shipped.carrier, state.shipped.tracking) && <> <a class="btn small" href={trackingUrl(state.shipped.carrier, state.shipped.tracking)} target="_blank" rel="noopener noreferrer">{T('Track', 'Volgen')}</a></>}</>} {state.shipped.note && `· ${state.shipped.note}`}</p>}
+      {state.shipped && isServiceTrade(state) && <p class="notice ok">✅ {T('The seller marked the job as done.', 'De verkoper heeft de klus als uitgevoerd gemarkeerd.')} {state.shipped.note}</p>}
+      {state.shipped && !isServiceTrade(state) && <p class="notice ok">📦 {carrier(state.shipped.carrier).pickup ? T('Ready for pick-up', 'Klaar om op te halen') : <>{T('Shipped with', 'Verzonden met')} {carrier(state.shipped.carrier).name}</>}{state.shipped.tracking && <> · <b>{state.shipped.tracking}</b> <Copy text={state.shipped.tracking} />{trackingUrl(state.shipped.carrier, state.shipped.tracking) && <> <a class="btn small" href={trackingUrl(state.shipped.carrier, state.shipped.tracking)} target="_blank" rel="noopener noreferrer">{T('Track', 'Volgen')}</a></>}</>} {state.shipped.note && `· ${state.shipped.note}`}</p>}
       {state.received && <p class="notice ok">✓ {T('Buyer confirmed receipt', 'Koper heeft ontvangst bevestigd')}</p>}
       {paidOut && <p class="notice ok">✅ {T('The escrow has been paid out.', 'De escrow is uitbetaald.')}</p>}
 
@@ -565,7 +581,7 @@ export function TradePage({ tradeId }) {
       {/* Shipped stage */}
       {['shipped', 'accepted', 'disputed'].includes(state.status) && role === 'buyer' && state.shipped && fullyFunded && !openProposals.some((p) => p.purpose === 'release' && p.signedBy.includes('buyer')) && (
         <div class="card">
-          <h3>{T('Received the item?', 'Item ontvangen?')}</h3>
+          <h3>{receivedQuestion(state)}</h3>
           <p>{T('If it is as described, release the payment. You get your deposit back in the same transaction.', 'Als het klopt met de beschrijving, geef dan de betaling vrij. Je krijgt je borg in dezelfde transactie terug.')}</p>
           <Action class="primary" confirm={T('Release the payment to the seller? This cannot be undone.', 'Betaling vrijgeven aan de verkoper? Dit kan niet ongedaan worden.')} onClick={async () => {
             await markReceived(state, '');

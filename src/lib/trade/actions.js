@@ -8,6 +8,7 @@ import { escrowFunding, Esplora } from '../btc/esplora.js';
 import { settings } from '../settings.js';
 import { newTradeId, roleOf } from './protocol.js';
 import { decodeInvoice } from '../ln/bolt11.js';
+import { isService } from '../categories.js';
 import { invoiceFromAddress } from '../ln/lnurl.js';
 import { makeInvoice, payInvoice, walletConnected } from '../ln/wallet.js';
 
@@ -43,6 +44,7 @@ export async function createOffer({ listing, priceSats, buyerDepositSats, seller
   const listingInfo = {
     coord: listing.coord, sellerPubkey: listing.pubkey, title: listing.title, image: listing.images[0] || '',
     price: listing.price, currency: listing.currency, shippingCost: listing.shippingCost,
+    ...(isService(listing.category) ? { kind: 'service', priceUnit: listing.priceUnit || '' } : {}),
   };
   if (payment === 'direct') {
     const body = {

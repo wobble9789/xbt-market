@@ -282,7 +282,7 @@ try {
     await fill(p, 'Title', 'Wollen sjaal, rood');
     await fill(p, 'Description', 'Zachte wollen sjaal, nauwelijks gedragen.');
     await fill(p, 'Price', '2');
-    await select(p, 'Category', 'clothing');
+    await select(p, 'Category', 'kleding-dames');
     await select(p, 'Condition', 'like-new');
     await fill(p, 'Location', 'Utrecht, NL');
     await fillPh(p, 'Price', '4.95');
@@ -366,12 +366,12 @@ try {
     if (order[0] !== 'Sorteertest goedkoop' || order.length !== 2) throw new Error('order ' + order.join(', '));
     await proof(c, 'plan', 'LST-6 · Zoeken op "Sorteertest", gesorteerd op laagste prijs');
     await c.evaluate(() => { const i = document.querySelector('.searchbar input'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); });
-    await (await c.$('.searchbar select')).select('clothing');
+    await (await c.$('.searchbar select')).select('kleding-dames');
     await sleep(500);
     const cat = await c.$$eval('.listing-card .title', (t) => t.map((x) => x.textContent));
     // Other suites on the same relay may have listed clothing too; none of the plan's non-clothing items may show.
     if (!cat.includes('Wollen sjaal, rood') || cat.some((t) => /Sorteertest|Testding|ASIC/.test(t))) throw new Error('category filter shows ' + cat.join(', '));
-    return `search finds only matching titles, lowest price first; category Clothing shows the scarf and no other categories (${cat.length} items)`;
+    return `search finds only matching titles, lowest price first; category Kleding | Dames shows the scarf and no other categories (${cat.length} items)`;
   });
   await step('LST-7', 'Price in XBT', async () => {
     const c = await openListing('C', 'Wollen sjaal, rood');
@@ -863,6 +863,50 @@ try {
   });
 
   // ---- AI ----
+  // ---- services (Diensten en Vakmensen) ----
+  await step('SRV-1', 'Offer a service with a price per hour', async () => {
+    const p = await B('#/sell/new');
+    await fill(p, 'Title', 'Klusjesman voor kleine reparaties');
+    await select(p, 'Category', 'diensten-en-vakmensen');
+    if (await exists(p, fieldX('Condition', 'select'))) throw new Error('condition shown for a service');
+    if ((await text(p)).includes('Delivery options')) throw new Error('delivery options shown for a service');
+    await fill(p, 'Price', '40');
+    await select(p, 'Price per', 'hour');
+    await click(p, 'Publish');
+    await waitText(p, 'Klusjesman voor kleine reparaties');
+    const c = await openListing('C', 'Klusjesman voor kleine reparaties');
+    await waitText(c, '€40.00 per hour');
+    await waitText(c, 'Services and Trades');
+    return 'no condition or delivery for a service; buyers see "€40.00 per hour" in Diensten en Vakmensen';
+  });
+  await step('SRV-2', 'Book a service and mark it done', async () => {
+    const c = await openListing('C', 'Klusjesman voor kleine reparaties');
+    await click(c, 'Buy');
+    if (await exists(c, fieldX('Shipping address'))) throw new Error('shipping address asked for a service');
+    await choose(c, 'Direct, Lightning');
+    await waitText(c, 'Agreed price in XBT (total)');
+    await click(c, 'Send order');
+    await c.waitForFunction(() => location.hash.startsWith('#/trade/'), { timeout: 20000 });
+    const id = await tradeIdOf(c);
+    const p = await B(`#/trade/${id}`);
+    await waitText(p, 'New order', 30000);
+    await click(p, 'Accept');
+    await click(p, 'Create invoice with my wallet');
+    await waitText(p, 'I received the payment', 60000);
+    const c2 = await go('C', `#/trade/${id}`);
+    await click(c2, '⚡ Pay with my wallet');
+    await waitText(c2, 'Paid. The Lightning preimage proves it.', 60000);
+    const p2 = await B(`#/trade/${id}`);
+    await waitText(p2, 'Job done?', 30000);
+    await click(p2, 'Mark as done');
+    await waitText(p2, 'The seller marked the job as done.');
+    const c3 = await go('C', `#/trade/${id}`);
+    await waitText(c3, 'Was the job done well?', 30000);
+    await click(c3, 'Yes, done well');
+    await waitText(c3, 'Completed', 30000);
+    return 'booked without an address, paid, seller marked "done", buyer confirmed';
+  });
+
   await step('AI-1', 'Save the API key', async () => {
     const p = await B('#/settings');
     await fillPh(p, 'sk-ant-…', 'sk-ant-plan-test-key');
@@ -877,7 +921,7 @@ try {
     const input = await p.$('input[type=file]');
     await input.uploadFile('public/icon-512.png');
     await p.waitForFunction(() => document.querySelectorAll('.photos .photo img').length >= 1, { timeout: 30000 });
-    await fakeAnthropic(p, { title: 'Rode wollen sjaal', description: 'Zachte rode sjaal van wol, zo goed als nieuw. Geen vlekken of gaten zichtbaar.', category: 'clothing', condition: 'like-new', price: 8, notes: 'Vermeld de lengte van de sjaal.' });
+    await fakeAnthropic(p, { title: 'Rode wollen sjaal', description: 'Zachte rode sjaal van wol, zo goed als nieuw. Geen vlekken of gaten zichtbaar.', category: 'kleding-dames', condition: 'like-new', price: 8, notes: 'Vermeld de lengte van de sjaal.' });
     await click(p, '✨ Write listing from photos');
     await p.waitForFunction(() => [...document.querySelectorAll('label.field')].find((l) => l.querySelector('.label')?.textContent === 'Title')?.querySelector('input')?.value === 'Rode wollen sjaal', { timeout: 30000 });
     const call = (await p.evaluate(() => window.__aiCalls))[0]?.body;
