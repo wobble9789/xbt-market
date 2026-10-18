@@ -28,6 +28,8 @@ import { Reputation, payLabel, payShort, useListing } from './Listing.jsx';
 import { OrderForm } from './Order.jsx';
 
 const ROLE = { buyer: ['Buyer', 'Comprador'], seller: ['Seller', 'Vendedor'], arbiter: ['Arbiter', 'Árbitro'], other: ['Unknown', 'Desconocido'] };
+// Below this an output would be dust (546 sats) once its share of the network fee is taken.
+const MIN_FEE_OUTPUT = 1000;
 const roleLabel = (r) => T(...(ROLE[r] || ROLE.other));
 
 export const STATUS = {
@@ -149,7 +151,9 @@ function SplitEditor({ state, balance, purpose: initialPurpose, onDone, role }) 
   const dir = useStore(directory);
   const feeAddress = useStore(settings, (s) => s.payoutAddress);
   const feePct = role === 'arbiter' ? arbiterFeePct(dir.announcements.get(state.participants.arbiter)) : 0;
-  const fee = feePct && feeAddress ? Math.floor((balance * feePct) / 100) : 0;
+  // A fee too small for its own output would only be lost to the network fee.
+  const feeSats = feePct && feeAddress ? Math.floor((balance * feePct) / 100) : 0;
+  const fee = feeSats >= MIN_FEE_OUTPUT ? feeSats : 0;
   const rest = balance - fee;
   const sellerSats = parseCoin(sellerText);
   const valid = sellerSats != null && sellerSats <= rest;
@@ -173,6 +177,7 @@ function SplitEditor({ state, balance, purpose: initialPurpose, onDone, role }) 
       </Field>
       {valid && <p>{T('Buyer receives', 'El comprador recibe')}: <Coin sats={rest - sellerSats} /></p>}
       {fee > 0 && <p>{T(`Your fee (${feePct}%)`, `Tu comisión (${feePct}%)`)}: <Coin sats={fee} /></p>}
+      {feeSats > 0 && !fee && <p class="hint">{T(`Your fee (${feePct}%, ${feeSats} sats) is too small to pay out on chain and is left out.`, `Tu comisión (${feePct}%, ${feeSats} sats) es demasiado pequeña para pagarla en cadena y se omite.`)}</p>}
       {feePct > 0 && !feeAddress && <p class="notice warn small">{T('No fee: set your payout address under Account → Trading first.', 'Sin comisión: primero pon tu dirección de cobro en Cuenta → Compraventa.')}</p>}
       <p class="hint">{T('The network fee is shared in proportion to each amount.', 'La comisión de red se reparte en proporción a cada importe.')}</p>
       <Field label={T('Note', 'Nota')}><textarea rows="2" value={note} onInput={(e) => setNote(e.target.value)} /></Field>

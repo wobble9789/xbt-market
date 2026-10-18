@@ -1030,7 +1030,8 @@ try {
     await go('A', `#/trade/${tid2}`);
     await waitText(p, 'Dispute opened by the buyer', 30000);
     await click(p, 'Propose a ruling');
-    await waitText(p, 'Your fee (2%)');
+    // The test amounts are small: 2% of this escrow is below what can be paid out on chain.
+    await waitText(p, 'is too small to pay out on chain and is left out');
     const sd = await p.evaluate(() => { const t = document.querySelector('main').innerText.match(/Seller pays \(deposit\)\s*([\d.]+)/); return t && t[1]; });
     await fill(p, 'Seller receives (XBT)', sd);
     await fill(p, 'Note', 'Niet verzonden binnen de termijn: terugbetaling aan koper, verkoper houdt eigen borg.');
@@ -1039,9 +1040,8 @@ try {
     const c = await go('C', `#/trade/${tid2}`);
     await waitText(c, 'Arbiter ruling', 30000);
     await waitText(c, 'terugbetaling aan koper');
-    await waitText(c, 'Arbiter fee (2%)');
-    if ((await text(c)).includes('Pays to an address that is not')) throw new Error('fee output flagged as unknown');
-    return `buyer and seller see "Arbiter ruling" with amounts, note and "Arbiter fee (2%)" (seller gets ${sd} XBT back)`;
+    if ((await text(c)).includes('Pays to an address that is not')) throw new Error('unknown output');
+    return `buyer and seller see "Arbiter ruling" with amounts and note (seller gets ${sd} XBT back); the 2% fee was too small for an output and was left out, as shown to the arbiter`;
   });
   await step('DSP-4', 'Co-sign the ruling', async () => {
     const c = await as('C');
