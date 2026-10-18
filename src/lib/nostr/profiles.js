@@ -31,6 +31,20 @@ export function getProfile(pk) {
   return cache.get(pk);
 }
 
+// Profiles already loaded whose username or name contains `q` (for @search
+// without the username service: everyone with a listing is loaded).
+export function searchCachedProfiles(q) {
+  const n = String(q || '').toLowerCase();
+  if (!n) return [];
+  const hits = [];
+  for (const [pubkey, p] of cache) {
+    const names = [p.name, p.display_name, String(p.nip05 || '').split('@')[0]].filter(Boolean).map((x) => String(x).toLowerCase());
+    const exact = names.some((x) => x === n);
+    if (exact || names.some((x) => x.includes(n))) hits.push({ pubkey, name: p.name || p.display_name, exact });
+  }
+  return hits.sort((a, b) => b.exact - a.exact).slice(0, 30);
+}
+
 export function useProfile(pk) {
   const [p, setP] = useState(() => (pk ? cache.get(pk) : null));
   useEffect(() => {

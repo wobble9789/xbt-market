@@ -58,10 +58,14 @@ The fee (`ceil(vsize × feeRate)`, where vsize is estimated with 73-byte signatu
 | `title`, `summary`, `published_at` | as NIP-99 |
 | `price` | `["price", "<amount>", "<EUR|USD|…|XBT>", "<hour|day|week|month>"?]`: the fourth element (NIP-99 frequency) is set for services priced per period |
 | `t` | must include `xbt-market` and `btcb2`, plus one category: a Marktplaats main-category slug from `src/lib/categories.js` (e.g. `huis-en-inrichting`, `diensten-en-vakmensen`). Older ids (`home`, `books`, …) are mapped onto these when read |
-| `status` | `active`, `sold` or `deleted` |
+| `subcategory` | a Marktplaats subcategory slug under the main category (`src/lib/category-tree.js`) |
+| `model` | for car and motorbike brands: a model slug from `src/lib/category-models.js`, or `other` |
+| `status` | `active`, `reserved`, `sold` or `deleted` |
 | `image` | one per photo (http(s) only) |
 | `condition` | `new`, `like-new`, `good`, `fair` or `for-parts` |
-| `location`, `ships_to` | free text |
+| `country` | ISO country code where the item is (pick-up, and where parcels leave from) |
+| `location` | free text (town, country) |
+| `ships_to` | one per destination: an ISO country code, `EU` or `WORLD`. Exactly where the seller ships; none means only within `country` |
 | `shipping_cost` | `["shipping_cost", "<amount>", "<currency>"]`: the cheapest paid delivery option, for older clients |
 | `shipping_option` | one per delivery option: `["shipping_option", "<carrier id>", "<price>", "<currency>"]`. Carrier ids are in `src/lib/shipping.js` (`pickup`, `postnl`, `dhl`, …) |
 | `payment` | one per accepted payment method: `escrow`, `onchain` or `lightning`. No `payment` tag means escrow only |
@@ -73,10 +77,19 @@ The fee (`ceil(vsize × feeRate)`, where vsize is estimated with 73-byte signatu
 
 ### 4.2 Arbiter announcement and community config — kind 30078
 
-- `d = xbt-market/arbiter`, signed by the arbiter. Content JSON: `{ v: 1, escrowBase: <P_base hex>, name, about, languages, feeNote, active }`.
-- `d = xbt-market/config`, signed by the community admin. Content JSON: `{ v: 1, arbiters: [<pubkey hex>, …] }`.
+- `d = xbt-market/arbiter`, signed by the arbiter. Content JSON: `{ v: 2, escrowBase: <P_base hex>, name, about, languages, feePct, active }`. `feePct` (0–10) is the arbiter's fee as a percentage of the escrow, taken only in a ruling. Version 1 had a free-text `feeNote` instead (read as 0%).
+- `d = xbt-market/config`, signed by the community admin. Content JSON: `{ v: 1, arbiters: [<pubkey>…], rejected: [<pubkey>…], suspended: [<pubkey>…], cleared: [<pubkey>…] }`. `rejected`: arbiter requests the admin turned down. `suspended`: accounts the admin suspended. `cleared`: accounts the admin made active again after they were blocked too often.
 
 An arbiter is **trusted** when its pubkey is in the admin's list (or in the user's own list) **and** it has an announcement. Its `escrowBase` is taken from that announcement.
+
+**Fee in a ruling.** A `proposal` with `purpose: "ruling"` from the arbiter may carry one output beyond the buyer's and seller's payout addresses: the arbiter's fee, at most `floor(total × feePct / 100)`. Clients label it as the arbiter fee and only warn about an unknown output when there is more than one, or when it exceeds the announced percentage.
+
+### 4.2b Blocking, reports and inactive accounts
+
+- **Block list**: kind 30000, `d = xbt-market/blocked`, one `p` tag per blocked pubkey. Public on purpose: clients hide a blocked seller's listings for the blocker, and a seller's list tells a buyer that the seller does not take their orders.
+- **Inactive account**: blocked by 10 or more different block lists, unless the admin's `cleared` has it; or in the admin's `suspended`. Clients hide its listings and refuse to start a trade with it.
+- **Report**: a gift-wrapped rumor (kind 1716) to the admin, tags `['xbt-report', <pubkey>]` and `['l', <reason>]`, content JSON `{ pk, reason, text, listing }`. Reasons: `scam`, `no-delivery`, `fake`, `prohibited`, `abuse`, `spam`, `other`.
+- **Bug report**: the same rumor kind with tag `['xbt-bug', '1']`, content JSON `{ text, page, ua, files, emailed }`; the files themselves go by e-mail through the service.
 
 ### 4.3 Review — kind 1985 (NIP-32)
 

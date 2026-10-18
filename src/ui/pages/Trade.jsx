@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { useStore } from '../../lib/store.js';
 import { inbox, rumorsFor } from '../../lib/nostr/inbox.js';
 import { account } from '../../lib/nostr/account.js';
-import { directory, refreshDirectory } from '../../lib/nostr/directory.js';
+import { directory, refreshDirectory, arbiterFeePct, arbiterFeeLabel } from '../../lib/nostr/directory.js';
 import { publishReview, reviewsAbout, tradeLimitFor } from '../../lib/nostr/reviews.js';
 import { settings, updateSettings } from '../../lib/settings.js';
 import { reduceTrade, expectedTotal, presetAllocations, deadlines, paymentProof, methodOf } from '../../lib/trade/protocol.js';
@@ -28,6 +28,8 @@ import { Reputation, payLabel, payShort, useListing } from './Listing.jsx';
 import { OrderForm } from './Order.jsx';
 
 const ROLE = { buyer: ['Buyer', 'Comprador'], seller: ['Seller', 'Vendedor'], arbiter: ['Arbiter', 'Árbitro'], other: ['Unknown', 'Desconocido'] };
+// Below this an output would be dust (546 sats) once its share of the network fee is taken.
+const MIN_FEE_OUTPUT = 1000;
 const roleLabel = (r) => T(...(ROLE[r] || ROLE.other));
 
 export const STATUS = {
@@ -111,7 +113,7 @@ function EscrowBox({ state, funding, fundErr, refresh, role, done }) {
               </td></tr>
             </tbody>
           </table>
-          {myPart > 0 && !done && <p class="notice">{T(`Your part: send ${formatCoin(myPart)} to the address above from a BLAKE2b wallet that signs with the unified sighash (Knots, Sparrow BLAKE2b, Shrike), so the payment cannot be replayed on the other chain.`, `Tu parte: envía ${formatCoin(myPart)} a la dirección de arriba desde una cartera BLAKE2b que firme con el sighash unificado (Knots, Sparrow BLAKE2b, Shrike), para que el pago no se pueda reproducir en la otra cadena.`)}</p>}
+          {myPart > 0 && !done && <p class="notice">{T(`Your part: send ${formatCoin(myPart)} to the address above from your own XBT wallet. Use coins received after the chain split, or a wallet that signs with the unified sighash, so the payment cannot be repeated on the other chain.`, `Tu parte: envía ${formatCoin(myPart)} a la dirección de arriba desde tu propia cartera XBT. Usa monedas recibidas después de la división de la cadena, o una cartera que firme con el sighash unificado, para que el pago no se pueda repetir en la otra cadena.`)}</p>}
           <div class="row">
             <button class="btn small" onClick={refresh}>{T('Refresh', 'Actualizar')}</button>
             <a class="btn small ghost" href={`${explorer}/address/${state.escrow.address}`} target="_blank" rel="noopener noreferrer">{T('View on explorer', 'Ver en el explorador')}</a>
@@ -129,7 +131,11 @@ function EscrowBox({ state, funding, fundErr, refresh, role, done }) {
         <p>{T('2-of-3 P2WSH multisig. Keys (sorted):', 'Multisig P2WSH 2 de 3. Claves (ordenadas):')}</p>
         <ul>{state.escrow.pubkeys.map((k) => <li key={k}><code>{k}</code> {Object.entries(state.escrowKeys).find(([, v]) => v === k)?.[0]}</li>)}</ul>
         <p>{T('Witness script', 'Witness script')}: <code class="break">{state.escrow.witnessScript}</code></p>
-        <p class="hint">{T('Your escrow key is derived from your Nostr key and this trade id. Any two of the three parties can always move the coins, with or without this app.', 'Tu clave de escrow se deriva de tu clave Nostr y del id de esta compra. Dos de las tres partes siempre pueden mover las monedas, con o sin esta app.')}</p>
+        <ul class="hint">
+          <li>{T('The escrow is a lock with three keys: buyer, seller and arbiter. Any two of them together can move the coins.', 'El escrow es un candado con tres llaves: comprador, vendedor y árbitro. Dos de ellas juntas pueden mover las monedas.')}</li>
+          <li>{T('Your key is one of these three. The app makes it from your nsec and this trade, so your nsec backup is all you need.', 'Tu llave es una de las tres. La app la crea a partir de tu nsec y esta compra, así que basta con tu copia del nsec.')}</li>
+          <li>{T('The witness script is the exact lock. With it and two keys, the coins can be moved with another wallet too, should this app ever be gone.', 'El witness script es el candado exacto. Con él y dos llaves, las monedas también se pueden mover con otra cartera si esta app desapareciera.')}</li>
+        </ul>
       </details>
     </div>
   );
@@ -141,11 +147,20 @@ function SplitEditor({ state, balance, purpose: initialPurpose, onDone, role }) 
   const [sellerText, setSellerText] = useState(formatCoin(preset.find((a) => a.role === 'seller')?.sats || 0, { unit: false }));
   const [note, setNote] = useState('');
   useEffect(() => { setSellerText(formatCoin(preset.find((a) => a.role === 'seller')?.sats || 0, { unit: false })); }, [preset]);
+  // An arbiter's ruling includes the announced fee, to their payout address.
+  const dir = useStore(directory);
+  const feeAddress = useStore(settings, (s) => s.payoutAddress);
+  const feePct = role === 'arbiter' ? arbiterFeePct(dir.announcements.get(state.participants.arbiter)) : 0;
+  // A fee too small for its own output would only be lost to the network fee.
+  const feeSats = feePct && feeAddress ? Math.floor((balance * feePct) / 100) : 0;
+  const fee = feeSats >= MIN_FEE_OUTPUT ? feeSats : 0;
+  const rest = balance - fee;
   const sellerSats = parseCoin(sellerText);
-  const valid = sellerSats != null && sellerSats <= balance;
+  const valid = sellerSats != null && sellerSats <= rest;
   const allocations = valid ? [
     { role: 'seller', address: state.payout.seller, sats: sellerSats },
-    { role: 'buyer', address: state.payout.buyer, sats: balance - sellerSats },
+    { role: 'buyer', address: state.payout.buyer, sats: rest - sellerSats },
+    { role: 'arbiter', address: feeAddress, sats: fee },
   ].filter((a) => a.sats > 0) : [];
   const purposes = role === 'arbiter' ? ['ruling'] : ['release', 'refund', 'custom'];
   return (
@@ -160,7 +175,10 @@ function SplitEditor({ state, balance, purpose: initialPurpose, onDone, role }) 
       <Field label={T('Seller receives (XBT)', 'El vendedor recibe (XBT)')}>
         <input inputmode="decimal" value={sellerText} onInput={(e) => setSellerText(e.target.value)} class={valid ? '' : 'invalid'} />
       </Field>
-      {valid && <p>{T('Buyer receives', 'El comprador recibe')}: <Coin sats={balance - sellerSats} /></p>}
+      {valid && <p>{T('Buyer receives', 'El comprador recibe')}: <Coin sats={rest - sellerSats} /></p>}
+      {fee > 0 && <p>{T(`Your fee (${feePct}%)`, `Tu comisión (${feePct}%)`)}: <Coin sats={fee} /></p>}
+      {feeSats > 0 && !fee && <p class="hint">{T(`Your fee (${feePct}%, ${feeSats} sats) is too small to pay out on chain and is left out.`, `Tu comisión (${feePct}%, ${feeSats} sats) es demasiado pequeña para pagarla en cadena y se omite.`)}</p>}
+      {feePct > 0 && !feeAddress && <p class="notice warn small">{T('No fee: set your payout address under Account → Trading first.', 'Sin comisión: primero pon tu dirección de cobro en Cuenta → Compraventa.')}</p>}
       <p class="hint">{T('The network fee is shared in proportion to each amount.', 'La comisión de red se reparte en proporción a cada importe.')}</p>
       <Field label={T('Note', 'Nota')}><textarea rows="2" value={note} onInput={(e) => setNote(e.target.value)} /></Field>
       <div class="row">
@@ -181,7 +199,13 @@ function Proposal({ state, p, role, funding }) {
   const live = funding && p.utxos.every((u) => funding.utxos.some((f) => f.txid === u.txid && f.vout === u.vout));
   const stale = funding && !live && !broadcast;
   const purpose = { release: T('Release to seller', 'Liberar al vendedor'), refund: T('Refund', 'Reembolso'), ruling: T('Arbiter ruling', 'Resolución del árbitro'), custom: T('Custom split', 'Reparto personalizado') }[p.purpose] || p.purpose;
-  const unknownOut = p.outputs.some((o) => o.role === 'other');
+  // In a ruling, one extra output is the arbiter's fee: fine up to the announced percentage.
+  const dir = useStore(directory);
+  const feePct = arbiterFeePct(dir.announcements.get(state.participants?.arbiter));
+  const extra = p.outputs.filter((o) => o.role === 'other');
+  const feeOut = p.purpose === 'ruling' && p.role === 'arbiter' && extra.length === 1 ? extra[0] : null;
+  const feeOk = feeOut && feeOut.sats <= Math.floor((p.total * feePct) / 100) + 1;
+  const unknownOut = extra.length > (feeOk ? 1 : 0);
   return (
     <div class={`card proposal ${stale ? 'stale' : ''}`}>
       <div class="page-head">
@@ -190,7 +214,7 @@ function Proposal({ state, p, role, funding }) {
       </div>
       {p.note && <p class="quote">{p.note}</p>}
       <table class="amounts"><tbody>
-        {p.outputs.map((o, i) => <tr key={i}><td>{roleLabel(o.role)} <code class="small">{o.address.slice(0, 14)}…</code></td><td><Coin sats={o.sats} /></td></tr>)}
+        {p.outputs.map((o, i) => <tr key={i}><td>{o === feeOut && feeOk ? T(`Arbiter fee (${feePct}%)`, `Comisión del árbitro (${feePct}%)`) : roleLabel(o.role)} <code class="small">{o.address.slice(0, 14)}…</code></td><td><Coin sats={o.sats} /></td></tr>)}
         <tr class="muted"><td>{T('Network fee', 'Comisión de red')}</td><td>{formatCoin(p.fee)}</td></tr>
       </tbody></table>
       {unknownOut && <p class="notice warn">{T('Pays to an address that is not the buyer\'s or seller\'s payout address. Check carefully.', 'Paga a una dirección que no es la de cobro del comprador ni la del vendedor. Revísalo bien.')}</p>}
@@ -295,7 +319,7 @@ function PaymentBox({ state, role }) {
           <QR text={uri} size={170} />
           <div>
             <div class="addr"><code class="break small">{req.method === 'lightning' ? req.invoice : req.address}</code> <Copy text={req.method === 'lightning' ? req.invoice : req.address} /></div>
-            {req.method === 'lightning' && <p class="muted small">{T('Network', 'Red')}: ln{req.network} · {expired ? <span class="error">{T('expired, ask for a new one', 'caducada, pide una nueva')}</span> : `${T('valid until', 'válida hasta')} ${fmtDate(req.expiresAt)}`}</p>}
+            {req.method === 'lightning' && <p class="muted small">{req.blake2b ? <span class="badge ok">⚡ XBT Lightning</span> : <span class="badge warn">⚠ {T('Bitcoin (BTC) Lightning, not XBT', 'Lightning de Bitcoin (BTC), no XBT')}</span>} · {expired ? <span class="error">{T('expired, ask for a new one', 'caducada, pide una nueva')}</span> : `${T('valid until', 'válida hasta')} ${fmtDate(req.expiresAt)}`}</p>}
             {role === 'buyer' && (
               <>
                 <div class="row">
@@ -534,13 +558,13 @@ function DetailsForm({ state, role }) {
         <Field label={T('Arbiter', 'Árbitro')} hint={T('Only steps in if you and the seller disagree. Holds one of the three escrow keys.', 'Solo interviene si el vendedor y tú no os ponéis de acuerdo. Tiene una de las tres claves del escrow.')}>
           {arbiters.length ? (
             <select value={arbiter} onChange={(e) => setArbiter(e.target.value)}>
-              {arbiters.map((a) => <option key={a.pubkey} value={a.pubkey}>{a.name || a.pubkey.slice(0, 12)}{a.languages ? ` (${a.languages})` : ''}</option>)}
+              {arbiters.map((a) => <option key={a.pubkey} value={a.pubkey}>{a.name || a.pubkey.slice(0, 12)}{a.languages ? ` (${a.languages})` : ''} · {arbiterFeeLabel(a)}</option>)}
             </select>
           ) : <p class="notice warn">{dir.loaded ? T('No approved arbiters yet. Ask the seller to switch to Lightning, or add an arbiter you trust under Account.', 'Aún no hay árbitros aprobados. Pide al vendedor cambiar a Lightning o añade un árbitro de confianza en Cuenta.') : <Spinner />}</p>}
         </Field>
       )}
       {needPayout && (
-        <Field label={role === 'buyer' ? T('Your XBT address for refunds and your deposit', 'Tu dirección XBT para reembolsos y tu depósito') : T('Your XBT payout address', 'Tu dirección XBT de cobro')} hint={payout && !payoutOk ? T('Not a valid address for ' + state.offer.network, 'No es una dirección válida para ' + state.offer.network) : T('A wallet that follows the BLAKE2b chain (e.g. Sparrow BLAKE2b).', 'Una cartera que siga la cadena BLAKE2b (p. ej. Sparrow BLAKE2b).')}>
+        <Field label={role === 'buyer' ? T('Your XBT address for refunds and your deposit', 'Tu dirección XBT para reembolsos y tu depósito') : T('Your XBT payout address', 'Tu dirección XBT de cobro')} hint={payout && !payoutOk ? T('Not a valid address for ' + state.offer.network, 'No es una dirección válida para ' + state.offer.network) : T('An address from your own XBT wallet (BLAKE2b chain).', 'Una dirección de tu propia cartera XBT (cadena BLAKE2b).')}>
           <input value={payout} onInput={(e) => setPayout(e.target.value)} placeholder="bc1q…" class={payout && !payoutOk ? 'invalid' : ''} />
         </Field>
       )}

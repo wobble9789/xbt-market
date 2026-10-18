@@ -37,8 +37,9 @@ function addRumors(list) {
 
 function accept(rumor) {
   if (!rumor || typeof rumor.id !== 'string') return null;
-  if (rumor.kind !== TRADE_KIND && rumor.kind !== CHAT_KIND) return null;
-  if (!rumor.tags?.some((t) => t[0] === 'xbt-trade')) return null;
+  const report = rumor.kind === REPORT_KIND && rumor.tags?.some((t) => t[0] === 'xbt-report' || t[0] === 'xbt-bug');
+  if (!report && rumor.kind !== TRADE_KIND && rumor.kind !== CHAT_KIND) return null;
+  if (!report && !rumor.tags?.some((t) => t[0] === 'xbt-trade')) return null;
   if (getEventHash(rumor) !== rumor.id) return null;
   const { id, pubkey, created_at, kind, tags, content } = rumor;
   return { id, pubkey, created_at, kind, tags, content };
@@ -124,6 +125,18 @@ export async function sendTradeMessage(tradeId, type, body, participants) {
   if (own) addRumors([own]);
   return { rumor: own, delivered, total: wraps.length };
 }
+
+// A private message outside any trade (a report or bug report to the admin):
+// gift-wrapped like trade messages, so nobody else sees who sent what.
+export const REPORT_KIND = 1716;
+export async function sendPrivate(to, content, tags) {
+  const sk = secretKey();
+  const [, theirs] = nip59.wrapManyEvents({ kind: REPORT_KIND, created_at: Math.floor(Date.now() / 1000), content, tags: [['p', to], ...tags] }, sk, [to]);
+  await publishEvent(theirs);
+}
+
+// Reports and bug reports in my inbox (the admin's).
+export const reportsIn = (rumors = inbox.get().rumors) => Object.values(rumors).filter((r) => r.kind === REPORT_KIND).sort((a, b) => b.created_at - a.created_at);
 
 // Sends copies of my own earlier messages in a trade to someone who joins it
 // later (the arbiter, chosen after the offer). They stay authenticated: each

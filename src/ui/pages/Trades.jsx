@@ -4,6 +4,7 @@ import { useStore } from '../../lib/store.js';
 import { inbox, tradeIds, rumorsFor } from '../../lib/nostr/inbox.js';
 import { account } from '../../lib/nostr/account.js';
 import { directory } from '../../lib/nostr/directory.js';
+import { blocks } from '../../lib/nostr/moderation.js';
 import { reduceTrade } from '../../lib/trade/protocol.js';
 import { T, timeAgo } from '../i18n.js';
 import { Coin, Img, Empty, Spinner, Name } from '../components.jsx';
@@ -37,7 +38,11 @@ export function TradeRow({ t }) {
 }
 
 export function Trades() {
-  const trades = useMyTrades().filter((t) => t.state.role !== 'arbiter');
+  const blocked = useStore(blocks, (b) => b.set);
+  // Messages and new orders from people I blocked are hidden; a trade with
+  // money in it stays, so it can always be finished.
+  const counterpart = (s) => (s.role === 'buyer' ? s.participants.seller : s.participants.buyer);
+  const trades = useMyTrades().filter((t) => t.state.role !== 'arbiter' && !(['chat', 'offered'].includes(t.state.status) && blocked.has(counterpart(t.state))));
   const { syncing } = useStore(inbox);
   const DONE = ['closed', 'rejected', 'cancelled', 'completed'];
   const active = trades.filter((t) => !DONE.includes(t.state.status));

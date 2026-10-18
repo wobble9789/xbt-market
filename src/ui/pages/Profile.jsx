@@ -9,7 +9,9 @@ import { reviewsAbout } from '../../lib/nostr/reviews.js';
 import { T, timeAgo, countryName } from '../i18n.js';
 import { Avatar, Name, Stars, Empty, Spinner, Copy, Action } from '../components.jsx';
 import { ListingCard } from './Browse.jsx';
-import { EditProfile } from './EditProfile.jsx';
+import { blocks, blockCounts, loadBlockCounts, suspension } from '../../lib/nostr/moderation.js';
+import { directory } from '../../lib/nostr/directory.js';
+import { ReportUser, BlockButton } from '../report.jsx';
 
 export function FollowButton({ pk }) {
   const me = useStore(account, (a) => a.pubkey);
@@ -28,8 +30,12 @@ export function Profile({ id }) {
   const user = useUsername(pk);
   const { listings } = useStore(market);
   const [rep, setRep] = useState(null);
-  const [editing, setEditing] = useState(false);
-  useEffect(() => { if (pk) reviewsAbout(pk).then(setRep).catch(() => setRep({ reviews: [], count: 0 })); }, [pk]);
+  const [reporting, setReporting] = useState(false);
+  const blocked = useStore(blocks, (b) => b.set.has(pk));
+  const dir = useStore(directory);
+  const { counts } = useStore(blockCounts);
+  useEffect(() => { if (pk) { reviewsAbout(pk).then(setRep).catch(() => setRep({ reviews: [], count: 0 })); loadBlockCounts([pk]); } }, [pk]);
+  const suspended = pk ? suspension(pk, dir, counts) : null;
   if (!pk) return <Empty>{T('Unknown user', 'Usuario desconocido')}</Empty>;
   const theirs = [...listings.values()].filter((l) => l.pubkey === pk).sort((a, b) => b.createdAt - a.createdAt);
   const active = theirs.filter((l) => l.status === 'active' || l.status === 'reserved');
@@ -49,17 +55,22 @@ export function Profile({ id }) {
             {links.marktplaats && <span class="badge">Marktplaats: {links.marktplaats}</span>}
             {links.vinted && <span class="badge">Vinted: {links.vinted}</span>}
             {links.ebay && <a class="badge" href={`https://www.ebay.com/usr/${encodeURIComponent(links.ebay)}`} target="_blank" rel="noopener noreferrer">eBay: {links.ebay}</a>}
+            {links.other && (/^https?:\/\//.test(links.other) ? <a class="badge" href={links.other} target="_blank" rel="noopener noreferrer">{links.other.replace(/^https?:\/\//, '').slice(0, 40)}</a> : <span class="badge">{links.other}</span>)}
           </div>
           <div class="row">
             <FollowButton pk={pk} />
-            {me === pk && <button class="btn small primary" onClick={() => setEditing(!editing)}>✏️ {T('Edit profile', 'Editar perfil')}</button>}
+            {me === pk && <a class="btn small primary" href="#/settings?open=profile">✏️ {T('Edit profile', 'Editar perfil')}</a>}
+            {me && me !== pk && <button class="btn small ghost" onClick={() => setReporting(!reporting)}>🚩 {T('Report', 'Denunciar')}</button>}
+            <BlockButton pk={pk} />
           </div>
         </div>
         <div class="right">
           {rep ? <><Stars value={rep.avg} /><div class="small">{rep.verifiedTrades} {T('verified trades', 'compras verificadas')}</div><div class="small muted">{rep.count} {T('reviews', 'valoraciones')}{rep.negative ? ` · ${rep.negative} ${T('negative', 'negativas')}` : ''}</div></> : <Spinner />}
         </div>
       </div>
-      {editing && <EditProfile pk={pk} profile={profile} onDone={() => setEditing(false)} />}
+      {suspended && <p class="notice warn">⛔ {suspended === 'admin' ? T('This account has been suspended by the community admin.', 'El administrador de la comunidad ha suspendido esta cuenta.') : T('This account is inactive: too many people blocked it.', 'Esta cuenta está inactiva: demasiadas personas la han bloqueado.')}</p>}
+      {blocked && <p class="notice small">{T('You blocked this user: their listings are hidden for you.', 'Has bloqueado a este usuario: sus anuncios están ocultos para ti.')}</p>}
+      {reporting && <ReportUser pk={pk} onDone={() => setReporting(false)} />}
       <h3>{T('Listings', 'Anuncios')} <span class="muted small">({active.length})</span></h3>
       {active.length ? <div class="grid">{active.map((l) => <ListingCard key={l.coord} l={l} />)}</div> : <Empty>{T('No active listings.', 'No hay anuncios activos.')}</Empty>}
       {sold.length > 0 && <>

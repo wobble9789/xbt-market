@@ -1,5 +1,6 @@
 // A pretend Sendcloud (API v3) for development and tests: shipping options with
 // prices, announcing a shipment, a label PDF and a QR code, and pick-up points.
+// Also a pretend Resend, for the bug report e-mails.
 //   node dev/sendcloud-mock.mjs [port]   (default 3011)
 // Point the service at it: SENDCLOUD_BASE=http://127.0.0.1:3011/api/v3
 //   SENDCLOUD_POINTS_BASE=http://127.0.0.1:3011/points SENDCLOUD_PUBLIC_KEY=x SENDCLOUD_SECRET_KEY=y
@@ -20,6 +21,7 @@ const OPTIONS = [
 ];
 const SIZES = { 2: 'S', 5: 'M', 10: 'L', 20: 'XL' };
 const shipments = new Map();
+const emails = [];
 let nextId = 1000;
 
 const pdf = (text) => Buffer.from(`%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 298 420]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj 4 0 obj<</Length ${text.length + 40}>>stream\nBT /F1 14 Tf 20 380 Td (${text}) Tj ET\nendstream endobj 5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF`);
@@ -37,6 +39,17 @@ http.createServer(async (req, res) => {
   let body = '';
   for await (const c of req) body += c;
   const data = body ? JSON.parse(body) : {};
+  // A pretend Resend (e-mail) for bug reports: RESEND_BASE=http://127.0.0.1:3011/resend
+  if (url.pathname === '/resend/emails' && req.method === 'POST') {
+    const mail = data;
+    emails.push({ to: mail.to, subject: mail.subject, html: mail.html, attachments: (mail.attachments || []).map((a) => ({ filename: a.filename, bytes: Buffer.from(a.content, 'base64').length })) });
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ id: 'mail' + emails.length }));
+  }
+  if (url.pathname === '/resend/emails' && req.method === 'GET') {
+    res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
+    return res.end(JSON.stringify(emails));
+  }
   if (!req.headers.authorization?.startsWith('Basic ')) return send(res, 401, { errors: [{ detail: 'Unauthorized' }] });
   const p = url.pathname;
   if (p === '/api/v3/shipping-options' && req.method === 'POST') {

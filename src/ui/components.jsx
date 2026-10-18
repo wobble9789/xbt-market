@@ -160,13 +160,16 @@ export function Empty({ children }) {
   return <div class="empty">{children}</div>;
 }
 
-export function Field({ label, hint, children }) {
+// `group`: several controls (chips, checkboxes) instead of one. A <label>
+// would forward every click inside it to its first control.
+export function Field({ label, hint, children, group = false }) {
+  const Tag = group ? 'div' : 'label';
   return (
-    <label class="field">
+    <Tag class="field" role={group ? 'group' : undefined}>
       <span class="label">{label}</span>
       {children}
       {hint && <span class="hint">{hint}</span>}
-    </label>
+    </Tag>
   );
 }
 

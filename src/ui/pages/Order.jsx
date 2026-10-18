@@ -92,7 +92,7 @@ export function OrderForm({ state, listing, onClose }) {
   return (
     <div class="card offer order-form">
       <h3>🛒 {T('Order', 'Pedido')}</h3>
-      <Field label={T('How do you want to pay?', '¿Cómo quieres pagar?')}>
+      <Field group label={T('How do you want to pay?', '¿Cómo quieres pagar?')}>
         <div class="choices">
           {listing.payments.map((p) => (
             <label key={p} class={`choice ${pay === p ? 'on' : ''}`}>
@@ -107,7 +107,7 @@ export function OrderForm({ state, listing, onClose }) {
         : <p class={`notice small ${advise ? 'warn' : ''}`}>{T('You pay the seller directly: fast and without deposits, but without an arbiter.', 'Pagas directamente al vendedor: rápido y sin depósitos, pero sin árbitro.')}{advise && ' ' + T(`For more than ${formatFiat(s.escrowAdviceAbove, listing.currency)} we recommend escrow.`, `Para más de ${formatFiat(s.escrowAdviceAbove, listing.currency)} recomendamos escrow.`)}</p>}
 
       {!service && (
-        <Field label={T('Delivery', 'Entrega')}>
+        <Field group label={T('Delivery', 'Entrega')}>
           <div class="choices">
             {shipOk && <label class={`choice ${delivery === 'ship' ? 'on' : ''}`}><input type="radio" name="delivery" checked={delivery === 'ship'} onChange={() => setDelivery('ship')} /><span>📦 {T('Ship it to me', 'Envíamelo')}</span></label>}
             {pickupOk && <label class={`choice ${delivery === 'pickup' ? 'on' : ''}`}><input type="radio" name="delivery" checked={delivery === 'pickup'} onChange={() => setDelivery('pickup')} /><span>🤝 {T('Pick up', 'Recoger')}{listing.city || listing.country ? ` (${[listing.city, countryName(listing.country)].filter(Boolean).join(', ')})` : ''}</span></label>}

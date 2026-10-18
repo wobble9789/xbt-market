@@ -36,6 +36,7 @@ export function listingTemplate(l) {
   ];
   if (l.category) t.push(['t', l.category]);
   if (l.subcategory) t.push(['subcategory', l.subcategory]);
+  if (l.subcategory && l.model) t.push(['model', l.model]);
   if (l.condition) t.push(['condition', l.condition]);
   if (l.country) t.push(['country', l.country]);
   const place = [l.city, l.country].filter(Boolean).join(', ') || l.location;
@@ -75,6 +76,7 @@ export function parseListing(e) {
     images: tags(e, 'image').map(httpUrl).filter(Boolean),
     category: normalizeCategory(tags(e, 't').find((x) => !known.has(x))),
     subcategory: isSubcategorySlug(tag(e, 'subcategory')) ? tag(e, 'subcategory') : '',
+    model: isSubcategorySlug(tag(e, 'subcategory')) && isSubcategorySlug(tag(e, 'model')) ? tag(e, 'model') : '',
     priceUnit: PRICE_UNITS.includes(priceTag[3]) ? priceTag[3] || '' : '',
     condition: tag(e, 'condition') || '',
     location: tag(e, 'location') || '',

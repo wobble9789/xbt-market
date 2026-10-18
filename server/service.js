@@ -3,6 +3,7 @@
 //   - shipping: live prices and prepaid labels through Sendcloud (API v3),
 //     paid by the seller over Lightning to the platform's Lightning address
 //   - import: read a public Marktplaats / Vinted page from a pasted link
+//   - bug reports: e-mailed to the maintainer (with screenshots or a video)
 // It holds no user keys and no listings. Every request that acts for a user is
 // signed with their Nostr key (NIP-98).
 //
@@ -14,6 +15,8 @@
 //      PLATFORM_LN_ADDRESS (Lightning address with LUD-21 "verify", receives label payments),
 //      LABEL_MARKUP_PCT (optional, default 0), XBT_RATE_EUR (optional fixed rate, for tests),
 //      LABELS_FREE=1 (development only: skip the payment), ALLOWED_ORIGINS (optional, comma separated)
+//      RESEND_API_KEY + BUG_REPORT_EMAIL (bug reports by e-mail, via resend.com), RESEND_BASE (optional),
+//      BUG_REPORT_FROM (optional sender, default "XBT Market <onboarding@resend.dev>")
 
 import { verifyEvent } from 'nostr-tools/pure';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -349,6 +352,39 @@ export async function importFromUrl(input, fetchImpl) {
   return { v: BOOKMARKLET_VERSION, source: host, platform: platform || host, complete, page: finalUrl, at: Date.now(), items: clean };
 }
 
+// ---- bug reports ---------------------------------------------------------------------
+// Sent by e-mail through Resend; the address lives only in the server's
+// secrets, never in the app. At most 5 reports per account per hour.
+
+const BUG_MAX_BYTES = 21 * 1024 * 1024; // 15 MB of files, base64-encoded
+const BUG_TYPES = /^(image\/(png|jpe?g|gif|webp|heic)|video\/(mp4|quicktime|webm|3gpp))$/;
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+async function bugReport(pk, body, env, store, fetchImpl) {
+  if (!env.RESEND_API_KEY || !env.BUG_REPORT_EMAIL) return fail(503, 'Bug reports by e-mail are not set up on this server');
+  const hour = Math.floor(now() / 3600);
+  const key = `bug:${pk}:${hour}`;
+  const n = (await store.get(key)) || 0;
+  if (n >= 5) return fail(429, 'Too many bug reports, try again later');
+  await store.put(key, n + 1);
+  const files = (Array.isArray(body.attachments) ? body.attachments : []).slice(0, 5);
+  for (const f of files) if (!BUG_TYPES.test(f.type || '') || typeof f.content !== 'string') return fail(400, 'Only images (jpg, png…) and videos (mp4, mov, webm) can be attached');
+  const html = `<p><b>From:</b> ${esc(pk)}<br><b>Page:</b> ${esc(body.page)}<br><b>Browser:</b> ${esc(body.ua)}</p><pre style="white-space:pre-wrap">${esc(body.text)}</pre>`;
+  const r = await fetchImpl(`${(env.RESEND_BASE || 'https://api.resend.com').replace(/\/+$/, '')}/emails`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      from: env.BUG_REPORT_FROM || 'XBT Market <onboarding@resend.dev>',
+      to: [env.BUG_REPORT_EMAIL],
+      subject: `XBT Market bug: ${String(body.text || '').split('\n')[0].slice(0, 70)}`,
+      html,
+      attachments: files.map((f) => ({ filename: String(f.filename || 'file').replace(/[^\w.\- ]/g, '_').slice(0, 80), content: f.content })),
+    }),
+  });
+  if (!r.ok) return fail(502, `E-mail not sent (${r.status})`);
+  return json({ ok: true });
+}
+
 // ---- router -------------------------------------------------------------------------
 
 export async function handle(request, env, store, fetchImpl = globalThis.fetch.bind(globalThis)) {
@@ -384,7 +420,13 @@ async function route(request, url, env, store, fetchImpl) {
     try { data = text ? JSON.parse(text) : {}; } catch { throw Object.assign(new Error('Bad JSON'), { status: 400 }); }
     return { text, data };
   };
-  if (p === '/' && m === 'GET') return json({ service: 'xbt-market', usernames: true, shipping: !!env.SENDCLOUD_PUBLIC_KEY, labelPayments: env.LABELS_FREE === '1' ? 'free' : !!env.PLATFORM_LN_ADDRESS });
+  if (p === '/' && m === 'GET') return json({ service: 'xbt-market', usernames: true, shipping: !!env.SENDCLOUD_PUBLIC_KEY, labelPayments: env.LABELS_FREE === '1' ? 'free' : !!env.PLATFORM_LN_ADDRESS, bugReports: !!(env.RESEND_API_KEY && env.BUG_REPORT_EMAIL) });
+  if (p === '/api/bug' && m === 'POST') {
+    if (Number(request.headers.get('content-length') || 0) > BUG_MAX_BYTES) return fail(413, 'Attachments are too large (15 MB at most)');
+    const b = await body();
+    if (b.text.length > BUG_MAX_BYTES) return fail(413, 'Attachments are too large (15 MB at most)');
+    return bugReport(await authPubkey(request, b.text), b.data, env, store, fetchImpl);
+  }
   if (p === '/.well-known/nostr.json' && m === 'GET') return nostrJson(url, store);
   if (p === '/api/names' && m === 'GET') return searchNames(url.searchParams.get('q'), store);
   if (p.startsWith('/api/names/') && m === 'GET') return nameInfo(decodeURIComponent(p.slice(11)), store);
