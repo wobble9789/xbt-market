@@ -25,7 +25,7 @@ export function ShipsToPicker({ value = [], onChange }) {
     <div class="ships-to">
       <div class="chips">
         {value.map((v) => <span key={v} class="chip">{countryName(v)}<button type="button" aria-label={T('Remove', 'Quitar')} onClick={() => onChange(value.filter((x) => x !== v))}>×</button></span>)}
-        {!value.length && <span class="muted small">{T('Only pick-up / your own country', 'Solo recogida / tu propio país')}</span>}
+        {!value.length && <span class="muted small">{T('Nowhere yet: add at least one', 'Ningún sitio aún: añade al menos uno')}</span>}
       </div>
       <CountrySelect value="" onChange={add} placeholder={T('+ Add EU, worldwide or a country…', '+ Añadir UE, todo el mundo o un país…')}
         extra={[['EU', T('European Union (all EU countries)', 'Unión Europea (todos los países de la UE)')], ['WORLD', T('Worldwide', 'Todo el mundo')]]} />

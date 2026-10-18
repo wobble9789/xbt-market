@@ -186,7 +186,7 @@ function applyRequest(state, m, ctx) {
     try { inv = decodeInvoice(b.invoice); } catch (e) { return 'bad invoice: ' + e.message; }
     if (inv.amountMsat == null || inv.amountMsat !== BigInt(state.terms.priceSats) * 1000n) return 'invoice amount differs from the agreed price';
     if (ctx.lightningNetwork && inv.network !== ctx.lightningNetwork) return `invoice is for network "${inv.network}"`;
-    req = { method: 'lightning', invoice: inv.invoice, paymentHash: inv.paymentHash, network: inv.network, expiresAt: inv.expiresAt };
+    req = { method: 'lightning', invoice: inv.invoice, paymentHash: inv.paymentHash, network: inv.network, blake2b: inv.blake2b, expiresAt: inv.expiresAt };
   } else {
     if (!isValidAddress(b.address || '', o.network)) return 'bad address';
     if (b.amountSats !== state.terms.priceSats) return 'amount differs from the agreed price';

@@ -329,3 +329,18 @@ fieldset.delivery legend { font-weight: 600; padding: 0 4px; }
 .address-form .addr-street { grid-template-columns: 3fr 1fr; }
 .delivery-info { margin: 6px 0; }
 .badge { white-space: normal; }
+
+/* Round 3: category search, username field, install guide by device, admin */
+.cat-search { grid-column: 1 / -1; position: relative; }
+.cat-search input { width: 100%; }
+.cat-hits { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; padding: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+.cat-hit { text-align: left; background: none; border: 0; padding: 8px 10px; border-radius: 8px; color: var(--text); font: inherit; cursor: pointer; }
+.cat-hit:hover, .cat-hit:focus { background: var(--accent-soft); }
+.username-input { align-items: center; gap: 4px; }
+.username-input .at { font-weight: 600; color: var(--muted); }
+.username-input input { flex: 1; }
+.install-device { margin: 8px 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.install-device > summary { cursor: pointer; padding: 4px 0; }
+.install-device .install-steps { margin-left: 8px; }
+.tab .badge { margin-left: 6px; }
+.explain li { margin: 4px 0; }

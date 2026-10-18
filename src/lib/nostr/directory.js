@@ -11,6 +11,7 @@ import { createStore } from '../store.js';
 import { query, signAndPublish, latestBy } from './pool.js';
 import { secretKey, toPubkey } from './account.js';
 import { arbiterBaseKey, pubkeyOf, isValidPubkey } from '../btc/escrow.js';
+import { T } from '../../ui/i18n.js';
 
 export const CONFIG_D = 'xbt-market/config';
 export const ARBITER_D = 'xbt-market/arbiter';
@@ -60,8 +61,14 @@ async function load() {
 
 export const myArbiterBase = () => pubkeyOf(arbiterBaseKey(secretKey()));
 
-export function announceArbiter({ name, about, languages, feeNote, active = true }) {
-  const content = { escrowBase: myArbiterBase(), name, about, languages, feeNote, active, v: 1 };
+// The arbiter's fee: a percentage of the escrow, only taken in a ruling (a
+// dispute). Older announcements only have a free-text note.
+export const MAX_ARBITER_FEE_PCT = 10;
+export const arbiterFeePct = (a) => { const n = Number(a?.feePct); return n >= 0 && n <= MAX_ARBITER_FEE_PCT ? n : 0; };
+export const arbiterFeeLabel = (a) => (arbiterFeePct(a) ? `${arbiterFeePct(a)}% ${T('fee in a dispute', 'de comisión en una disputa')}` : T('no fee', 'sin comisión'));
+
+export function announceArbiter({ name, about, languages, feePct = 0, active = true }) {
+  const content = { escrowBase: myArbiterBase(), name, about, languages, feePct: Math.min(MAX_ARBITER_FEE_PCT, Math.max(0, Number(feePct) || 0)), active, v: 2 };
   return signAndPublish({ kind: 30078, tags: [['d', ARBITER_D], ['t', 'xbt-market']], content: JSON.stringify(content) });
 }
 

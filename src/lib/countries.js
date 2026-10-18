@@ -12,12 +12,12 @@ export const COUNTRIES = [
 
 export const isCountry = (c) => COUNTRIES.includes(c);
 
-// "Ships to" values: EU, WORLD or country codes. A seller always ships within
-// their own country; a listing without any of this (older ones) ships anywhere.
+// "Ships to" values: EU, WORLD or country codes, exactly as the seller chose
+// them. Without any (only pick-up was offered before), it ships within the
+// seller's own country; an old listing without a country ships anywhere.
 export function shipsToCountry(shipsTo, country, sellerCountry) {
   if (!country) return true;
-  if (country === sellerCountry) return true;
-  if (!shipsTo?.length) return !sellerCountry;
+  if (!shipsTo?.length) return !sellerCountry || country === sellerCountry;
   return shipsTo.some((s) => s === 'WORLD' || s === country || (s === 'EU' && EU.includes(country)));
 }
 

@@ -4,8 +4,9 @@
 // signature is not checked; the payment hash is what binds the proof.
 //
 // The prefix after "ln" names the network (lnbc = Bitcoin). Lightning on the
-// BLAKE2b chain uses its own prefix, so any "ln…" prefix is accepted and shown
-// to the user; config.js can pin the expected one.
+// BLAKE2b chain (Lightning Fork) keeps "lnbc" and marks its invoices with
+// feature bit 512/513 (option_blake2b); `blake2b` tells the two apart.
+// config.js can pin the expected prefix.
 
 import { bech32 } from '@scure/base';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -52,9 +53,11 @@ export function decodeInvoice(input) {
     else if (type === 13) out.description = new TextDecoder().decode(wordsToBytes(field));
     else if (type === 23 && len === 52) out.descriptionHash = bytesToHex(wordsToBytes(field).slice(0, 32));
     else if (type === 6) out.expiry = field.reduce((a, w) => a * 32 + w, 0);
+    else if (type === 5) out.features = field.reduce((a, w) => a * 32n + BigInt(w), 0n);
   }
   if (!out.paymentHash) throw new Error('invoice has no payment hash');
   out.expiresAt = out.timestamp + out.expiry;
+  out.blake2b = !!out.features && ((out.features >> 512n) & 3n) !== 0n;
   out.amountSats = out.amountMsat == null ? null : Number(out.amountMsat / 1000n);
   return out;
 }

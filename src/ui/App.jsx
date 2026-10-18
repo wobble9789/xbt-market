@@ -4,6 +4,7 @@ import { account, createAccount, importAccount, unlock, logout, shortNpub } from
 import { useProfile } from '../lib/nostr/profiles.js';
 import { useUsername } from '../lib/nostr/names.js';
 import { loadFollows } from '../lib/nostr/follows.js';
+import { loadBlocks } from '../lib/nostr/moderation.js';
 import { autoForward } from '../lib/trade/forward.js';
 import { startInbox, stopInbox, inbox, tradeIds } from '../lib/nostr/inbox.js';
 import { startMarket } from '../lib/market.js';
@@ -12,7 +13,7 @@ import { settings } from '../lib/settings.js';
 import { APP_NAME } from '../config.js';
 import { useRoute } from './router.js';
 import { T } from './i18n.js';
-import { Toasts, Action, Field, Avatar, toastError } from './components.jsx';
+import { Toasts, Action, Field, Avatar, Spinner, toastError } from './components.jsx';
 import { Browse } from './pages/Browse.jsx';
 import { ListingPage } from './pages/Listing.jsx';
 import { Sell, EditListing } from './pages/Sell.jsx';
@@ -122,12 +123,14 @@ export function App() {
     if (acc.pubkey && !acc.locked) startInbox();
     else stopInbox();
     loadFollows(acc.pubkey).catch(() => {});
+    loadBlocks(acc.pubkey).catch(() => {});
     return stopInbox;
   }, [acc.pubkey, acc.locked, relaysKey]);
 
   const needsAccount = NEEDS_ACCOUNT.has(route.parts[0]) || (route.parts[0] === 'settings' && !acc.pubkey);
   let body;
-  if (acc.pubkey && acc.locked) body = <Unlock />;
+  if (acc.pubkey && acc.locked && acc.restoring) body = <div class="card narrow"><Spinner /></div>;
+  else if (acc.pubkey && acc.locked) body = <Unlock />;
   else if (needsAccount && !acc.pubkey) body = <Welcome reason={T('Log in to continue.', 'Inicia sesión para continuar.')} />;
   else body = <Page route={route} />;
 

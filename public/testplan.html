@@ -49,7 +49,7 @@
 <body>
 <header>
   <div class="wrap">
-    <h1>XBT Market — testplan ronde 2</h1>
+    <h1>XBT Market — testplan ronde 3</h1>
     <div class="bar">
       <div class="progress"><i id="bar"></i></div>
       <span class="stats" id="stats"></span>
@@ -60,8 +60,9 @@
 </header>
 <main class="wrap">
   <p class="intro">
-    Ronde 2: alleen wat opnieuw moet (fout of met feedback in ronde 1, nu beschreven zoals het hoort te werken) en wat nog niet getest is.
-    Wat in ronde 1 al werkte staat er niet meer in. Vink per test <b>✓ Werkt</b>, <b>✗ Fout</b> of <b>—</b> aan; bij een fout opent een notitieveld.
+    Ronde 3: alleen wat nog moet. Wat in ronde 2 werkte, en wat je zei niet opnieuw te hoeven testen, staat er niet meer in.
+    Begin met <b>Wallets inrichten</b> als je node klaar is; tot die tijd kun je alles zonder betaling al doen.
+    Vink per test <b>✓ Werkt</b>, <b>✗ Fout</b> of <b>—</b> aan; bij een fout opent een notitieveld.
     Klaar of halverwege? <b>Kopieer resultaten</b> en plak ze in de chat.
     Rollen: <b>A</b> = beheerder + arbiter, <b>B</b> = verkoper, <b>C</b> = koper (telefoon).
   </p>
@@ -69,120 +70,105 @@
 </main>
 <script>
 const PLAN = [
-  ['Eerste start en installatie', 'A, B en C (telefoon)', [
-    ['SET-UP-1', 'Rustig instelscherm', ['Maak een nieuw account aan en open Account.'], 'Bovenaan alleen de basis: profiel, @gebruikersnaam, back-up, wachtwoord, taal en valuta, installeren, arbiter worden. Daaronder "Full setup (optional)" met één zin uitleg; Trading, Lightning wallet, AI, Trusted arbiters, Network en Trade backup zijn ingeklapt.'],
-    ['SET-UP-2', 'Uitleg app installeren', ['Account → klap "Install as an app" open.'], 'Korte stappen per browser (Chrome/Android, Safari/iPhone, Samsung, Firefox, computer). Jouw browser staat bovenaan en open; in Chrome ook een knop "Install now".'],
-    ['ACC-6', 'Installeren als app (telefoon)', ['Volg die stappen op je telefoon en open de app vanaf het beginscherm.'], 'Opent zonder adresbalk, met het gouden icoon en de navigatie onderin.'],
-    ['ACC-2', 'npub kopiëren', ['Account: tik op de npub zelf, daarna op de knop "Copy npub" erachter.'], 'Tikken op de npub doet niets; alleen de knop kopieert (✓).'],
-    ['ACC-3', 'Wachtwoord (hertest)', ['Account → Password: tik "What does the password do?".', 'Typ 5 tekens.', 'Typ 8+ tekens, tik het oogje, herhaal het wachtwoord, Set password.', 'Wijzig het wachtwoord nog eens.', 'Tik "Lock now" (of herlaad).'], 'Uitleg zegt wat het doet en wanneer je het gebruikt. Bij &lt;8 tekens "Too short: 5 of at least 8". Oogje toont het wachtwoord. Na opslaan een groene bevestiging en de badge "on". Wijzigen vraagt het huidige wachtwoord. Het slotscherm toont foto, naam, @gebruikersnaam en npub van het account.'],
-    ['ACC-5', 'Talen', ['Account → Language and currency → Language: Español, daarna weer English.'], 'Alleen English en Español. Alles wisselt meteen, ook knoppen en categorieën.'],
-    ['STY-1', 'Huisstijl goud', ['Loop door de app: knoppen, icoon, accenten.'], 'Goud in plaats van oranje, overal hetzelfde.'],
+  ['Wallets inrichten (eenmalig, op je Start9)', 'jij', [
+    ['WAL-1', 'XBT-node klaar', ['Start9 → Services → Bitcoin Knots (BLAKE2b): wacht tot "Blockchain Sync" klaar is en de "chain"-controle groen is.'], 'Hoogte voorbij blok 961.639 en gelijk aan mempool.guide.'],
+    ['WAL-2', 'Lightning Fork', ['Marketplace → Change registry → start9.paulscode.com → installeer Lightning Fork. Actie Select Node → knots-blake2b. Initialize Wallet → Start Fresh; schrijf de seed op papier. Zet Configure Channel Backups aan.', 'Zet de registry terug op die van Start9.'], 'Lightning Fork draait; wallet aangemaakt; kanaal-back-up ingesteld.'],
+    ['WAL-3', 'Laguz Hub + kanaal', ['Marketplace → Add custom registry → start9.pyblock.xyz → installeer Laguz Hub. Stuur wat XBT naar Lightning Fork en open een kanaal (peers: forum paulscode.com, "Lightning Fork beta testers").', 'Maak in Laguz Hub twee NWC-koppelingen met een klein budget: "verkoper" en "koper".'], 'Twee connection strings (nostr+walletconnect://…).'],
+    ['WAL-4', 'XBT op de keten', ['knots-blake2b → Get Address. Koop ~€20 XBT en stuur het naar dat adres.'], 'Saldo zichtbaar met Get Balance.'],
   ]],
-  ['Profiel, gebruikersnaam en volgen', 'B en C', [
-    ['ACC-7', 'Profiel (hertest)', ['Open Account.', 'Tik de gouden knop "✏️ Edit profile": foto, naam, land, over jou. Save profile.'], 'Je naam staat bovenaan Account. Land is een verplichte keuzelijst (Opslaan kan pas met land). Foto kun je uploaden.'],
-    ['USR-1', 'Unieke @gebruikersnaam', ['B: Account → Username: typ een naam → Claim. C: typ dezelfde naam.'], 'Bij B "✓ is available" en daarna "Your username: @…". Bij C "✗ is already taken" en Claim uit. De naam staat op profiel, Account en slotscherm (ook in andere Nostr-apps als naam@domein).'],
-    ['USR-2', 'Zoeken op gebruikersnaam', ['C: Browse → typ @ en de eerste letters van B.'], 'B verschijnt in de lijst; tikken opent het profiel.'],
-    ['FOL-1', 'Volgen', ['C: open het profiel van B (of een advertentie van B) → + Follow.'], 'Knop wordt "✓ Following"; nog eens tikken ontvolgt. Werkt ook in Primal e.d. (zelfde Nostr-volglijst).'],
-    ['FOL-2', 'Feed van gevolgden', ['C: Browse → tab "Following".'], 'Alleen advertenties van mensen die C volgt.'],
+  ['Account en profiel (hertest)', 'B en C', [
+    ['ACC-3', 'Wachtwoord (hertest)', ['Account → Password: lees de 3 regels uitleg. Stel een wachtwoord in.', 'Ververs de pagina.', 'Back up your key → Show my nsec.', 'Password → Change or remove: wijzig het. Tik 🔒 Lock now.', 'Sluit de browser helemaal en open de app opnieuw.'], 'Uitleg kort en duidelijk (per apparaat; nsec werkt ook). Na instellen "✓ Password set on this device" met knoppen Lock now en Change or remove (geen nieuw-wachtwoordveld meer). Verversen vraagt <b>niet</b> om het wachtwoord. Show my nsec vraagt eerst het wachtwoord. Lock now en een nieuw geopende browser tonen het slotscherm met je @naam.'],
+    ['USR-1', 'Gebruikersnaam in je profiel', ['Account → Profile (staat open): vul Username in, kies land, Save profile.', 'C: probeer dezelfde naam.'], 'Bovenaan Account staat @naam. Zonder land kun je niet opslaan. Met de dienst live (SVC-1): "✓ is available" en bij C "✗ is already taken" (opslaan uit). Zonder dienst werkt de naam ook, maar is hij niet gegarandeerd uniek.'],
+    ['USR-2', 'Zoeken op @gebruikersnaam', ['C: Browse → typ @ en de eerste letters van B.', 'Typ daarna dezelfde naam zonder @.'], 'Met @: B in de lijst, tikken opent het profiel (werkt ook zonder dienst, voor iedereen met advertenties). Zonder @: alleen advertenties, geen personen.'],
   ]],
-  ['Arbiter worden (hertest)', 'A en B', [
-    ['ARB-2', 'Weg naar arbiter vinden', ['A: Account → kaart "⚖️ Become an arbiter" → Apply as arbiter → naam, talen, vergoeding → Publish arbiter profile.'], 'Kaart met uitleg; na publiceren "waiting for approval" en de melding dat je nog niet goedgekeurd bent.'],
-    ['ARB-3', 'Arbiter goedkeuren', ['A: Admin → vink jezelf aan → Lijst publiceren → ga naar Arbiter.'], 'Geen "nog niet goedgekeurd" meer; je ziet "Open geschillen".'],
-    ['ARB-4', 'Niet-goedgekeurde arbiter geweigerd', ['B meldt zich aan als arbiter zonder goedkeuring. C start een escrow-bestelling.'], 'B staat niet in de arbiterkeuze van C.'],
+  ['Beheer: arbiters, meldingen en blokkeren', 'A (admin), B en C', [
+    ['ARB-3', 'Arbiter goedkeuren', ['A: Admin → tab Arbiters → bij het verzoek ✓ Approve.'], 'Verzoek verdwijnt uit "Waiting for approval" en staat onder "Approved arbiters" met "Withdraw approval".'],
+    ['ARB-4', 'Arbiter afwijzen', ['B meldt zich aan als arbiter. A: Admin → ✗ Reject. C start een escrow-bestelling.'], 'B staat onder "Rejected" met "Approve after all", en niet in de arbiterkeuze van C.'],
+    ['ARB-5', 'Vergoeding van de arbiter', ['A: Account → Become an arbiter → My arbiter page: vul "Your fee (% of the escrow)" in, bijv. 2. Zet een uitbetaaladres onder Account → Trading.', 'C: kies een arbiter bij een escrow-bestelling.'], 'C ziet bij elke arbiter "2% fee in a dispute". Bij een uitspraak (DSP-3) rekent de app de vergoeding zelf mee.'],
+    ['REP-1', 'Gebruiker melden', ['C: open het profiel van B → 🚩 Report → reden + tekst → Send report.', 'A: Admin → Reports.'], 'Bij A de melding met reden, tekst, over wie en van wie. "Mark as handled" haalt hem weg; "Suspend account" kan ook.'],
+    ['BLK-1', 'Blokkeren', ['C: profiel van B → ⛔ Block. Kijk in Browse. Daarna Unblock.'], 'Geblokkeerd: advertenties van B weg voor C, en B kan C niets sturen of bestellen. Na Unblock weer zichtbaar.'],
+    ['BLK-2', 'Account inactief na 10 blokkades', ['A: Admin → Accounts (dit is lastig met de hand na te doen: 10 accounts nodig).'], 'Een account dat door 10 verschillende mensen geblokkeerd is, verdwijnt uit Browse en toont "inactive". A ziet het onder "Inactive" en kan "Make active again".'],
+    ['ADM-1', 'Account schorsen', ['A: Admin → Accounts → plak een npub → Suspend. Bekijk dat profiel als C. Daarna Make active again.'], 'Profiel toont "suspended by the community admin", advertenties weg; na herstellen weer terug.'],
+    ['BUG-1', 'Bug melden', ['Account → 🐞 Report a problem: beschrijving + een screenshot of video → Send report.'], '"Thank you!". Met SVC-3 ingesteld komt er een mail met bijlage op steenh819@gmail.com; anders staat het (zonder bijlage) onder Admin → Bug reports.'],
   ]],
-  ['Advertenties (hertest + nieuw)', 'B verkoopt, C zoekt', [
-    ['LST-1a', 'Categorieën zoals Marktplaats', ['Sell → New listing → Category: kies een hoofdcategorie, dan de subcategorie.'], 'De 36 hoofdcategorieën en 1954 subcategorieën van Marktplaats (Marktplaats zelf heeft geen derde niveau). Publiceren kan pas met subcategorie.'],
-    ['LST-1b', 'Locatie en verzendgebied', ['Country (keuzelijst, staat al op jouw land) en eventueel Town.', 'Ships to: voeg EU, Worldwide of losse landen toe; haal er één weg met ×.'], 'Land is verplicht. Verzendgebied als labels; je eigen land kan altijd.'],
-    ['LST-1c', 'Vervoerders aanvinken', ['Delivery: Pick-up aan/uit, vink vervoerders aan (Mondial Relay en InPost hebben "cheap abroad"), kies Parcel size.'], 'Geen prijsveld; uitleg dat de koper kiest en de verzending betaalt.'],
-    ['LST-1d', 'Betaalmethodes', ['Bekijk de betaalmethodes. Vink Escrow aan en weer uit.'], 'Lightning aan, On-chain uit, Escrow uit en onderaan. "Your escrow deposit (%)" verschijnt alleen met escrow.'],
-    ['LST-1e', 'Publiceren met foto\'s', ['Upload 2 foto\'s, prijs €2, publiceer.'], 'Staat onder Verkopen en op Zoeken, met foto\'s, land en vervoerders.'],
-    ['LST-2', 'Geen foto via URL meer', ['Bekijk het fotoblok.'], 'Alleen uploaden; geen veld "afbeeldings-URL".'],
-    ['LST-3', 'Bewerken', ['Wijzig de prijs naar €3, opslaan.'], 'Nieuwe prijs zichtbaar, ook bij C na herladen.'],
-    ['LST-4', 'Verkocht en gereserveerd', ['Bewerken → Mark as reserved; bekijk als C. Daarna Mark as sold; open het profiel van B als C. Daarna Put back on sale.'], 'Gereserveerd: zichtbaar met label "Reserved", wel berichten, niet bestellen. Verkocht: weg uit Browse, op het profiel onder "Sold". Terugzetten werkt.'],
-    ['LST-5', 'Bulkacties', ['Sell → tab For sale → vink 3 advertenties aan → Mark as sold. Tab Sold → vink 2 aan → Delete.'], 'Alles in één keer, met teller (1/3, 2/3…); tabs For sale / Reserved / Sold met aantallen.'],
-    ['LST-6', 'Filters en sorteren', ['C: Browse → ⚙ Filters: categorie + subcategorie, Seller in (land), prijs van–tot, staat, levering, betaling, "Only what can reach me".', 'Sorteer: nieuwste, oudste, prijs laag–hoog, hoog–laag. Open een advertentie en ga terug.'], 'Alleen passende advertenties met teller; sortering klopt; filters blijven staan na terug.'],
-    ['LST-7', 'Valuta', ['Account → Language and currency → Show prices in: USD, daarna GBP, JPY. Bekijk advertenties.'], 'Prijzen als "≈ $…" in de gekozen valuta, met de originele prijs en XBT klein erachter. 30+ valuta.'],
+  ['Advertenties (hertest)', 'B verkoopt, C zoekt', [
+    ['LST-1a', 'Categorieën: volgorde, zoeken en modellen', ['Sell → New listing: bekijk de volgorde van Category.', 'Typ in "🔎 Search a category": ssd, warmtebeeldkijker, winterjas. Tik een resultaat.', 'Kies Auto\'s → Ford.', 'Open een oude advertentie zonder subcategorie en sla op.'], 'Volgorde als Marktplaats. Zoeken vindt Harde schijven, Verrekijkers, Jassen | Winter en vult de lijsten in. Bij een automerk (en motormerk) verschijnt Model (bijv. Transit) met "Other model"; opslaan kan pas met model. Oude advertentie vraagt eerst een subcategorie.'],
+    ['LST-1b', 'Ophaalland en verzendgebied', ['New listing: bekijk "Pick-up country" en "Pick-up town". Ships to staat op je eigen land; voeg landen toe of haal weg.'], 'Duidelijke namen. Ships to bevat precies wat jij kiest (eigen land staat er standaard in, maar is weg te halen).'],
+    ['LST-1f', 'Filter "Ships to"', ['B: advertentie uit NL die alleen naar Egypte verzendt. C: Browse → ⚙ Filters → Ships to: Netherlands, daarna Egypt.'], 'Bij Netherlands niet te zien, bij Egypt wel. Geen vinkje "Only what can reach me" meer; wel "Pick-up country".'],
   ]],
-  ['Chat eerst, bestellen vanuit de chat (hertest TRD-1..3)', 'B verkoopt, C koopt', [
-    ['TRD-1a', 'Vrijblijvend bericht', ['C: open de advertentie → "💬 Message the seller" → Send.'], 'Chat opent met "You are buying from …"; B ziet het onder Messages (met laatste bericht).'],
-    ['TRD-1b', 'Bestellen vanuit de chat', ['C: in de chat → 🛒 Order (of op de advertentie "Order now").'], 'Alleen: betaalmethode, levering (verzenden/ophalen), land + vervoerder met prijs, prijs in XBT (bieden mag), bericht. Geen adres, terugbetaaladres of arbiter. Escrow-berekening zichtbaar.'],
-    ['TRD-2', 'Duidelijke rollen', ['B en C: open de chat. B: tik Reject en daarna Back.'], 'Gekleurde balk "You are selling to …" / "You are buying from …"; bij B "Order from … (the buyer)", bij C "Your order". Reden-veld pas na Reject.'],
-    ['TRD-3', 'Betaalmethode wijzigen', ['C: 🔁 Change payment method → On-chain → Ask. B: Agree.'], 'Bij B een kaart "asks to pay with On-chain"; na akkoord staat de betaling op On-chain en de chat toont verzoek en akkoord.'],
-    ['TRD-3b', 'Gegevens pas wanneer nodig', ['B accepteert een escrow-bestelling (vult alleen zijn uitbetaaladres in).'], 'C krijgt nu pas "A few details for the seller": adres (vooraf ingevuld), arbiter en terugbetaaladres. Bij ophalen geen adres.'],
+  ['Bestellen en betalen', 'B verkoopt, C koopt', [
+    ['TRD-3b', 'Gegevens pas wanneer nodig (teksten)', ['B accepteert een escrow-bestelling. C vult de details in. Open bij de escrow "Recovery details".'], 'Geen wallet-voorbeelden meer. Uitleg in 3 korte regels: slot met 3 sleutels (2 nodig), jouw sleutel komt uit je nsec, het witness script is het exacte slot.'],
     ['SHP-1', 'Koper kiest en betaalt verzending', ['C kiest een vervoerder uit de lijst van B.'], 'Live prijs per vervoerder (zonder dienst een schatting met ≈); de verzending zit in het totaal.'],
-    ['SHP-2', 'Verzendlabel met QR in de chat', ['Na betaling: B → Get the label price → Buy label → betaal met wallet.'], 'QR-code + label (PDF) + trackingcode verschijnen; "Mark as shipped" is vooraf ingevuld. (Alleen met de dienst ingesteld, zie onderaan.)'],
+    ['SHP-2', 'Verzendlabel met QR in de chat', ['Na betaling: B → Get the label price → Buy label → betaal met wallet.'], 'QR-code + label (PDF) + trackingcode verschijnen; "Mark as shipped" is vooraf ingevuld. (Alleen met de dienst ingesteld.)'],
   ]],
   ['Trade: escrow afronden', 'B, C, A is arbiter', [
-    ['TRD-4', 'Escrow betalen', ['C stuurt "Koper betaalt", B "Verkoper betaalt" naar het escrow-adres. Wacht 3 bevestigingen, Vernieuwen.'], 'Na 3 bevestigingen verdwijnen QR en instructies; stap 3 groen.'],
-    ['TRD-5', 'Verzenden', ['B: track & trace → Markeer als verzonden.'], 'C ziet vervoerder, trackingcode, kopieerknop en een werkende Volgen-knop.'],
-    ['TRD-6', 'Vrijgeven', ['C: "Alles in orde: betaling vrijgeven".'], 'Voorstel getekend door koper; bedragen kloppen.'],
-    ['TRD-7', 'Meetekenen', ['B: Akkoord en tekenen.'], '"✅ Verzonden: &lt;txid&gt;"; status Uitbetaald.'],
+    ['TRD-4', 'Escrow betalen', ['C en B betalen hun deel naar het escrow-adres vanuit knots-blake2b (Send Coins). Wacht de bevestigingen af.'], 'Na de bevestigingen verdwijnen QR en instructies; stap 3 groen.'],
+    ['TRD-5', 'Verzenden', ['B: track & trace → Mark as shipped.'], 'C ziet vervoerder, trackingcode, kopieerknop en een werkende Volgen-knop.'],
+    ['TRD-6', 'Vrijgeven', ['C: betaling vrijgeven.'], 'Voorstel getekend door koper; bedragen kloppen.'],
+    ['TRD-7', 'Meetekenen', ['B: Agree and sign.'], 'Verzonden met txid; status uitbetaald.'],
     ['TRD-8', 'Geld ontvangen', ['Controleer beide wallets na 1 bevestiging.'], 'B: prijs + borg − fee-aandeel. C: borg terug.'],
-    ['TRD-9', 'Reviews', ['B en C geven sterren + tekst, open elkaars profiel.'], 'Review met "✓ geverifieerde trade".'],
+    ['TRD-9', 'Reviews', ['B en C geven sterren + tekst, open elkaars profiel.'], 'Review met "✓ verified trade".'],
     ['TRD-10', 'Chat', ['Berichten heen en weer, A kijkt mee.'], 'Binnen 1 minuut bij alle drie.'],
     ['TRD-11', 'Herstel vanaf relays', ['C logt in een andere browser in met dezelfde nsec.'], 'Zelfde trade met volledige geschiedenis.'],
   ]],
   ['Lightning-wallet en directe betaling', 'B verkoopt, C koopt', [
-    ['LN-1', 'Wallet koppelen', ['Maak in je wallet (Alby Hub, Zeus, Primal, Coinos…) een NWC-koppeling met klein budget. Account → Lightning-wallet → plakken → Koppelen.'], '"✓ Gekoppeld" en juist saldo.'],
+    ['LN-1', 'Wallet koppelen', ['Account → Lightning wallet → plak de Laguz-koppeling (WAL-3) → Connect. Doe het voor B en C.'], '"✓ Connected" en juist saldo.'],
     ['LN-2', 'Koppeling versleuteld', ['Pc: ontwikkelaarstools → Local Storage → xbt:secrets:….'], 'Alleen versleutelde tekst.'],
     ['LN-3', 'Lightning-adres', ['B: vul je Lightning-adres in (naam@domein).'], 'Opgeslagen; wordt gebruikt voor betaalverzoeken als er geen wallet gekoppeld is.'],
     ['LN-4', 'Escrow-advies boven €50', ['C: bestel in de chat bij een advertentie > €50.'], 'Escrow aanbevolen; bij Lightning een waarschuwing.'],
-    ['LN-5', 'Bestellen met Lightning', ['C: bestel de €5-advertentie met Lightning, Ophalen.'], '"Directe betaling", geen escrow, geen arbiter.'],
-    ['LN-6', 'Betaalverzoek in de chat', ['B: Accepteren → factuur maken.'], 'C ziet betaalverzoek met QR; in de chat "💳 Betaalverzoek".'],
-    ['LN-7', 'Betalen met één tik', ['C: "Betaal met mijn wallet".'], 'Binnen seconden "Betaald" bij beide; bedrag in wallet B.'],
-    ['LN-8', 'Andere wallet', ['C scant de QR met een andere wallet → "Ik heb betaald". B: "Controleer mijn wallet".'], 'Status Betaald.'],
-    ['LN-9', 'Direct on-chain', ['Bestelling on-chain: B stuurt adres, C betaalt en plakt txid.'], '"✓ …, N bevestigingen".'],
+    ['LN-5', 'Bestellen met Lightning', ['C: bestel een goedkope advertentie met Lightning, Pick up.'], 'Directe betaling, geen escrow, geen arbiter.'],
+    ['LN-6', 'Betaalverzoek in de chat', ['B: Accept → Create invoice with my wallet.'], 'C ziet het betaalverzoek met QR en het label <b>⚡ XBT Lightning</b> (een gewone BTC-factuur krijgt een waarschuwing); in de chat "💳 Payment request".'],
+    ['LN-7', 'Betalen met één tik', ['C: "⚡ Pay with my wallet".'], 'Binnen seconden "Paid" bij beide; bedrag in de wallet van B.'],
+    ['LN-8', 'Andere wallet', ['C scant de QR met een andere XBT-Lightning-wallet → "I have paid". B: controleren.'], 'Status Paid.'],
+    ['LN-9', 'Direct on-chain', ['Bestelling on-chain: B stuurt adres, C betaalt en plakt de txid.'], '"✓ …, N confirmations".'],
     ['LN-10', 'Afronden en review', ['B verzendt, C bevestigt, beide reviewen.'], 'Afgerond; reviews geverifieerd.'],
   ]],
-  ['Diensten', 'B biedt aan, C boekt', [
-    ['SRV-1', 'Dienst aanbieden', ['B: categorie Diensten en Vakmensen, €40 per uur.'], 'Geen staat/vervoerders; toont "€40,00 per uur".'],
-    ['SRV-2', 'Dienst boeken', ['C: bericht → Bestellen → Lightning → betalen. B: "Markeer als uitgevoerd". C: "Ja, naar wens".'], '"Klus uitgevoerd" en Afgerond.'],
-  ]],
   ['Importeren (hertest)', 'B', [
-    ['IMP-1', 'Importknop', ['Sell → "⇪ Import from Marktplaats, Vinted…". Verwijder je oude bladwijzer, voeg de nieuwe toe, klik hem op je profiel.'], 'Geen melding over een oude versie. (Een écht oude bladwijzer geeft een zachte melding met versienummers.)'],
-    ['IMP-2', 'Marktplaats-profiel', ['Klik de bladwijzer op je Marktplaats-profiel.'], 'Alle advertenties; "gereserveerd" wordt herkend en zo getoond.'],
+    ['IMP-1', 'Importknop', ['Sell → "⇪ Import from Marktplaats, Vinted…". Verwijder je oude bladwijzer, voeg de nieuwe toe, klik hem op je profiel.'], 'Geen melding over een oude versie.'],
+    ['IMP-2', 'Marktplaats-profiel', ['Klik de bladwijzer op je Marktplaats-profiel.'], 'Alle advertenties; "gereserveerd" wordt herkend.'],
     ['IMP-3', 'Publiceren', ['Publiceer een paar items.'], 'Gepubliceerde items verdwijnen uit de importlijst.'],
-    ['IMP-7', 'Verkocht op Marktplaats', ['Markeer er één als verkocht op Marktplaats, importeer opnieuw.'], 'Knop heet "Mark as sold on XBT Market" en werkt. Advertenties die er al staan zijn verborgen (knop om ze te tonen).'],
-    ['IMP-8', 'Losse advertentie', ['Lees de uitleg over losse advertenties. Open marktplaats.nl/seller/view/m2454474184 (of een andere losse advertentie), klik de bladwijzer.'], '1 gevonden met titel, prijs en foto; geen "no listings found".'],
-    ['IMP-9', 'Vanuit de app', ['In de Marktplaats-app: jouw profiel → Delen → Link kopiëren. In XBT Market: Import → plak bij "Paste a link" → Read.'], 'Je advertenties verschijnen (met de dienst ingesteld). De bladwijzer werkt alleen in een browser; dat staat er ook bij.'],
-    ['IMP-11', 'Op de telefoon', ['Volg de telefoonstappen bij Importeren.'], 'Stappen zijn duidelijk en eindigen met hetzelfde resultaat als IMP-2.'],
+    ['IMP-7', 'Verkocht op Marktplaats', ['Markeer er één als verkocht op Marktplaats, importeer opnieuw.'], 'Knop "Mark as sold on XBT Market" werkt; advertenties die er al staan zijn verborgen.'],
+    ['IMP-8', 'Losse advertentie', ['Open een losse advertentie op marktplaats.nl, klik de bladwijzer.'], '1 gevonden met titel, prijs en foto.'],
+    ['IMP-9', 'Vanuit de app', ['Marktplaats-app: profiel → Delen → Link kopiëren. XBT Market: Import → "Paste a link" → Read.'], 'Je advertenties verschijnen (met de dienst ingesteld).'],
+    ['IMP-11', 'Op de telefoon', ['Volg de telefoonstappen bij Importeren.'], 'Zelfde resultaat als IMP-2.'],
   ]],
   ['AI-advertentiehulp', 'B', [
-    ['AI-1', 'Sleutel instellen', ['Lees de uitleg. Maak op console.anthropic.com een workspace met lage limiet + sleutel. Account → AI listing assistant → Save.'], 'Uitleg: alleen een Anthropic-sleutel, vult titel, beschrijving, categorie, staat en prijs in; "✓ Key saved".'],
-    ['AI-2', 'Advertentie uit foto\'s', ['Nieuwe advertentie → 2–3 foto\'s → "Schrijf advertentie op basis van foto\'s".'], 'Titel, beschrijving, (sub)categorie, staat en prijs ingevuld; jij controleert en past aan.'],
+    ['AI-1', 'Sleutel instellen', ['console.anthropic.com: workspace met lage limiet + sleutel. Account → AI listing assistant → Save.'], '"✓ Key saved".'],
+    ['AI-2', 'Advertentie uit foto\'s', ['Nieuwe advertentie → 2–3 foto\'s → AI-knop.'], 'Titel, beschrijving, (sub)categorie, staat en prijs ingevuld.'],
     ['AI-3', 'Zonder foto', ['Nieuwe advertentie zonder foto.'], 'AI-knop uitgeschakeld.'],
   ]],
   ['Node-keuze', 'willekeurig', [
-    ['NODE-1', 'Bekende server', ['Account → Netwerk → kies een server → Verbinding testen.'], '"✓ blok …" met actuele hoogte.'],
-    ['NODE-2', 'Eigen node', ['Vul de API van je eigen node in → Gebruiken.'], '"✓ blok …".'],
+    ['NODE-1', 'Bekende server', ['Account → Network → kies een server → Test connection.'], '"✓ block …" met actuele hoogte.'],
+    ['NODE-2', 'Eigen node', ['Vul de API van je eigen node in (bijv. Mempool Pruned op je Start9) → Use.'], '"✓ block …".'],
   ]],
   ['Trade: geschil', 'B, C en A', [
     ['DSP-1', 'Geschil openen', ['Escrow-trade tot en met betalen. C: geschil openen met reden.'], 'Rode melding bij B, C en A.'],
-    ['DSP-2', 'Arbiter ziet het', ['A: Arbiter-menu.'], 'Onder "Open geschillen".'],
-    ['DSP-3', 'Uitspraak', ['A: Doe een uitspraak → bedragen → toelichting → tekenen.'], 'B en C zien de uitspraak.'],
-    ['DSP-4', 'Meetekenen', ['C: Akkoord en tekenen.'], 'Uitbetaling verzonden volgens de uitspraak.'],
+    ['DSP-2', 'Arbiter ziet het', ['A: Arbiter-menu.'], 'Onder "Open disputes".'],
+    ['DSP-3', 'Uitspraak met vergoeding', ['A: Propose a ruling → bedragen → toelichting → Sign and propose.'], 'A ziet "Your fee (2%)"; B en C zien de uitspraak met een regel "Arbiter fee (2%)" en geen waarschuwing over een onbekend adres.'],
+    ['DSP-4', 'Meetekenen', ['C: Agree and sign.'], 'Uitbetaling verzonden volgens de uitspraak.'],
     ['DSP-5', 'Samen oplossen', ['Nieuwe trade: B stelt een eigen verdeling voor; C tekent.'], 'Uitbetaling zonder A.'],
   ]],
   ['Annuleren en randgevallen', 'B en C', [
-    ['EDG-1', 'Bod intrekken', ['C bestelt en trekt in.'], 'Geannuleerd bij beide.'],
-    ['EDG-2', 'Bod afwijzen', ['B tikt Afwijzen, vult reden in.'], 'C ziet afwijzing + reden.'],
-    ['EDG-3', 'Annuleren vóór betalen', ['Na accepteren: "Trade annuleren".'], 'Geannuleerd.'],
+    ['EDG-1', 'Bestelling intrekken', ['C bestelt en trekt in.'], 'Geannuleerd bij beide.'],
+    ['EDG-2', 'Bestelling afwijzen', ['B tikt Reject, vult reden in.'], 'C ziet afwijzing + reden.'],
+    ['EDG-3', 'Annuleren vóór betalen', ['Na accepteren: "Cancel trade".'], 'Geannuleerd.'],
     ['EDG-4', 'Ongeldig adres', ['Vul bij escrow een ongeldig adres in.'], 'Veld rood, doorgaan uitgeschakeld.'],
-    ['EDG-5', 'Eigen advertentie', ['B opent eigen advertentie.'], 'Geen bericht/bestelknop, wel Bewerken.'],
+    ['EDG-5', 'Eigen advertentie', ['B opent eigen advertentie.'], 'Geen bericht/bestelknop, wel Edit.'],
     ['EDG-6', 'Limiet nieuw account', ['Nieuw account bestelt > 0.2 XBT.'], 'Waarschuwing; versturen uitgeschakeld.'],
   ]],
   ['Dienst instellen (jij, eenmalig op de pc)', 'A', [
-    ['SVC-1', 'XBT Market-dienst staat live', ['Volg de stappen in mijn bericht (Cloudflare + GitHub-secrets), wacht tot de deploy klaar is.', 'Open de workers.dev-link uit de deploy-log.'], 'Je ziet {"service":"xbt-market","usernames":true,…}. In de app verschijnt Account → Username.'],
-    ['SVC-2', 'Verzending aan', ['Zet ook de Sendcloud-sleutels en het Lightning-adres van het platform als secret.'], 'De dienst toont "shipping":true; bij bestellen zie je echte prijzen zonder ≈.'],
+    ['SVC-1', 'XBT Market-dienst staat live', ['Cloudflare: gratis account → API-token (sjabloon "Edit Cloudflare Workers") + Account ID. GitHub → Settings → Secrets and variables → Actions: CLOUDFLARE_API_TOKEN en CLOUDFLARE_ACCOUNT_ID. Actions → laatste run → Re-run all jobs.', 'Open de workers.dev-link uit de deploy-log.'], 'Je ziet {"service":"xbt-market","usernames":true,…}.'],
+    ['SVC-2', 'Verzending aan', ['Secrets SENDCLOUD_PUBLIC_KEY, SENDCLOUD_SECRET_KEY en PLATFORM_LN_ADDRESS, opnieuw deployen.'], '"shipping":true; bij bestellen echte prijzen zonder ≈.'],
+    ['SVC-3', 'Bugmeldingen per mail', ['resend.com: gratis account met steenh819@gmail.com → API Keys → Create. Secrets RESEND_API_KEY en BUG_REPORT_EMAIL (= steenh819@gmail.com), opnieuw deployen.'], '"bugReports":true; BUG-1 levert een mail met bijlage op.'],
   ]],
   ['Instellingen en back-up', 'willekeurig', [
-    ['SET-1', 'Trade-back-up', ['Account → Trade-back-up → Downloaden, daarna Herstellen.'], 'Bestand gedownload; herstel meldt aantal berichten.'],
-    ['SET-2', 'Handmatige koers', ['Handmatige koers 500, bekijk een advertentie, maak leeg.'], 'XBT-bedrag op basis van 500; leeg = marktkoers.'],
-    ['SET-3', 'Uitloggen en inloggen', ['Uitloggen, inloggen met dezelfde nsec.'], 'Alles terug.'],
+    ['SET-1', 'Trade-back-up', ['Account → Trade backup → Download, daarna Restore.'], 'Bestand gedownload; herstel meldt aantal berichten.'],
+    ['SET-2', 'Handmatige koers', ['Account → Trading → Manual rate 500, bekijk een advertentie, maak leeg.'], 'XBT-bedrag op basis van 500; leeg = marktkoers.'],
+    ['SET-3', 'Uitloggen en inloggen', ['Log out, inloggen met dezelfde nsec.'], 'Alles terug.'],
   ]],
 ];
 
-const KEY = 'xbt-testplan-v2';
+const KEY = 'xbt-testplan-v3';
 let state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { state = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} render(); };

@@ -43,7 +43,7 @@ function handle(w, { method, params = {} }) {
     case 'get_balance': return { balance: w.balance };
     case 'make_invoice': {
       const preimage = randomBytes(32);
-      const inv = fakeInvoice({ sats: Math.round(params.amount / 1000), network, preimage, description: params.description || '', expiry: params.expiry || 3600 });
+      const inv = fakeInvoice({ sats: Math.round(params.amount / 1000), network, preimage, description: params.description || '', expiry: params.expiry || 3600, blake2b: true });
       invoices.set(inv.paymentHash, { ...inv, msat: params.amount, owner: w.name, createdAt: now() });
       return { type: 'incoming', invoice: inv.invoice, payment_hash: inv.paymentHash, amount: params.amount, created_at: now() };
     }

@@ -13,7 +13,7 @@
 import puppeteer from 'puppeteer-core';
 import { execSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
+import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure';
 import * as nip19 from 'nostr-tools/nip19';
 import { SimplePool } from 'nostr-tools/pool';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -175,6 +175,13 @@ async function pickSub(p, value) {
   await p.waitForFunction(() => document.querySelector('select[aria-label="Subcategory"]').options.length > 1, { timeout: 15000 });
   await s.select(value || await s.evaluate((e) => e.options[1].value));
 }
+const tab = async (p, name) => (await el(p, `//button[contains(@class,"tab")][starts-with(normalize-space(.),"${name}")]`)).click();
+async function catSearch(p, q) {
+  const e = await el(p, '//div[contains(@class,"cat-search")]//input');
+  await e.click({ count: 3 });
+  await e.evaluate((x) => { x.value = ''; x.dispatchEvent(new Event('input', { bubbles: true })); });
+  await e.type(q);
+}
 async function setCategory(p, cat, sub) {
   await (await p.waitForSelector('select[aria-label="Category"]')).select(cat);
   await pickSub(p, sub);
@@ -245,53 +252,57 @@ async function order(who, title, { pay, pickup = false, carrier }) {
 
 try {
   // ---- arbiter (A) ----
-  await step('ARB-2', 'Find the way to become an arbiter', async () => {
-    const p = await go('A', '#/settings');
+  await step('ARB-2', 'Find the way to become an arbiter; a fee as a percentage', async () => {
+    const p = await go('A', '#/settings?open=arbiter');
     await waitText(p, 'Become an arbiter');
     await click(p, 'Apply as arbiter');
     await waitText(p, 'Become an arbiter');
     await fill(p, 'Name', 'Anna Arbiter');
     await fill(p, 'Languages', 'NL, EN');
-    await fill(p, 'Fee policy', '2% in disputes only');
+    await fill(p, 'Your fee (% of the escrow)', '2');
     await click(p, 'Publish arbiter profile');
     await waitText(p, 'not on the approved list yet');
-    await go('A', '#/settings');
+    await go('A', '#/settings?open=arbiter');
     await waitText(p, 'waiting for approval');
-    return 'Account → "Become an arbiter" card → form; after publishing "waiting for approval"';
+    return 'Account → "Become an arbiter" (bottom) → form with a fee in %; after publishing "waiting for approval"';
   });
-  await step('ARB-3', 'Approve the arbiter', async () => {
+  await step('ARB-3', 'Approve the arbiter: the request moves to the approved list', async () => {
     const p = await go('A', '#/admin');
     await waitText(p, 'Anna Arbiter');
-    await (await el(p, '//label[contains(@class,"trade-row")][.//b[normalize-space(.)="Anna Arbiter"]]//input')).click();
-    await click(p, 'Publish list (1)');
-    await waitToast(p, 'Arbiter list published');
+    await (await el(p, '//div[contains(@class,"trade-row")][.//b[normalize-space(.)="Anna Arbiter"]]//button[contains(.,"Approve")]')).click();
+    await waitToast(p, 'Approved');
+    await waitText(p, 'Approved arbiters (1)');
+    await waitText(p, 'No new requests.');
+    await proof(p, 'plan', 'ARB-3 · Admin: verzoek weg uit "Waiting", Anna onder "Approved arbiters" met "Withdraw approval"');
     await go('A', '#/arbiter');
     await waitText(p, 'Open disputes');
     await waitNoText(p, 'not on the approved list yet');
-    return 'warning gone, "Open disputes" shown';
+    return 'one tap approves; the request leaves the waiting list and shows under "Approved arbiters"';
   });
 
   // ---- first start (B makes an account in the UI) ----
-  await step('SET-UP-1', 'A calm setup screen', async () => {
+  await step('SET-UP-1', 'Account page: profile open on top, the rest in closed sections', async () => {
     const p = await go('B', '#/settings');
     await click(p, 'Create a new account');
     await waitText(p, 'Back up your key');
     people.B.pk = await p.evaluate(() => JSON.parse(localStorage.getItem('xbt:account')).pubkey);
     await waitText(p, 'Full setup (optional)');
+    if ((await text(p)).includes('Finish your profile')) throw new Error('old "finish your profile" banner');
     const open = await p.evaluate(() => [...document.querySelectorAll('details.collapsible')].map((d) => [d.querySelector('summary h3')?.textContent.trim(), d.open]));
-    const wanted = ['Trading', 'Lightning wallet', 'AI listing assistant', 'Trusted arbiters', 'Network', 'Trade backup'];
-    for (const w of wanted) if (!open.some(([t, o]) => t?.includes(w) && !o)) throw new Error(`${w} is not a closed section: ${JSON.stringify(open)}`);
+    if (!open[0]?.[0]?.includes('Profile') || !open[0][1]) throw new Error('profile is not the first, open section: ' + JSON.stringify(open));
+    const closed = ['Password', 'Language and currency', 'Install as an app', 'Trading', 'Lightning wallet', 'AI listing assistant', 'Trusted arbiters', 'Network', 'Trade backup', 'Become an arbiter', 'Report a problem'];
+    for (const w of closed) if (!open.some(([t, o]) => t?.includes(w) && !o)) throw new Error(`${w} is not a closed section: ${JSON.stringify(open)}`);
+    if (open.findIndex(([t]) => t?.includes('Become an arbiter')) < open.findIndex(([t]) => t?.includes('Trade backup'))) throw new Error('arbiter is not at the bottom');
     if (await p.evaluate(() => [...document.querySelectorAll('header a, nav a')].some((a) => a.textContent.includes('Admin')))) throw new Error('B sees the Admin menu');
-    return 'basics on top; Trading, Lightning wallet, AI, Trusted arbiters, Network and Trade backup collapsed under "Full setup (optional)"';
+    return 'Profile open on top (no banner, no extra buttons); everything else closed; "Become an arbiter" near the bottom';
   });
-  await step('SET-UP-2', 'Install guide per browser', async () => {
+  await step('SET-UP-2', 'Install guide per device, then per browser', async () => {
     const p = await as('B');
     await (await el(p, '//details[contains(@class,"install-guide")]/summary')).click();
-    await waitText(p, 'Safari (iPhone / iPad)');
-    await waitText(p, 'Chrome (Android)');
+    for (const d of ['iPhone / iPad', 'Android phone / tablet', 'Mac', 'Windows laptop / PC']) await waitText(p, d);
     const mine = await p.evaluate(() => [...document.querySelectorAll('.install-steps')].find((d) => d.open)?.querySelector('summary')?.textContent);
     if (!mine?.includes('your browser')) throw new Error('own browser not opened: ' + mine);
-    return `steps for Chrome/Android, Safari/iPhone, Samsung, Firefox and computers; open: ${mine}`;
+    return `devices first (iPhone/iPad, Android, Mac, Windows, Linux), browsers inside; open: ${mine}`;
   });
   await step('ACC-6', 'Installable as an app', async () => {
     // Chrome never offers to install from a private window, so check in a normal one.
@@ -318,7 +329,7 @@ try {
     return `manifest standalone with the gold icon, service worker active${extra}`;
   });
   await step('ACC-2', 'Copy the npub with a button', async () => {
-    const p = await go('B', '#/settings');
+    const p = await go('B', '#/settings?open=backup-key');
     const codeIsButton = await p.evaluate(() => !!document.querySelector('.npub-line code')?.closest('button'));
     if (codeIsButton) throw new Error('the npub text itself is a button');
     await click(p, 'Copy npub');
@@ -329,44 +340,60 @@ try {
     await click(p, 'I have written it down');
     return 'npub shown as text with a separate "Copy npub" button';
   });
-  await step('ACC-7', 'Profile: name on Account, prominent edit, country required', async () => {
+  await step('ACC-7', 'Profile: username instead of a name, country required, "Other" account', async () => {
     const p = await go('B', '#/settings');
-    await click(p, '✏️ Edit profile');
-    await fill(p, 'Name', 'Bea Verkoper');
-    await fill(p, 'About you', 'Verkoopt spullen uit Utrecht.');
+    if (await exists(p, fieldX('Name'))) throw new Error('separate name field');
+    const name = 'bea' + Math.random().toString(36).slice(2, 7);
+    people.B.username = name;
+    await fill(p, 'Username', name);
+    await waitText(p, `@${name} is available`);
+    await fill(p, 'About you (optional)', 'Verkoopt spullen uit Utrecht.');
     const disabled = await (await el(p, btnX('Save profile'))).evaluate((b) => b.disabled);
     if (!disabled) throw new Error('could save without a country');
     await (await el(p, '//div[contains(@class,"edit-profile")]//label[span[normalize-space(.)="Country"]]//select')).select('NL');
+    await (await el(p, '//div[contains(@class,"edit-profile")]//summary')).click();
+    await fill(p, 'Other', 'https://example.com/bea');
     await click(p, 'Save profile');
     await waitToast(p, 'Profile saved');
     await p.reload({ waitUntil: 'load' });
-    await p.waitForFunction(() => document.querySelector('.account-head h2')?.textContent === 'Bea Verkoper', { timeout: 40000 });
-    return 'Save only with a country (dropdown); name shown at the top of Account';
+    await p.waitForFunction((n) => document.querySelector('.account-head h2')?.textContent === '@' + n, { timeout: 40000 }, name);
+    return `username @${name} is the name; save only with a country; "Other" marketplace field; shown at the top of Account`;
   });
-  await step('ACC-3', 'Password: explained, checked, visible, changeable, lock screen shows the account', async () => {
-    const p = await go('B', '#/settings');
-    await (await el(p, '//summary[contains(.,"What does the password do?")]')).click();
-    await waitText(p, 'It encrypts your key on this device only');
+  await step('ACC-3', 'Password: clear, per device, survives a refresh, guards the nsec, lock now', async () => {
+    const p = await go('B', '#/settings?open=password');
+    await waitText(p, 'Each device has its own password');
     await fill(p, 'Password', '12345');
     await waitText(p, 'Too short: 5 of at least 8 characters.');
     await fill(p, 'Password', 'correct-horse-9');
-    await (await el(p, '//div[contains(@class,"password")]//button[contains(@class,"eye")]')).click();
-    const shown = await p.evaluate(() => document.querySelector('.password input[autocomplete="new-password"]').type);
-    if (shown !== 'text') throw new Error('eye does not show the password');
     await fill(p, 'Repeat password', 'correct-horse-9');
     await click(p, 'Set password');
-    await waitText(p, 'Password set. The app now asks for it when it starts.');
-    await waitText(p, '✓ on');
+    await waitText(p, 'Password set on this device');
+    // A refresh keeps it unlocked (the browser session), no password asked.
+    await p.waitForFunction(() => !!sessionStorage.getItem('xbt:session'), { timeout: 10000 });
+    await p.reload({ waitUntil: 'load' });
+    await waitText(p, 'Password set on this device');
+    if ((await text(p)).includes('🔒 Unlock')) throw new Error('locked after a refresh');
+    // Showing the nsec asks for the password.
+    await p.evaluate(() => { location.hash = '#/settings?open=backup-key,password'; });
+    await click(p, 'Show my nsec');
+    await fillPh(p, 'Your password', 'wrong-password');
+    await click(p, 'Show');
+    await waitText(p, 'Wrong password');
+    await fillPh(p, 'Your password', 'correct-horse-9');
+    await click(p, 'Show');
+    await el(p, '//div[@class="secret"]/code');
+    await click(p, 'Hide');
     // Changing needs the current password.
+    await click(p, 'Change or remove');
     await fill(p, 'New password', 'battery-staple-7');
     await fill(p, 'Repeat password', 'battery-staple-7');
     if (!(await (await el(p, btnX('Change password'))).evaluate((b) => b.disabled))) throw new Error('could change without the current password');
     await fill(p, 'Current password', 'correct-horse-9');
     await click(p, 'Change password');
     await waitText(p, 'Password changed');
-    await click(p, 'Lock now');
+    await click(p, '🔒 Lock now');
     await waitText(p, 'Unlock');
-    await waitText(p, 'Bea Verkoper');
+    await waitText(p, people.B.username);
     await proof(p, 'plan', 'ACC-3 · Slotscherm toont welk account: naam en npub');
     await fill(p, 'Password', 'wrong-password');
     await click(p, 'Unlock');
@@ -378,11 +405,11 @@ try {
     const sk = Buffer.from(nip19.decode(people.B.nsec).data).toString('hex');
     await p.evaluate((pk, sk) => localStorage.setItem('xbt:account', JSON.stringify({ pubkey: pk, sk, backedUp: true })), people.B.pk, sk);
     await p.reload({ waitUntil: 'load' });
-    return 'explanation; "too short" feedback; eye shows it; change needs the current one; lock screen names the account';
+    return 'short explanation; stays unlocked on refresh; nsec only after the password; change needs the current one; lock now shows the account';
   });
   const B = (hash) => go('B', hash);
   await step('ACC-5', 'Only English and Spanish', async () => {
-    const p = await B('#/settings');
+    const p = await B('#/settings?open=language');
     const langs = await p.$eval('::-p-xpath(//label[span[normalize-space(.)="Language"]]//select)', (s) => [...s.options].map((o) => o.value).join(','));
     if (langs !== 'en,es') throw new Error('languages: ' + langs);
     await select(p, 'Language', 'es');
@@ -399,29 +426,29 @@ try {
     return `accent ${c.accent}, primary buttons ${c.btn}`;
   });
   await step('USR-1', 'Unique @username', async () => {
-    const name = 'bea' + Math.random().toString(36).slice(2, 7);
-    people.B.username = name;
-    const p = await B('#/settings');
-    await fillPh(p, 'username', name);
-    await waitText(p, `@${name} is available`);
-    await click(p, 'Claim');
-    await waitToast(p, `You are now @${name}`);
-    await waitText(p, `@${name}`, 30000);
-    const c = await go('C', '#/settings');
-    await fillPh(c, 'username', name);
-    await waitText(c, `@${name} is already taken`);
-    if (!(await (await el(c, btnX('Claim'))).evaluate((b) => b.disabled))) throw new Error('C could claim a taken name');
+    const name = people.B.username;
     const nj = await (await fetch(`${API}/.well-known/nostr.json?name=${name}`)).json();
     if (nj.names[name] !== people.B.pk) throw new Error('not in nostr.json');
-    return `B is @${name} (NIP-05 ${name}@…); C gets "already taken"`;
+    const c = await go('C', '#/settings');
+    await fill(c, 'Username', name);
+    await waitText(c, `@${name} is already taken`);
+    if (!(await (await el(c, btnX('Save profile'))).evaluate((b) => b.disabled))) throw new Error('C could take a taken name');
+    return `B is @${name} (NIP-05 ${name}@…), set in the profile; C gets "already taken"`;
   });
   await step('USR-2', 'Search by username', async () => {
     const c = await go('C', '#/');
     await (await c.waitForSelector('.searchbar input')).type('@' + people.B.username.slice(0, 5));
     await waitText(c, '@' + people.B.username, 20000);
     await (await el(c, `//a[contains(@class,"trade-row")][.//b[normalize-space(.)="@${people.B.username}"]]`)).click();
-    await waitText(c, 'Bea Verkoper', 30000);
-    return 'typing @bea… lists B; tapping opens the profile';
+    await waitText(c, 'Verkoopt spullen uit Utrecht.', 30000);
+    // Without the @ it searches listings only.
+    await c.evaluate(() => { location.hash = '#/'; });
+    const box = await c.waitForSelector('.searchbar input');
+    await box.click({ count: 3 });
+    await box.type(people.B.username);
+    await sleep(800);
+    if (await exists(c, `//a[contains(@class,"trade-row")][.//b[normalize-space(.)="@${people.B.username}"]]`)) throw new Error('people listed without the @');
+    return 'typing @bea… lists B; tapping opens the profile; without @ only listings';
   });
 
   // ---- listings ----
@@ -430,6 +457,20 @@ try {
     await waitText(p, 'New listing');
     const n = await p.$eval('select[aria-label="Category"]', (s) => s.options.length);
     if (n !== 36) throw new Error(`${n} main categories`);
+    const first = await p.$eval('select[aria-label="Category"]', (s) => [...s.options].slice(0, 3).map((o) => o.value).join());
+    if (first !== 'antiek-en-kunst,audio-tv-en-foto,auto-s') throw new Error('not in Marktplaats order: ' + first);
+    // Search: everyday words find the category, also compounds.
+    await catSearch(p, 'ssd');
+    await (await el(p, '//button[contains(@class,"cat-hit")][contains(.,"Hard Drives") or contains(.,"Harde schijven")]')).click();
+    if (await p.$eval('select[aria-label="Subcategory"]', (s) => s.value) !== 'harde-schijven') throw new Error('search did not set the subcategory');
+    await catSearch(p, 'warmtebeeldkijker');
+    await waitText(p, 'Binoculars');
+    // Third level: a car brand asks for the model.
+    await (await p.waitForSelector('select[aria-label="Category"]')).select('auto-s');
+    await pickSub(p, 'ford');
+    await p.waitForSelector('select[aria-label="Model"]', { timeout: 15000 });
+    const models = await p.$eval('select[aria-label="Model"]', (s) => [...s.options].map((o) => o.textContent));
+    if (!models.includes('Transit') || !models.includes('Other model')) throw new Error('no Ford models: ' + models.slice(0, 5));
     await (await p.waitForSelector('select[aria-label="Category"]')).select('kleding-dames');
     await p.waitForFunction(() => document.querySelector('select[aria-label="Subcategory"]')?.options.length > 10, { timeout: 15000 });
     const subs = await p.$eval('select[aria-label="Subcategory"]', (s) => s.options.length - 1);
@@ -437,18 +478,21 @@ try {
     await fill(p, 'Price', '1');
     await click(p, 'Publish');
     await waitToast(p, 'Choose a subcategory');
-    return `36 main categories; Kleding | Dames has ${subs} subcategories; publishing needs one`;
+    return `36 main categories in Marktplaats order; search ("ssd", "warmtebeeldkijker"); Ford → model list; Kleding | Dames has ${subs} subcategories; publishing needs one`;
   });
-  await step('LST-1b', 'Country and ships-to', async () => {
+  await step('LST-1b', 'Pick-up country and town; ships to exactly what you choose', async () => {
     const p = await as('B');
-    const country = await p.$eval('::-p-xpath(//label[span[normalize-space(.)="Country"]]//select)', (s) => s.value);
+    const country = await p.$eval('::-p-xpath(//label[span[normalize-space(.)="Pick-up country"]]//select)', (s) => s.value);
     if (country !== 'NL') throw new Error('country not preset: ' + country);
+    await el(p, fieldX('Pick-up town (optional)'));
+    const chips = await p.$$eval('.ships-to .chip', (c) => c.map((x) => x.textContent));
+    if (chips.length !== 1 || !chips[0].includes('Netherlands')) throw new Error('ships-to does not start with the own country: ' + chips);
     const picker = await el(p, '//div[contains(@class,"ships-to")]//select');
     await picker.select('GB');
     await waitText(p, 'United Kingdom');
     await (await el(p, '//span[contains(@class,"chip")][contains(.,"United Kingdom")]/button')).click();
     await p.waitForFunction(() => ![...document.querySelectorAll('.chip')].some((c) => c.textContent.includes('United Kingdom')), { timeout: 5000 });
-    return 'country dropdown preset to NL; ships-to chips for EU / worldwide / countries, removable';
+    return '"Pick-up country" preset to NL and "Pick-up town"; ships-to starts with NL, chips removable';
   });
   await step('LST-1c', 'Carriers without a price', async () => {
     const p = await as('B');
@@ -477,7 +521,7 @@ try {
     await pickSub(p);
     await fill(p, 'Price', '2');
     await select(p, 'Condition', 'like-new');
-    await fill(p, 'Town (optional)', 'Utrecht');
+    await fill(p, 'Pick-up town (optional)', 'Utrecht');
     await click(p, 'Publish');
     await waitText(p, 'Your listings');
     await waitText(p, 'Wollen sjaal, rood');
@@ -568,7 +612,7 @@ try {
     await sleep(400);
     order = await c.$$eval('.listing-card .title', (t) => t.map((x) => x.textContent));
     if (order.join() !== 'Sorteertest duur') throw new Error('price from 5: ' + order);
-    await (await el(c, '//div[contains(@class,"filters")]//label[span[normalize-space(.)="Seller in"]]//select')).select('NL');
+    await (await el(c, '//div[contains(@class,"filters")]//label[span[normalize-space(.)="Pick-up country"]]//select')).select('NL');
     await (await el(c, '//div[contains(@class,"filters")]//label[span[normalize-space(.)="Delivery"]]//select')).select('pickup');
     await waitText(c, 'Sorteertest duur');
     await proof(c, 'plan', 'LST-6 · Filters: prijs vanaf 5, verkoper in NL, ophalen; gesorteerd op prijs hoog-laag');
@@ -583,17 +627,17 @@ try {
     return 'search, price range, country, delivery; sort low–high and high–low; filters survive "back"';
   });
   await step('LST-7', 'Prices in many currencies', async () => {
-    const c = await go('C', '#/settings');
+    const c = await go('C', '#/settings?open=language');
     await select(c, 'Show prices in', 'USD');
     let l = await openListing('C', 'Sorteertest duur');
     await waitText(l, '≈ US$', 20000);
     await waitText(l, '€9.00');
     await proof(l, 'plan', 'LST-7 · Prijs in USD (≈), met de originele euro- en XBT-prijs');
-    await go('C', '#/settings');
+    await go('C', '#/settings?open=language');
     await select(c, 'Show prices in', 'JPY');
     l = await openListing('C', 'Sorteertest duur');
     await waitText(l, '≈ JP¥', 20000);
-    await go('C', '#/settings');
+    await go('C', '#/settings?open=language');
     await select(c, 'Show prices in', 'EUR');
     const n = await c.$eval('::-p-xpath(//label[span[normalize-space(.)="Show prices in"]]//select)', (s) => s.options.length);
     return `prices converted (≈ US$, ≈ JP¥) with the original price; ${n} currencies`;
@@ -612,9 +656,123 @@ try {
     await waitText(c, 'Sorteertest duur', 30000);
     await c.waitForFunction(() => [...document.querySelectorAll('.listing-card .name span')].every((x) => x.textContent), { timeout: 20000 }).catch(() => {});
     const sellers = await c.$$eval('.listing-card .name span', (s) => [...new Set(s.map((x) => x.textContent).filter(Boolean))]);
-    if (sellers.length !== 1 || sellers[0] !== 'Bea Verkoper') throw new Error('other sellers in the feed: ' + sellers);
+    if (sellers.length !== 1 || sellers[0] !== people.B.username) throw new Error('other sellers in the feed: ' + sellers);
     await click(c, 'All listings');
-    return 'tab "Following" shows only listings of Bea Verkoper';
+    return `tab "Following" shows only listings of ${people.B.username}`;
+  });
+
+  // ---- ships-to filter, reports, blocking, admin, bug reports ----
+  await step('LST-1f', 'Buyer filter "Ships to" (dropdown) follows the seller\'s choice exactly', async () => {
+    const p = await as('B');
+    await p.evaluate(() => { location.hash = '#/sell/new'; });
+    await fill(p, 'Title', 'Alleen naar Egypte');
+    await setCategory(p, 'diversen');
+    await fill(p, 'Price', '5');
+    await (await el(p, '//span[contains(@class,"chip")][contains(.,"Netherlands")]/button')).click();
+    await (await el(p, '//div[contains(@class,"ships-to")]//select')).select('EG');
+    await waitText(p, 'Egypt');
+    await click(p, 'Publish');
+    await waitText(p, 'Your listings');
+    const c = await go('C', '#/?q=Alleen%20naar%20Egypte');
+    await c.reload({ waitUntil: 'load' });
+    await waitText(c, 'Alleen naar Egypte');
+    await click(c, '⚙ Filters');
+    await (await el(c, '//div[contains(@class,"filters")]//label[span[normalize-space(.)="Ships to"]]//select')).select('NL');
+    await waitNoText(c, 'Alleen naar Egypte', 10000);
+    await (await el(c, '//div[contains(@class,"filters")]//label[span[normalize-space(.)="Ships to"]]//select')).select('EG');
+    await waitText(c, 'Alleen naar Egypte');
+    await click(c, 'Clear filters');
+    return 'an NL listing that ships only to Egypt: hidden for "Ships to: Netherlands", shown for "Egypt"';
+  });
+  await step('REP-1', 'Report a user; the admin sees it', async () => {
+    const c = await go('C', `#/u/${nip19.npubEncode(people.B.pk)}`);
+    await click(c, '🚩 Report');
+    await choose(c, 'Scam or fraud');
+    await fill(c, 'What happened? (optional)', 'Testmelding: verkoper reageert niet meer.');
+    await click(c, 'Send report');
+    await waitToast(c, 'Report sent');
+    const a = await go('A', '#/admin');
+    await tab(a, 'Reports');
+    await waitText(a, 'Testmelding: verkoper reageert niet meer.', 60000);
+    await waitText(a, 'Scam or fraud');
+    await proof(a, 'plan', 'REP-1 · Admin → Reports: reden, tekst, over wie en van wie');
+    await click(a, 'Mark as handled');
+    await waitNoText(a, 'Testmelding', 10000);
+    return 'report goes privately to the admin; Reports tab shows reason, text, who and about whom';
+  });
+  await step('BLK-1', 'Block a user: their listings disappear for you', async () => {
+    const c = await go('C', `#/u/${nip19.npubEncode(people.B.pk)}`);
+    await click(c, '⛔ Block');
+    await waitText(c, 'You blocked this user');
+    const b = await go('C', '#/?q=Sorteertest');
+    await b.reload({ waitUntil: 'load' });
+    await sleep(3000);
+    if ((await text(b)).includes('Sorteertest duur')) throw new Error('blocked seller still listed');
+    await go('C', `#/u/${nip19.npubEncode(people.B.pk)}`);
+    await click(c, 'Unblock');
+    const b2 = await go('C', '#/?q=Sorteertest');
+    await b2.reload({ waitUntil: 'load' });
+    await waitText(b2, 'Sorteertest duur');
+    return 'blocked: listings hidden for C; unblocked: back';
+  });
+  await step('BLK-2', `Blocked by ${10} people: the account is inactive; the admin can restore it`, async () => {
+    // A throwaway seller with one listing, blocked by ten other accounts.
+    const xsk = generateSecretKey();
+    const xpk = getPublicKey(xsk);
+    const pool = new SimplePool();
+    const now = Math.floor(Date.now() / 1000);
+    await Promise.any(pool.publish([RELAY], finalizeEvent({ kind: 30402, created_at: now, content: 'test', tags: [['d', 'x1'], ['title', 'Geblokkeerde verkoper'], ['price', '3', 'EUR'], ['t', 'xbt-market'], ['t', 'diversen'], ['country', 'NL'], ['payment', 'lightning'], ['shipping_option', 'pickup', '0', 'EUR']] }, xsk)));
+    for (let i = 0; i < 10; i++) await Promise.any(pool.publish([RELAY], finalizeEvent({ kind: 30000, created_at: now, content: '', tags: [['d', 'xbt-market/blocked'], ['p', xpk]] }, generateSecretKey())));
+    pool.close([RELAY]);
+    const c = await go('C', '#/?q=Geblokkeerde');
+    await c.reload({ waitUntil: 'load' });
+    await sleep(4000);
+    if ((await text(c)).includes('Geblokkeerde verkoper')) throw new Error('inactive account still listed');
+    await go('C', `#/u/${nip19.npubEncode(xpk)}`);
+    await waitText(c, 'This account is inactive: too many people blocked it.');
+    const a = await go('A', '#/admin');
+    await tab(a, 'Accounts');
+    await waitText(a, 'Inactive: too many blocks (1)', 30000);
+    await proof(a, 'plan', 'BLK-2 · Admin → Accounts: account inactief na 10 blokkades, met "Make active again"');
+    await click(a, 'Make active again');
+    await waitToast(a, 'Account active again');
+    const c2 = await go('C', '#/?q=Geblokkeerde');
+    await c2.reload({ waitUntil: 'load' });
+    await waitText(c2, 'Geblokkeerde verkoper', 30000);
+    return 'ten blocks: hidden in Browse and "inactive" on the profile; admin "Make active again" brings it back';
+  });
+  await step('ADM-1', 'Admin: suspend and restore any account', async () => {
+    const a = await go('A', '#/admin');
+    await tab(a, 'Accounts');
+    await fillPh(a, 'npub1…', nip19.npubEncode(people.B.pk));
+    await click(a, 'Suspend');
+    await waitToast(a, 'Account suspended');
+    await waitText(a, 'Suspended by you (1)');
+    const c = await go('C', `#/u/${nip19.npubEncode(people.B.pk)}`);
+    await c.reload({ waitUntil: 'load' });
+    await waitText(c, 'suspended by the community admin', 30000);
+    const a2 = await go('A', '#/admin');
+    await tab(a2, 'Accounts');
+    await (await el(a2, '//h3[contains(.,"Suspended by you")]/following-sibling::div[1]//button[normalize-space(.)="Make active again"]')).click();
+    await waitToast(a2, 'Account active again');
+    return 'suspend by npub: profile says "suspended"; restore with one tap';
+  });
+  await step('BUG-1', 'Bug report with a screenshot: e-mailed to the maintainer, also in Admin', async () => {
+    const c = await go('C', '#/settings?open=bug');
+    await fill(c, 'What went wrong?', 'Testbug: de knop doet niets.');
+    const input = await c.$('::-p-xpath(//label[span[normalize-space(.)="Screenshots or a video (optional)"]]//input[@type="file"])');
+    await input.uploadFile('public/icon-192.png');
+    await waitText(c, 'icon-192.png');
+    await click(c, 'Send report');
+    await waitText(c, 'Thank you! Your report was sent.', 30000);
+    const mails = await (await fetch('http://127.0.0.1:3011/resend/emails')).json();
+    const mail = mails.find((m) => m.html.includes('Testbug: de knop doet niets.'));
+    if (!mail || mail.to[0] !== 'bugs@example.com' || mail.attachments[0]?.filename !== 'icon-192.png' || !(mail.attachments[0].bytes > 1000)) throw new Error('no e-mail with the screenshot: ' + JSON.stringify(mails.slice(-1)));
+    const a = await go('A', '#/admin');
+    await tab(a, 'Bug reports');
+    await waitText(a, 'Testbug: de knop doet niets.', 60000);
+    await waitText(a, 'e-mailed with attachments');
+    return 'e-mail with the png attached to the address in the server secrets; also under Admin → Bug reports';
   });
 
   // ---- edge cases that need no trade ----
@@ -691,12 +849,18 @@ try {
     await waitText(c, 'Your order');
     return 'colored banner per role, "Order from … (the buyer)" vs "Your order"; reason field after Reject';
   });
-  await step('ARB-4', 'Unapproved arbiter is not offered', async () => {
+  await step('ARB-4', 'Unapproved arbiter is not offered; the admin can reject, and approve after all', async () => {
     const p = await B('#/arbiter');
     await fill(p, 'Name', 'Bob Unapproved');
     await click(p, 'Publish arbiter profile');
     await waitText(p, 'not on the approved list yet');
-    return 'B announced without approval (checked in TRD-3b)';
+    const a = await go('A', '#/admin');
+    await waitText(a, 'Bob Unapproved', 30000);
+    await (await el(a, '//div[contains(@class,"trade-row")][.//b[normalize-space(.)="Bob Unapproved"]]//button[contains(.,"Reject")]')).click();
+    await waitToast(a, 'Rejected');
+    await waitText(a, 'Rejected (1)');
+    await el(a, '//div[contains(@class,"trade-row")][.//b[normalize-space(.)="Bob Unapproved"]]//button[normalize-space(.)="Approve after all"]');
+    return 'B announced without approval (not offered, see TRD-3b); admin: Reject moves him to "Rejected" with "Approve after all"';
   });
   await step('TRD-3b', 'Details only after the accept', async () => {
     const p = await B(`#/trade/${tid}`);
@@ -859,7 +1023,14 @@ try {
   await step('DSP-3', 'Rule on the dispute', async () => {
     const p = await go('A', `#/trade/${tid2}`);
     await waitText(p, 'Dispute opened by the buyer', 30000);
+    // The fee goes to the arbiter's payout address.
+    const s = await go('A', '#/settings?open=trading');
+    await fill(s, 'Default XBT payout / refund address', CLI ? cli('getnewaddress', 'plan-arbiter', 'bech32') : 'bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080');
+    await s.keyboard.press('Tab');
+    await go('A', `#/trade/${tid2}`);
+    await waitText(p, 'Dispute opened by the buyer', 30000);
     await click(p, 'Propose a ruling');
+    await waitText(p, 'Your fee (2%)');
     const sd = await p.evaluate(() => { const t = document.querySelector('main').innerText.match(/Seller pays \(deposit\)\s*([\d.]+)/); return t && t[1]; });
     await fill(p, 'Seller receives (XBT)', sd);
     await fill(p, 'Note', 'Niet verzonden binnen de termijn: terugbetaling aan koper, verkoper houdt eigen borg.');
@@ -868,7 +1039,9 @@ try {
     const c = await go('C', `#/trade/${tid2}`);
     await waitText(c, 'Arbiter ruling', 30000);
     await waitText(c, 'terugbetaling aan koper');
-    return `buyer and seller see "Arbiter ruling" with amounts and note (seller gets ${sd} XBT back)`;
+    await waitText(c, 'Arbiter fee (2%)');
+    if ((await text(c)).includes('Pays to an address that is not')) throw new Error('fee output flagged as unknown');
+    return `buyer and seller see "Arbiter ruling" with amounts, note and "Arbiter fee (2%)" (seller gets ${sd} XBT back)`;
   });
   await step('DSP-4', 'Co-sign the ruling', async () => {
     const c = await as('C');
@@ -1010,9 +1183,9 @@ try {
     await waitText(p, 'I received the payment', 60000);
     const c = await go('C', `#/trade/${tidLn}`);
     await waitText(c, 'Pay with my wallet', 30000);
-    await waitText(c, 'Network: lnbcrt');
+    await waitText(c, '⚡ XBT Lightning');
     await waitText(c, '💳 Payment request');
-    return 'QR, invoice, network (lnbcrt) and a "💳 Payment request" line in the chat';
+    return 'QR, invoice marked "⚡ XBT Lightning" (feature bit 512) and a "💳 Payment request" line in the chat';
   });
   await step('LN-7', 'Pay with one tap', async () => {
     const c = await as('C');
@@ -1305,8 +1478,8 @@ try {
   });
 
   // ---- things a script cannot do for you ----
-  manual('TRD-4b', 'Pay from a real BLAKE2b wallet', 'Funding used a Knots regtest node. Paying from Sparrow BLAKE2b / Knots / Shrike with real coins is for you.');
-  manual('LN-real', 'A real Lightning wallet', 'Tested with mock NWC wallets. Connecting Alby Hub / Zeus / Primal and real XBT-Lightning is for you.');
+  manual('TRD-4b', 'Pay from a real BLAKE2b wallet', 'Funding used a Knots regtest node. Paying from your own XBT wallet with real coins is for you.');
+  manual('LN-real', 'A real Lightning wallet', 'Tested with mock NWC wallets. Connecting your own XBT Lightning wallet (NWC) is for you.');
   manual('AI-real', 'A real AI answer', 'Tested against a fake API. The quality of a real Claude answer needs your own API key.');
   manual('SVC-real', 'The service on Cloudflare with Sendcloud', 'Tested with the same code in Node against a Sendcloud mock. The live deploy and real labels need your Cloudflare and Sendcloud accounts.');
   manual('ACC-6b', 'Home screen icon on a real phone', 'Installability is checked; adding it to a real home screen is for you.');

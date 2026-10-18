@@ -2,6 +2,9 @@
 // escrow key, so backing up the nsec backs up everything.
 //
 // Stored in localStorage, either plain or NIP-49 encrypted with a password.
+// With a password, an unlocked key survives a page refresh but not closing the
+// browser: it is kept in sessionStorage, encrypted with a non-extractable
+// WebCrypto key held in IndexedDB, so neither storage ever holds it readable.
 
 import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure';
 import * as nip19 from 'nostr-tools/nip19';
@@ -15,12 +18,71 @@ const KEY = 'xbt:account';
 const stored = loadJSON(KEY, null);
 let secret = stored?.sk ? hexToBytes(stored.sk) : null;
 
+const SESSION = 'xbt:session';
+const hasSession = () => { try { return !!sessionStorage.getItem(SESSION); } catch { return false; } };
+
 export const account = createStore({
   pubkey: stored?.pubkey ?? null,
   locked: !!stored?.ncryptsec && !secret,
+  // Unlocking from the session copy is async; the app waits instead of
+  // flashing the unlock screen.
+  restoring: !!stored?.ncryptsec && !secret && hasSession(),
   encrypted: !!stored?.ncryptsec,
   backedUp: !!stored?.backedUp,
 });
+
+function idbKey(create) {
+  return new Promise((resolve) => {
+    if (!globalThis.indexedDB || !globalThis.crypto?.subtle) return resolve(null);
+    const req = indexedDB.open('xbt-session', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('keys');
+    req.onerror = () => resolve(null);
+    req.onsuccess = () => {
+      const db = req.result;
+      const get = db.transaction('keys').objectStore('keys').get('k');
+      get.onerror = () => resolve(null);
+      get.onsuccess = async () => {
+        if (get.result || !create) return resolve(get.result || null);
+        try {
+          const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+          const put = db.transaction('keys', 'readwrite').objectStore('keys').put(key, 'k');
+          put.onsuccess = () => resolve(key);
+          put.onerror = () => resolve(null);
+        } catch { resolve(null); }
+      };
+    };
+  });
+}
+
+async function saveSession() {
+  try {
+    const key = await idbKey(true);
+    if (!key || !secret) return;
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, secret));
+    sessionStorage.setItem(SESSION, JSON.stringify({ pubkey: account.get().pubkey, iv: bytesToHex(iv), ct: bytesToHex(ct) }));
+  } catch { /* no session copy: the password is asked after a refresh */ }
+}
+
+function clearSession() {
+  try { sessionStorage.removeItem(SESSION); } catch { /* ignore */ }
+}
+
+async function restoreSession() {
+  try {
+    const s = JSON.parse(sessionStorage.getItem(SESSION) || 'null');
+    const key = s && s.pubkey === account.get().pubkey && await idbKey(false);
+    if (key) {
+      const sk = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: hexToBytes(s.iv) }, key, hexToBytes(s.ct)));
+      if (getPublicKey(sk) === account.get().pubkey) { secret = sk; account.set({ locked: false, restoring: false }); return; }
+    }
+  } catch { /* fall through to the unlock screen */ }
+  clearSession();
+  account.set({ restoring: false });
+}
+if (account.get().restoring) restoreSession();
+// Make the session key early, so saving the session copy after unlocking is quick.
+else if (stored?.pubkey) idbKey(true);
 
 function persist(extra = {}) {
   const prev = loadJSON(KEY, {}) ?? {};
@@ -71,6 +133,17 @@ export function setPassword(password, current) {
   const ncryptsec = nip49.encrypt(secret, password, 16, 0x01);
   saveJSON(KEY, { pubkey: prev.pubkey, ncryptsec, backedUp: prev.backedUp });
   account.set({ encrypted: true });
+  saveSession();
+}
+
+// True when `password` is this device's password (or the account's nsec).
+export function checkPassword(password) {
+  const { ncryptsec, pubkey } = loadJSON(KEY, {});
+  if (!ncryptsec) return true;
+  try {
+    if (/^\s*(nostr:)?nsec1/i.test(password)) return getPublicKey(parseSecret(password)) === pubkey;
+    return getPublicKey(nip49.decrypt(ncryptsec, password || '')) === pubkey;
+  } catch { return false; }
 }
 
 export function removePassword(current) {
@@ -79,6 +152,7 @@ export function removePassword(current) {
   checkCurrent(prev.ncryptsec, current);
   saveJSON(KEY, { pubkey: prev.pubkey, sk: bytesToHex(secret), backedUp: prev.backedUp });
   account.set({ encrypted: false });
+  clearSession();
 }
 
 function checkCurrent(ncryptsec, current) {
@@ -100,16 +174,19 @@ export function unlock(password) {
   }
   secret = sk;
   account.set({ locked: false });
+  saveSession();
 }
 
 export function lock() {
   if (!account.get().encrypted) return;
   secret = null;
+  clearSession();
   account.set({ locked: true });
 }
 
 export function logout() {
   secret = null;
+  clearSession();
   localStorage.removeItem(KEY);
   account.set({ pubkey: null, locked: false, encrypted: false, backedUp: false });
 }

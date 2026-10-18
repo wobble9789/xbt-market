@@ -158,7 +158,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # The XBT Market service (usernames, shipping labels, import from a link)
+      # The XBT Market service (usernames, shipping labels, import from a link, bug reports)
       # on Cloudflare Workers. Runs only when the repository has the secrets
       # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (see README "Service");
       # without them the app is built without those features.
@@ -170,11 +170,13 @@ jobs:
           SENDCLOUD_PUBLIC_KEY: ${{ secrets.SENDCLOUD_PUBLIC_KEY }}
           SENDCLOUD_SECRET_KEY: ${{ secrets.SENDCLOUD_SECRET_KEY }}
           PLATFORM_LN_ADDRESS: ${{ secrets.PLATFORM_LN_ADDRESS }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          BUG_REPORT_EMAIL: ${{ secrets.BUG_REPORT_EMAIL }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "No CLOUDFLARE_API_TOKEN secret: service not deployed"; exit 0; fi
           cd server
           npx --yes wrangler@4 deploy | tee deploy.log
-          for k in SENDCLOUD_PUBLIC_KEY SENDCLOUD_SECRET_KEY PLATFORM_LN_ADDRESS; do
+          for k in SENDCLOUD_PUBLIC_KEY SENDCLOUD_SECRET_KEY PLATFORM_LN_ADDRESS RESEND_API_KEY BUG_REPORT_EMAIL; do
             if [ -n "${!k}" ]; then printf '%s' "${!k}" | npx --yes wrangler@4 secret put $k; fi
           done
           url=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)

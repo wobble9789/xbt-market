@@ -130,7 +130,7 @@ export function ImportPage({ query: q }) {
   const [link, setLink] = useState('');
   const [showSame, setShowSame] = useState(false);
   const browser = detectBrowser();
-  const phone = /android|ios|samsung/.test(browser);
+  const phone = browser.device === 'ios' || browser.device === 'android';
   const fromLink = async () => {
     const payload = await api('/api/import', { method: 'POST', body: { url: link.trim() } });
     load(fromPayload(payload));
@@ -171,10 +171,10 @@ export function ImportPage({ query: q }) {
             <h4>{T('On a phone', 'En el móvil')}</h4>
             <ol class="small">
               <li><Copy text={bookmarklet} label={T('1. Copy the bookmark code', '1. Copia el código del marcador')} /></li>
-              <li>{browser === 'ios' ? T('In Safari, tap Share □↑ → "Add Bookmark" → Save. Then open Bookmarks, tap Edit, open the new bookmark and replace its address with the copied code.', 'En Safari, toca Compartir □↑ → «Añadir marcador» → Guardar. Luego abre Marcadores, toca Editar, abre el nuevo marcador y sustituye su dirección por el código copiado.')
+              <li>{browser.device === 'ios' ? T('In Safari, tap Share □↑ → "Add Bookmark" → Save. Then open Bookmarks, tap Edit, open the new bookmark and replace its address with the copied code.', 'En Safari, toca Compartir □↑ → «Añadir marcador» → Guardar. Luego abre Marcadores, toca Editar, abre el nuevo marcador y sustituye su dirección por el código copiado.')
                 : T('In Chrome, tap ⋮ → ☆ to bookmark this page. Tap ⋮ → Bookmarks, hold the new bookmark → Edit, name it "xbt" and replace the URL with the copied code.', 'En Chrome, toca ⋮ → ☆ para guardar esta página. Toca ⋮ → Marcadores, mantén pulsado el nuevo marcador → Editar, llámalo «xbt» y sustituye la URL por el código copiado.')}</li>
               <li>{T('Open your Marktplaats or Vinted profile in the browser (not the app).', 'Abre tu perfil de Marktplaats o Vinted en el navegador (no en la app).')}</li>
-              <li>{browser === 'ios' ? T('Tap the book icon and choose the bookmark.', 'Toca el icono del libro y elige el marcador.') : T('Type "xbt" in the address bar and tap the bookmark that appears (with the star).', 'Escribe «xbt» en la barra de direcciones y toca el marcador que aparece (con la estrella).')}</li>
+              <li>{browser.device === 'ios' ? T('Tap the book icon and choose the bookmark.', 'Toca el icono del libro y elige el marcador.') : T('Type "xbt" in the address bar and tap the bookmark that appears (with the star).', 'Escribe «xbt» en la barra de direcciones y toca el marcador que aparece (con la estrella).')}</li>
             </ol>
             <p class="hint">{T('Run it again whenever you like: listings that are already here are recognised and not added twice.', 'Úsalo cuando quieras: los anuncios que ya están aquí se reconocen y no se duplican.')}</p>
           </details>

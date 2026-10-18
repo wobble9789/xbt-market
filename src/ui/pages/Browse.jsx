@@ -4,6 +4,9 @@ import { market } from '../../lib/market.js';
 import { account, npub } from '../../lib/nostr/account.js';
 import { follows } from '../../lib/nostr/follows.js';
 import { usernamesEnabled, searchUsernames, cleanUsername } from '../../lib/nostr/names.js';
+import { searchCachedProfiles } from '../../lib/nostr/profiles.js';
+import { blocks, blockCounts, loadBlockCounts, suspension } from '../../lib/nostr/moderation.js';
+import { directory } from '../../lib/nostr/directory.js';
 import { CONDITIONS } from '../../lib/nostr/listings.js';
 import { offersPickup, shipCarriers } from '../../lib/shipping.js';
 import { shipsToCountry } from '../../lib/countries.js';
@@ -29,7 +32,7 @@ export function ListingCard({ l }) {
 }
 
 const SORTS = [['new', ['Newest first', 'Más recientes']], ['old', ['Oldest first', 'Más antiguos']], ['price', ['Price: low to high', 'Precio: de menor a mayor']], ['-price', ['Price: high to low', 'Precio: de mayor a menor']]];
-const FILTER_KEYS = ['c', 'sub', 'country', 'min', 'max', 'cond', 'del', 'pay', 'tome'];
+const FILTER_KEYS = ['c', 'sub', 'model', 'country', 'to', 'min', 'max', 'cond', 'del', 'pay'];
 
 function UserResults({ q }) {
   const [list, setList] = useState(null);
@@ -37,10 +40,15 @@ function UserResults({ q }) {
   useEffect(() => {
     setList(null);
     if (n.length < 2) return;
-    const t = setTimeout(() => searchUsernames(n).then(setList).catch(() => setList([])), 300);
+    // The username service when it is set up, and everyone already loaded.
+    const t = setTimeout(async () => {
+      const remote = usernamesEnabled() ? await searchUsernames(n).catch(() => []) : [];
+      const seen = new Set(remote.map((u) => u.pubkey));
+      setList([...remote, ...searchCachedProfiles(n).filter((u) => !seen.has(u.pubkey))]);
+    }, 300);
     return () => clearTimeout(t);
   }, [n]);
-  if (n.length < 2) return <Empty>{T('Type at least 2 letters of a username.', 'Escribe al menos 2 letras de un nombre de usuario.')}</Empty>;
+  if (n.length < 2) return <Empty>{T('Type at least 2 letters of a username after the @.', 'Escribe al menos 2 letras de un nombre de usuario después de la @.')}</Empty>;
   if (!list) return <Empty><Spinner /></Empty>;
   if (!list.length) return <Empty>{T(`Nobody called @${n}…`, `Nadie llamado @${n}…`)}</Empty>;
   return (
@@ -55,7 +63,9 @@ export function Browse({ query }) {
   const me = useStore(account, (a) => a.pubkey);
   const f = useStore(follows);
   const display = useStore(settings, (s) => s.currency);
-  const myCountry = useStore(settings, (s) => s.country || '');
+  const blocked = useStore(blocks, (b) => b.set);
+  const dir = useStore(directory);
+  const { counts } = useStore(blockCounts);
   const [q, setQ] = useState(query.q || '');
   const [flt, setFlt] = useState(() => Object.fromEntries(FILTER_KEYS.map((k) => [k, query[k] || ''])));
   const [sort, setSort] = useState(query.sort || 'new');
@@ -75,7 +85,10 @@ export function Browse({ query }) {
     if (location.hash !== h && (location.hash || '#/').startsWith('#/') && !location.hash.slice(2).split('?')[0]) history.replaceState(null, '', h);
   }, [q, flt, sort, tab]);
 
-  const all = [...listings.values()].filter((l) => l.status === 'active' || l.status === 'reserved');
+  const visible = [...listings.values()].filter((l) => l.status === 'active' || l.status === 'reserved');
+  useEffect(() => { loadBlockCounts([...new Set(visible.map((l) => l.pubkey))]); }, [listings]);
+  // Hidden: people I blocked, and accounts that are inactive.
+  const all = visible.filter((l) => l.pubkey === me || (!blocked.has(l.pubkey) && !suspension(l.pubkey, dir, counts)));
   const rates = useRates([display, ...all.map((l) => l.currency)]);
   const inDisplay = (l) => {
     if (l.currency === display) return l.price;
@@ -90,12 +103,13 @@ export function Browse({ query }) {
     if (tab === 'following') list = list.filter((l) => f.set.has(l.pubkey));
     if (flt.c) list = list.filter((l) => l.category === flt.c);
     if (flt.sub) list = list.filter((l) => l.subcategory === flt.sub);
+    if (flt.model) list = list.filter((l) => l.model === flt.model);
     if (flt.country) list = list.filter((l) => l.country === flt.country);
     if (flt.cond) list = list.filter((l) => l.condition === flt.cond);
     if (flt.del === 'pickup') list = list.filter((l) => offersPickup(l));
     if (flt.del === 'ship') list = list.filter((l) => shipCarriers(l).length);
     if (flt.pay) list = list.filter((l) => l.payments.includes(flt.pay));
-    if (flt.tome && myCountry) list = list.filter((l) => l.country === myCountry || (shipCarriers(l).length && shipsToCountry(l.shipsTo, myCountry, l.country)));
+    if (flt.to) list = list.filter((l) => shipCarriers(l).length && shipsToCountry(l.shipsTo, flt.to, l.country));
     const min = Number(flt.min) || 0;
     const max = Number(flt.max) || 0;
     if (min || max) list = list.filter((l) => { const v = inDisplay(l); return v != null && (!min || v >= min) && (!max || v <= max); });
@@ -108,9 +122,10 @@ export function Browse({ query }) {
     const price = (l) => inDisplay(l) ?? Infinity;
     const cmp = { new: (a, b) => b.createdAt - a.createdAt, old: (a, b) => a.createdAt - b.createdAt, price: (a, b) => price(a) - price(b), '-price': (a, b) => price(b) - price(a) }[sort];
     return [...list].sort(cmp);
-  }, [listings, q, flt, sort, tab, f, rates, myCountry]);
+  }, [listings, q, flt, sort, tab, f, rates, blocked, dir, counts]);
 
-  const userSearch = q.startsWith('@') && usernamesEnabled();
+  // "@name" searches people; anything else searches listings.
+  const userSearch = q.trim().startsWith('@');
 
   return (
     <div class="browse">
@@ -121,7 +136,7 @@ export function Browse({ query }) {
         </div>
       )}
       <div class="searchbar">
-        <input type="search" placeholder={usernamesEnabled() ? T('Search listings, or @username…', 'Busca anuncios o @usuario…') : T('Search listings…', 'Busca anuncios…')} value={q} onInput={(e) => setQ(e.target.value)} />
+        <input type="search" placeholder={T('Search listings, or @username…', 'Busca anuncios o @usuario…')} value={q} onInput={(e) => setQ(e.target.value)} />
         <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label={T('Sort', 'Ordenar')}>
           {SORTS.map(([k, l]) => <option key={k} value={k}>{T(...l)}</option>)}
         </select>
@@ -130,10 +145,11 @@ export function Browse({ query }) {
       {open && (
         <div class="card filters">
           <div class="cols">
-            <CategoryPicker any category={flt.c} subcategory={flt.sub} onChange={({ category, subcategory }) => setF({ c: category, sub: subcategory })} />
+            <CategoryPicker any category={flt.c} subcategory={flt.sub} model={flt.model} onChange={({ category, subcategory, model }) => setF({ c: category, sub: subcategory, model: model || '' })} />
           </div>
           <div class="cols">
-            <label class="field"><span class="label">{T('Seller in', 'Vendedor en')}</span><CountrySelect value={flt.country} onChange={(country) => setF({ country })} placeholder={T('All countries', 'Todos los países')} /></label>
+            <label class="field"><span class="label">{T('Ships to', 'Envía a')}</span><CountrySelect value={flt.to} onChange={(to) => setF({ to })} placeholder={T('Anywhere', 'Cualquier destino')} /></label>
+            <label class="field"><span class="label">{T('Pick-up country', 'País de recogida')}</span><CountrySelect value={flt.country} onChange={(country) => setF({ country })} placeholder={T('All countries', 'Todos los países')} /></label>
             <label class="field"><span class="label">{T(`Price (${display})`, `Precio (${display})`)}</span>
               <div class="row nomargin price-range"><input inputmode="decimal" placeholder={T('from', 'desde')} value={flt.min} onInput={(e) => setF({ min: e.target.value.replace(',', '.') })} /><span>–</span><input inputmode="decimal" placeholder={T('to', 'hasta')} value={flt.max} onInput={(e) => setF({ max: e.target.value.replace(',', '.') })} /></div>
             </label>
@@ -147,7 +163,6 @@ export function Browse({ query }) {
               <select value={flt.pay} onChange={(e) => setF({ pay: e.target.value })}><option value="">{T('Any', 'Cualquiera')}</option><option value="lightning">Lightning</option><option value="onchain">On-chain</option><option value="escrow">Escrow</option></select>
             </label>
           </div>
-          {myCountry && <label class={`choice ${flt.tome ? 'on' : ''}`}><input type="checkbox" checked={!!flt.tome} onChange={(e) => setF({ tome: e.target.checked ? '1' : '' })} /><span>{T(`Only what can reach me (${countryName(myCountry)})`, `Solo lo que me pueden enviar (${countryName(myCountry)})`)}</span></label>}
           <div class="row">
             <button class="btn ghost" onClick={() => setFlt(Object.fromEntries(FILTER_KEYS.map((k) => [k, ''])))}>{T('Clear filters', 'Quitar filtros')}</button>
             <button class="btn primary" onClick={() => setOpen(false)}>{T(`Show ${shown.length} results`, `Ver ${shown.length} resultados`)}</button>

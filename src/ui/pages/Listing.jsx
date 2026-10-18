@@ -4,6 +4,8 @@ import { market, upsertLocal } from '../../lib/market.js';
 import { decodeListingRef, parseListing, LISTING_KIND } from '../../lib/nostr/listings.js';
 import { query, latestBy } from '../../lib/nostr/pool.js';
 import { account } from '../../lib/nostr/account.js';
+import { directory } from '../../lib/nostr/directory.js';
+import { blocks, blockCounts, loadBlockCounts, suspension, isBlockedBy } from '../../lib/nostr/moderation.js';
 import { reviewsAbout } from '../../lib/nostr/reviews.js';
 import { settings } from '../../lib/settings.js';
 import { formatFiat } from '../../lib/btc/units.js';
@@ -59,6 +61,14 @@ function ContactSeller({ listing }) {
   const trades = useMyTrades();
   const [text, setText] = useState(T('Hi! Is this still available?', '¡Hola! ¿Sigue disponible?'));
   const [writing, setWriting] = useState(false);
+  const dir = useStore(directory);
+  const { counts } = useStore(blockCounts);
+  const iBlocked = useStore(blocks, (b) => b.set.has(listing.pubkey));
+  const [blockedMe, setBlockedMe] = useState(false);
+  useEffect(() => { loadBlockCounts([listing.pubkey]); if (acc.pubkey && acc.pubkey !== listing.pubkey) isBlockedBy(listing.pubkey, acc.pubkey).then(setBlockedMe); }, [listing.pubkey, acc.pubkey]);
+  if (suspension(listing.pubkey, dir, counts)) return <p class="notice warn">⛔ {T('This seller\'s account is inactive: you cannot order here.', 'La cuenta de este vendedor está inactiva: no puedes pedir aquí.')}</p>;
+  if (blockedMe) return <p class="notice warn">{T('This seller does not take messages or orders from you.', 'Este vendedor no acepta mensajes ni pedidos tuyos.')}</p>;
+  if (iBlocked) return <p class="notice">{T('You blocked this seller.', 'Has bloqueado a este vendedor.')} <a href={`#/u/${listing.pubkey}`}>{T('Unblock on their profile', 'Desbloquear en su perfil')}</a></p>;
   // An unanswered conversation or order about this listing is continued, not duplicated.
   const existing = trades.find((t) => t.state.role === 'buyer' && t.state.listing?.coord === listing.coord && ['chat', 'offered'].includes(t.state.status));
   if (!acc.pubkey) return <a class="btn primary wide" href="#/settings">{T('Log in to message or buy', 'Inicia sesión para escribir o comprar')}</a>;
@@ -113,7 +123,7 @@ export function ListingPage({ naddr }) {
         {listing.status === 'reserved' && <p class="notice warn">{T('Reserved: the seller is holding this for someone.', 'Reservado: el vendedor lo guarda para alguien.')}</p>}
         {listing.status === 'sold' && <p class="notice">{T('Sold.', 'Vendido.')}</p>}
         <div class="tags">
-          <span class="badge">{label(CATEGORY_LABELS, listing.category)}{listing.subcategory && <> › <SubcategoryLabel category={listing.category} sub={listing.subcategory} /></>}</span>
+          <span class="badge">{label(CATEGORY_LABELS, listing.category)}{listing.subcategory && <> › <SubcategoryLabel category={listing.category} sub={listing.subcategory} model={listing.model} /></>}</span>
           {listing.condition && <span class="badge">{label(CONDITION_LABELS, listing.condition)}</span>}
           {(listing.city || listing.country || listing.location) && <span class="badge">📍 {[listing.city, listing.country && countryName(listing.country)].filter(Boolean).join(', ') || listing.location}</span>}
         </div>
