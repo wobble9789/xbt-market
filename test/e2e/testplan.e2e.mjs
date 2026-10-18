@@ -121,7 +121,12 @@ async function el(p, xpath, timeout = 20000) {
 // Only inside <main>, so a "Log in" button never matches the "Log in" menu link.
 const btnX = (label) => `//main//button[normalize-space(.)="${label}"] | //main//a[normalize-space(.)="${label}"]`;
 const fieldX = (label, tag = '*[self::input or self::textarea]') => `//label[span[@class="label" and normalize-space(.)="${label}"]]//${tag}[1]`;
-async function click(p, label) { await (await el(p, btnX(label))).click(); }
+// A list that re-renders can replace the button between finding and tapping it: try again.
+async function click(p, label) {
+  for (let i = 0; ; i++) {
+    try { return await (await el(p, btnX(label))).click(); } catch (e) { if (i >= 2 || !/detached|not clickable/i.test(e.message)) throw e; await sleep(500); }
+  }
+}
 async function fill(p, label, value) { const e = await el(p, fieldX(label)); await e.click({ count: 3 }); await e.evaluate((x) => { x.value = ''; x.dispatchEvent(new Event('input', { bubbles: true })); }); await e.type(value); }
 async function fillPh(p, ph, value) { const e = await el(p, `//*[(self::input or self::textarea) and @placeholder="${ph}"]`); await e.click({ count: 3 }); await e.evaluate((x) => { x.value = ''; x.dispatchEvent(new Event('input', { bubbles: true })); }); await e.type(value); }
 async function select(p, label, value) { const e = await el(p, fieldX(label, 'select')); await e.select(value); }
@@ -720,6 +725,7 @@ try {
     // A throwaway seller with one listing, blocked by ten other accounts.
     const xsk = generateSecretKey();
     const xpk = getPublicKey(xsk);
+    people.X = { pk: xpk };
     const pool = new SimplePool();
     const now = Math.floor(Date.now() / 1000);
     await Promise.any(pool.publish([RELAY], finalizeEvent({ kind: 30402, created_at: now, content: 'test', tags: [['d', 'x1'], ['title', 'Geblokkeerde verkoper'], ['price', '3', 'EUR'], ['t', 'xbt-market'], ['t', 'diversen'], ['country', 'NL'], ['payment', 'lightning'], ['shipping_option', 'pickup', '0', 'EUR']] }, xsk)));
@@ -745,16 +751,21 @@ try {
   await step('ADM-1', 'Admin: suspend and restore any account', async () => {
     const a = await go('A', '#/admin');
     await tab(a, 'Accounts');
-    await fillPh(a, 'npub1…', nip19.npubEncode(people.B.pk));
+    // A throwaway account (the seller from BLK-2), so nothing else depends on it.
+    await fillPh(a, 'npub1…', nip19.npubEncode(people.X.pk));
     await click(a, 'Suspend');
     await waitToast(a, 'Account suspended');
     await waitText(a, 'Suspended by you (1)');
-    const c = await go('C', `#/u/${nip19.npubEncode(people.B.pk)}`);
+    const c = await go('C', `#/u/${nip19.npubEncode(people.X.pk)}`);
     await c.reload({ waitUntil: 'load' });
     await waitText(c, 'suspended by the community admin', 30000);
     const a2 = await go('A', '#/admin');
     await tab(a2, 'Accounts');
-    await (await el(a2, '//h3[contains(.,"Suspended by you")]/following-sibling::div[1]//button[normalize-space(.)="Make active again"]')).click();
+    await waitText(a2, 'Suspended by you (1)');
+    // The list re-renders while the block counts load: retry a click that lands on a replaced node.
+    for (let i = 0; i < 3; i++) {
+      try { await (await el(a2, '//h3[contains(.,"Suspended by you")]/following-sibling::div[1]//button[normalize-space(.)="Make active again"]')).click(); break; } catch (e) { if (i === 2) throw e; await sleep(500); }
+    }
     await waitToast(a2, 'Account active again');
     return 'suspend by npub: profile says "suspended"; restore with one tap';
   });
