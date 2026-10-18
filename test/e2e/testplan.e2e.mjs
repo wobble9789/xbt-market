@@ -271,8 +271,9 @@ try {
     await waitText(p, 'Anna Arbiter');
     await (await el(p, '//div[contains(@class,"trade-row")][.//b[normalize-space(.)="Anna Arbiter"]]//button[contains(.,"Approve")]')).click();
     await waitToast(p, 'Approved');
-    await waitText(p, 'Approved arbiters (1)');
-    await waitText(p, 'No new requests.');
+    // Other suites may have left requests on the same relay: check Anna's row only.
+    await el(p, '//div[contains(@class,"trade-row")][.//b[normalize-space(.)="Anna Arbiter"]]//button[contains(.,"Withdraw approval")]');
+    if (await exists(p, '//div[contains(@class,"trade-row")][.//b[normalize-space(.)="Anna Arbiter"]]//button[contains(.,"Approve")]')) throw new Error('still waiting for approval');
     await proof(p, 'plan', 'ARB-3 · Admin: verzoek weg uit "Waiting", Anna onder "Approved arbiters" met "Withdraw approval"');
     await go('A', '#/arbiter');
     await waitText(p, 'Open disputes');
@@ -858,7 +859,7 @@ try {
     await waitText(a, 'Bob Unapproved', 30000);
     await (await el(a, '//div[contains(@class,"trade-row")][.//b[normalize-space(.)="Bob Unapproved"]]//button[contains(.,"Reject")]')).click();
     await waitToast(a, 'Rejected');
-    await waitText(a, 'Rejected (1)');
+    await waitText(a, 'Rejected (');
     await el(a, '//div[contains(@class,"trade-row")][.//b[normalize-space(.)="Bob Unapproved"]]//button[normalize-space(.)="Approve after all"]');
     return 'B announced without approval (not offered, see TRD-3b); admin: Reject moves him to "Rejected" with "Approve after all"';
   });
