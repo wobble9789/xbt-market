@@ -14,6 +14,7 @@ import { offersPickup, shipCarriers, carrier } from '../../lib/shipping.js';
 import { shippingQuotes } from '../../lib/shipping-api.js';
 import { shipsToCountry } from '../../lib/countries.js';
 import { isService } from '../../lib/categories.js';
+import { directory } from '../../lib/nostr/directory.js';
 import { T, countryName } from '../i18n.js';
 import { Action, Field, Coin, Spinner, useRate } from '../components.jsx';
 import { CountrySelect } from '../countries.jsx';
@@ -76,7 +77,10 @@ export function OrderForm({ state, listing, onClose }) {
   const sdPct = listing.sellerDepositPct ?? s.sellerDepositPct;
   const sd = escrow && sats ? Math.round((sats * sdPct) / 100) : 0;
   const overLimit = escrow && limit != null && sats > limit;
-  const ready = sats > 0 && pay && !overLimit && (delivery !== 'ship' || (country && reaches && pick));
+  // Escrow needs an arbiter who is neither buyer nor seller.
+  const dir = useStore(directory);
+  const noArbiter = escrow && dir.loaded && ![...dir.arbiters.keys()].some((pk) => pk !== me && pk !== listing.pubkey);
+  const ready = sats > 0 && pay && !overLimit && !noArbiter && (delivery !== 'ship' || (country && reaches && pick));
 
   const submit = async () => {
     if (country) updateSettings({ country: s.country || country });
@@ -139,6 +143,7 @@ export function OrderForm({ state, listing, onClose }) {
       <Field label={T('Your price in XBT', 'Tu precio en XBT')} hint={suggested ? T(`Asking price ${formatCoin(suggested.item)}${suggested.ship ? ` + shipping ${formatCoin(suggested.ship)}` : ''}${rate ? ` (1 XBT ≈ ${formatFiat(rate.value, listing.currency)})` : ''}. You may offer less; the seller decides.`, `Precio pedido ${formatCoin(suggested.item)}${suggested.ship ? ` + envío ${formatCoin(suggested.ship)}` : ''}${rate ? ` (1 XBT ≈ ${formatFiat(rate.value, listing.currency)})` : ''}. Puedes ofrecer menos; decide el vendedor.`) : T('No exchange rate available; enter the amount you agreed in the chat.', 'No hay tipo de cambio; introduce el importe acordado en el chat.')}>
         <input inputmode="decimal" value={priceText} onInput={(e) => { setPriceText(e.target.value); setEdited(true); }} placeholder="0.001" />
       </Field>
+      {noArbiter && <p class="notice warn">{T('Escrow needs an arbiter who is not you or the seller, and there is none yet. Choose another payment method, or add an arbiter you trust under Account.', 'El escrow necesita un árbitro que no seas tú ni el vendedor, y aún no hay ninguno. Elige otro método de pago o añade un árbitro de confianza en Cuenta.')}</p>}
       {overLimit && <p class="notice warn">{T(`New accounts can trade up to ${formatCoin(limit)} per escrow trade. Complete a few smaller trades first.`, `Las cuentas nuevas pueden operar hasta ${formatCoin(limit)} por compra con escrow. Haz antes algunas compras más pequeñas.`)}</p>}
       <Field label={T('Message to the seller (optional)', 'Mensaje para el vendedor (opcional)')}>
         <textarea rows="2" value={note} onInput={(e) => setNote(e.target.value)} />

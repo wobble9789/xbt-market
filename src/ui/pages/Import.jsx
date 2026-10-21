@@ -79,6 +79,12 @@ export function ImportPage({ query: q }) {
       try { load(fromPayload(ev.data.payload)); } catch (e) { toastError(e); }
     };
     addEventListener('message', onMsg);
+    // Without a pop-up the bookmark opens this page in its own tab, with the
+    // listings in the address.
+    if (q.data) {
+      try { load(fromPayload(JSON.parse(q.data))); } catch (e) { toastError(e); }
+      history.replaceState(null, '', '#/import');
+    }
     if (q.from === 'bookmarklet' && window.opener) {
       const ping = () => window.opener?.postMessage('xbt-import-ready', '*');
       ping();
@@ -181,12 +187,13 @@ export function ImportPage({ query: q }) {
               <li>{T('Open your profile on Marktplaats (marktplaats.nl/u/…) or Vinted (vinted.nl/member/…), or a single ad, and click the bookmark.', 'Abre tu perfil en Marktplaats (marktplaats.nl/u/…) o Vinted (vinted.es/member/…), o un solo anuncio, y pulsa el marcador.')}</li>
             </ol>
             <h4>{T('On a phone', 'En el móvil')}</h4>
-            <p class="hint">{T('Phones make bookmark buttons fiddly. If it does not work, use "Paste a link" above: much easier.', 'En el móvil los botones de marcador son complicados. Si no funciona, usa «Pega un enlace» arriba: mucho más fácil.')}</p>
+            <p class="hint">{T('Phones make bookmark buttons fiddly. If it does not work, use "Paste a link" above: much easier. Log in to XBT Market in the same browser you use for Marktplaats or Vinted: the bookmark opens your listings there.', 'En el móvil los botones de marcador son complicados. Si no funciona, usa «Pega un enlace» arriba: mucho más fácil. Inicia sesión en XBT Market en el mismo navegador que usas para Marktplaats o Vinted: el marcador abre allí tus anuncios.')}</p>
             <ol class="small">
               <li>{T('Copy the bookmark code:', 'Copia el código del marcador:')} <Copy text={bookmarklet} label={`📋 ${T('Copy code', 'Copiar código')}`} class="btn primary" /></li>
               <li>{browser.device === 'ios' ? T('In Safari, tap Share □↑ → "Add Bookmark" → Save. Then open Bookmarks, tap Edit, open the new bookmark and replace its address with the copied code.', 'En Safari, toca Compartir □↑ → «Añadir marcador» → Guardar. Luego abre Marcadores, toca Editar, abre el nuevo marcador y sustituye su dirección por el código copiado.')
                 : T('In Chrome, tap ⋮ → ☆ to bookmark this page. Tap ⋮ → Bookmarks, hold the new bookmark → Edit, name it "xbt" and replace the URL with the copied code.', 'En Chrome, toca ⋮ → ☆ para guardar esta página. Toca ⋮ → Marcadores, mantén pulsado el nuevo marcador → Editar, llámalo «xbt» y sustituye la URL por el código copiado.')}</li>
               <li>{T('Open your Marktplaats or Vinted profile in the browser (not the app).', 'Abre tu perfil de Marktplaats o Vinted en el navegador (no en la app).')}</li>
+              <li>{T('Tap the bookmark (next step). If the browser says a pop-up was blocked, ignore it: XBT Market then opens in the same tab with your listings.', 'Toca el marcador (siguiente paso). Si el navegador dice que bloqueó una ventana emergente, ignóralo: XBT Market se abre en la misma pestaña con tus anuncios.')}</li>
               <li>{browser.device === 'ios' ? T('Tap the book icon and choose the bookmark.', 'Toca el icono del libro y elige el marcador.') : T('Type "xbt" in the address bar and tap the bookmark that appears (with the star).', 'Escribe «xbt» en la barra de direcciones y toca el marcador que aparece (con la estrella).')}</li>
             </ol>
             <p class="hint">{T('Run it again whenever you like: listings that are already here are recognised and not added twice.', 'Úsalo cuando quieras: los anuncios que ya están aquí se reconocen y no se duplican.')}</p>
@@ -204,13 +211,6 @@ export function ImportPage({ query: q }) {
             </div>
           </details>
         </>
-      )}
-      {raw?.version && raw.version < BOOKMARKLET_VERSION && (
-        <div class="notice warn">
-          <b>{T(`Your import bookmark is an older version (v${raw.version}, now v${BOOKMARKLET_VERSION}).`, `Tu marcador de importar es una versión antigua (v${raw.version}, ahora v${BOOKMARKLET_VERSION}).`)}</b>{' '}
-          {T('It still worked, but may miss things like "reserved". Bookmarks never update themselves: delete it and add the new one when convenient:', 'Ha funcionado, pero puede no detectar cosas como «reservado». Los marcadores no se actualizan solos: bórralo y añade el nuevo cuando puedas:')}{' '}
-          <BookmarkButton />
-        </div>
       )}
       {raw && !mine && <div class="card"><Spinner /> {T('Comparing with your listings…', 'Comparando con tus anuncios…')}</div>}
       {raw && mine && (

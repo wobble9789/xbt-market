@@ -96,16 +96,18 @@ check(/^1 of your listings/.test(r.goneText) && /MP item 3/.test(r.goneText), 'e
 check(await r.imp.evaluate(() => [...document.querySelectorAll('button')].some((b) => b.textContent === 'Mark as sold on XBT Market')), 'button says "Mark as sold on XBT Market"');
 await r.imp.close(); await r.shop.close();
 
-// An old (v1) bookmark must trigger the "out of date" warning.
+// An old (v1) bookmark still imports, without a warning.
 {
   const imp = await browser.newPage();
   await imp.goto((process.env.APP_URL || 'http://127.0.0.1:4173/') + '#/import', { waitUntil: 'load' });
   await sleep(1500);
   await imp.evaluate(() => window.postMessage({ type: 'xbt-import', payload: { v: 1, source: 'www.marktplaats.nl', at: 1, page: 'x', items: [{ title: 'ITW', price: 1, url: 'https://www.marktplaats.nl/u/itw/1/' }] } }, '*'));
   await sleep(2500);
-  const warned = await imp.evaluate(() => /older version \(v1, now v\d\)/.test(document.body.innerText));
-  check(warned, 'outdated bookmark warning shown');
-  console.log(warned ? 'ok   outdated bookmark warning' : 'FAIL outdated bookmark warning');
+  // No warning any more (it confused people importing from several sites); the old bookmark just works.
+  const text = await imp.evaluate(() => document.body.innerText);
+  const ok = !/older version/.test(text);
+  check(ok, 'an old bookmark still imports, without a warning');
+  console.log(ok ? 'ok   old bookmark imports without a warning' : 'FAIL old bookmark');
   await imp.close();
 }
 

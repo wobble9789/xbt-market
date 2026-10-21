@@ -14,9 +14,10 @@ import { secretNames } from '../../lib/secrets.js';
 import { connectWallet, disconnectWallet, walletConnected, walletBalance, walletLud16 } from '../../lib/ln/wallet.js';
 import { aiConfigured, saveAiKey } from '../../lib/ai/listing.js';
 import { T, LANGS } from '../i18n.js';
-import { Action, Field, Copy, Avatar, AddressForm, toast, toastError } from '../components.jsx';
+import { Action, Field, Copy, Avatar, Name, AddressForm, toast, toastError } from '../components.jsx';
 import { InstallGuide } from '../install.jsx';
 import { ProfileForm } from './EditProfile.jsx';
+import { blocks, unblock } from '../../lib/nostr/moderation.js';
 import { BugReport } from '../report.jsx';
 
 function AccountHead() {
@@ -122,6 +123,22 @@ function Password() {
         </div>
       </>}
     </>
+  );
+}
+
+function BlockedList() {
+  const b = useStore(blocks);
+  const list = [...b.set];
+  if (!list.length) return <p class="hint">{T('You have not blocked anyone. Block someone from their profile.', 'No has bloqueado a nadie. Bloquea a alguien desde su perfil.')}</p>;
+  return (
+    <div class="list">
+      {list.map((pk) => (
+        <div class="trade-row" key={pk}>
+          <div class="grow row-head"><Name pk={pk} /></div>
+          <Action class="small" onClick={() => unblock(pk)}>{T('Unblock', 'Desbloquear')}</Action>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -264,6 +281,7 @@ export function Settings({ query }) {
   const acc = useStore(account);
   const profile = useProfile(acc.pubkey);
   const country = profile.xbt_market?.country;
+  const blockedCount = useStore(blocks, (b) => b.set.size);
   const lang = LANGS.find(([k]) => k === s.lang)?.[1] || s.lang;
   useStore(secretNames);
   // The profile is open by default: it is the first thing to fill in.
@@ -346,6 +364,10 @@ export function Settings({ query }) {
 
       <Section icon="⚖️" title={T('Become an arbiter', 'Hazte árbitro')} summary={T('settle disputes for a fee', 'resuelve disputas a cambio de una comisión')} open={openSet.has('arbiter')}>
         <BecomeArbiter />
+      </Section>
+
+      <Section icon="⛔" title={T('Blocked people', 'Personas bloqueadas')} summary={blockedCount ? `${blockedCount}` : T('nobody', 'nadie')} open={openSet.has('blocked')}>
+        <BlockedList />
       </Section>
 
       <Section icon="🐞" title={T('Report a problem', 'Informar de un problema')} summary={T('something not working? tell us', '¿algo no funciona? avísanos')} open={openSet.has('bug')}>

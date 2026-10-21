@@ -6,7 +6,7 @@
 // Bump BOOKMARKLET_VERSION whenever extraction changes: the import page warns
 // users whose saved bookmark is older, because bookmarks never update themselves.
 
-export const BOOKMARKLET_VERSION = 5;
+export const BOOKMARKLET_VERSION = 6;
 
 export const absUrl = (u, base) => { try { return new URL(u, base).href; } catch { return ''; } };
 
@@ -39,8 +39,8 @@ export const mpSellerPath = (pathname) => pathname.match(/^(\/u\/[^/]+\/\d+)/)?.
 // FAST_BID (bieden, no amount), SEE_DESCRIPTION, and others without an amount.
 // Only FIXED and MIN_BID carry a usable price.
 export function fromMp(l, base) {
-  const pt = l.priceInfo?.priceType;
-  const cents = l.priceInfo?.priceCents || 0;
+  const pt = l.priceInfo?.priceType || l.price?.priceType || (l.priceCents || l.price?.amount ? 'FIXED' : '');
+  const cents = l.priceInfo?.priceCents || l.price?.priceCents || l.priceCents || (Number(l.price?.amount) > 0 ? Math.round(Number(l.price.amount) * 100) : 0);
   const attr = (k) => (l.attributes || []).find((a) => a.key === k)?.value || '';
   const pics = (l.pictures || []).map((p) => p.url && p.url.replace('$_#', '$_85')).filter(Boolean);
   return {
@@ -87,10 +87,10 @@ export function findMpListings(data, max = 500) {
 // listing photo in the raw HTML, at a large size, without logos or icons.
 
 const IMG_PATTERNS = [
-  // Marktplaats / 2dehands / 2ememain
-  [/(?:https?:)?\/\/images\.(?:marktplaats|2dehands|2ememain)\.(?:com|be|nl)\/api\/v1\/listing-mp-p\/images\/[0-9a-f]{2}\/[0-9a-f-]{36}/g, (u) => `https:${u.replace(/^https?:/, '')}?rule=ecg_mp_eps$_85.jpg`],
-  // eBay (and older Marktplaats ads)
-  [/https?:\/\/i\.ebayimg\.com\/(?:images\/g\/[A-Za-z0-9~_-]+|00\/s\/[A-Za-z0-9=_-]+\/z\/[A-Za-z0-9~_-]+)\//g, (u) => `${u}s-l1600.jpg`],
+  // Marktplaats / 2dehands / 2ememain: any photo path on their image host
+  [/(?:https?:)?\/\/images\.(?:marktplaats|2dehands|2ememain)\.(?:com|be|nl)\/api\/v\d+\/[a-z0-9-]+\/images\/[0-9a-zA-Z]{1,4}\/[0-9a-zA-Z_-]{8,}/g, (u) => `https:${u.replace(/^https?:/, '')}?rule=ecg_mp_eps$_85.jpg`],
+  // eBay (and older Marktplaats ads); thumbnails as well
+  [/https?:\/\/i\.ebayimg\.com\/(?:thumbs\/)?(?:images\/g\/[A-Za-z0-9~_-]+|00\/s\/[A-Za-z0-9=_-]+\/z\/[A-Za-z0-9~_-]+)\//g, (u) => `${u.replace('/thumbs/', '/')}s-l1600.jpg`],
   // Vinted
   [/https?:\/\/images\d*\.vinted\.net\/t\/[A-Za-z0-9_-]+\/f800\/[0-9]+\.(?:jpe?g|webp)(?:\?s=[0-9a-f]+)?/g, (u) => u],
 ];
@@ -125,6 +125,19 @@ export function photosOfDocument(doc) {
   const parts = [...doc.querySelectorAll(GALLERY)].map((e) => e.outerHTML).join('\n');
   const gallery = parts ? imagesFromHtml(parts) : [];
   return gallery.length ? gallery : imagesFromHtml(doc.documentElement?.outerHTML || '').slice(0, 12);
+}
+
+// The price shown on an item page: meta tags first, then the visible price.
+export function priceOfDocument(doc) {
+  const meta = (n) => doc.querySelector(`meta[property="${n}"], meta[name="${n}"], meta[itemprop="${n}"], [itemprop="${n}"]`);
+  const m = meta('product:price:amount') || meta('og:price:amount') || meta('price');
+  const fromMeta = parsePrice(m?.getAttribute('content') || m?.textContent || '');
+  if (fromMeta) return fromMeta;
+  for (const el of doc.querySelectorAll('[class*="price" i], [data-testid*="price" i]')) {
+    const t = el.textContent || '';
+    if (/[€$£]\s*\d|\d\s*(?:€|EUR)/.test(t)) { const p = parsePrice(t); if (p) return p; }
+  }
+  return 0;
 }
 
 // Last resort for a single item page: Open Graph / product meta tags.

@@ -6,7 +6,7 @@
 import {
   BOOKMARKLET_VERSION, mpResults, nextDataFromHtml, mpSellerPath, fromMp, fromVinted, vintedMemberId,
   flattenJsonLd, productsFromJsonLd, cardsFromDocument, dedupeItems, findMpListings, itemFromMeta,
-  photosOfDocument, isLogo,
+  photosOfDocument, isLogo, priceOfDocument,
 } from './extract.js';
 
 // All photos of each ad, from the ad's own page (a profile only lists the
@@ -56,7 +56,10 @@ async function addAllPhotos(items) {
         platform = 'marktplaats';
         found.forEach((l) => items.push(fromMp(l, here)));
         // One ad: its photos are on this very page.
-        if (items.length === 1) items[0].images = [...new Set([...photosOfDocument(document), ...items[0].images.filter((u) => !isLogo(u))])];
+        if (items.length === 1) {
+          items[0].images = [...new Set([...photosOfDocument(document), ...items[0].images.filter((u) => !isLogo(u))])];
+          if (!items[0].price) items[0].price = priceOfDocument(document);
+        }
       }
     }
     if (first?.listings?.length) {
@@ -120,11 +123,15 @@ async function addAllPhotos(items) {
       } catch (e) { console.warn('xbt import: ebay pages', e); }
       platform = 'ebay';
     }
+    if (/ebay\./.test(host) && items.length > 1) await addAllPhotos(items);
   }
   // A single item page without structured data: its share tags (og:title, og:image…).
   if (!items.length) items.push(...itemFromMeta(document, here));
   // One item from structured data or meta tags: all its photos, no logo.
-  if (items.length === 1 && platform !== 'marktplaats') items[0].images = [...new Set([...photosOfDocument(document), ...(items[0].images || []).filter((u) => !isLogo(u))])];
+  if (items.length === 1 && platform !== 'marktplaats') {
+    items[0].images = [...new Set([...photosOfDocument(document), ...(items[0].images || []).filter((u) => !isLogo(u))])];
+    if (!items[0].price) items[0].price = priceOfDocument(document);
+  }
 
   const clean = dedupeItems(items);
   if (!clean.length) {
@@ -133,9 +140,18 @@ async function addAllPhotos(items) {
     return;
   }
   payload = { v: BOOKMARKLET_VERSION, source: host, platform: platform || host.replace(/^www\./, ''), complete, page: here, at: Date.now(), items: clean };
+  // Pop-up blocked (common on phones): open XBT Market in this tab instead,
+  // with the listings in the address, so no pop-up permission is needed.
+  if (!win || win.closed) {
+    location.href = APP + '#/import?from=bookmarklet&data=' + encodeURIComponent(JSON.stringify(payload));
+    return;
+  }
   send();
   try { await navigator.clipboard.writeText(JSON.stringify(payload)); } catch { /* not allowed without focus */ }
+  // No answer from the XBT Market tab (blocked or not opened): go there in this tab.
   setTimeout(() => {
-    if (!ready) alert(`XBT Market: found ${clean.length} listings. If the import page did not open, allow pop-ups for this site and click the bookmark again, or paste on the Import page (they were copied to your clipboard if the browser allowed it).`);
+    if (ready) return;
+    try { win?.close(); } catch { /* ignore */ }
+    location.href = APP + '#/import?from=bookmarklet&data=' + encodeURIComponent(JSON.stringify(payload));
   }, 6000);
 })();
