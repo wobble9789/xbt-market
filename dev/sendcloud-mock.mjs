@@ -22,6 +22,7 @@ const OPTIONS = [
 const SIZES = { 2: 'S', 5: 'M', 10: 'L', 20: 'XL' };
 const shipments = new Map();
 const emails = [];
+const issues = [];
 let nextId = 1000;
 
 const pdf = (text) => Buffer.from(`%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 298 420]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj 4 0 obj<</Length ${text.length + 40}>>stream\nBT /F1 14 Tf 20 380 Td (${text}) Tj ET\nendstream endobj 5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF`);
@@ -49,6 +50,16 @@ http.createServer(async (req, res) => {
   if (url.pathname === '/resend/emails' && req.method === 'GET') {
     res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
     return res.end(JSON.stringify(emails));
+  }
+  // A pretend GitHub issues API: GITHUB_API=http://127.0.0.1:3011/github
+  if (/^\/github\/repos\/[^/]+\/[^/]+\/issues$/.test(url.pathname) && req.method === 'POST') {
+    issues.push({ repo: url.pathname.split('/').slice(3, 5).join('/'), title: data.title, body: data.body, labels: data.labels, auth: req.headers.authorization });
+    res.writeHead(201, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ number: issues.length, html_url: `https://github.com/${url.pathname.split('/').slice(3, 5).join('/')}/issues/${issues.length}` }));
+  }
+  if (url.pathname === '/github/issues' && req.method === 'GET') {
+    res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
+    return res.end(JSON.stringify(issues));
   }
   if (!req.headers.authorization?.startsWith('Basic ')) return send(res, 401, { errors: [{ detail: 'Unauthorized' }] });
   const p = url.pathname;

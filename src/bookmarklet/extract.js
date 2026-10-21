@@ -6,7 +6,7 @@
 // Bump BOOKMARKLET_VERSION whenever extraction changes: the import page warns
 // users whose saved bookmark is older, because bookmarks never update themselves.
 
-export const BOOKMARKLET_VERSION = 4;
+export const BOOKMARKLET_VERSION = 5;
 
 export const absUrl = (u, base) => { try { return new URL(u, base).href; } catch { return ''; } };
 
@@ -80,6 +80,51 @@ export function findMpListings(data, max = 500) {
   };
   walk(data, 0);
   return out;
+}
+
+// ---- photos from a page's HTML ---------------------------------------------------
+// Ad pages keep their whole gallery in scripts and image tags; these find every
+// listing photo in the raw HTML, at a large size, without logos or icons.
+
+const IMG_PATTERNS = [
+  // Marktplaats / 2dehands / 2ememain
+  [/(?:https?:)?\/\/images\.(?:marktplaats|2dehands|2ememain)\.(?:com|be|nl)\/api\/v1\/listing-mp-p\/images\/[0-9a-f]{2}\/[0-9a-f-]{36}/g, (u) => `https:${u.replace(/^https?:/, '')}?rule=ecg_mp_eps$_85.jpg`],
+  // eBay (and older Marktplaats ads)
+  [/https?:\/\/i\.ebayimg\.com\/(?:images\/g\/[A-Za-z0-9~_-]+|00\/s\/[A-Za-z0-9=_-]+\/z\/[A-Za-z0-9~_-]+)\//g, (u) => `${u}s-l1600.jpg`],
+  // Vinted
+  [/https?:\/\/images\d*\.vinted\.net\/t\/[A-Za-z0-9_-]+\/f800\/[0-9]+\.(?:jpe?g|webp)(?:\?s=[0-9a-f]+)?/g, (u) => u],
+];
+
+export function imagesFromHtml(html) {
+  const text = String(html || '').replace(/\\u002F/gi, '/').replace(/\\\//g, '/');
+  const out = [];
+  for (const [re, norm] of IMG_PATTERNS) {
+    for (const m of text.matchAll(re)) {
+      const u = norm(m[0]);
+      if (!out.includes(u)) out.push(u);
+    }
+  }
+  return out.slice(0, 24);
+}
+
+// A shop's own logo or an icon is no listing photo.
+export const isLogo = (u) => /logo|icon|sprite|placeholder|\.svg(\?|$)/i.test(u || '');
+
+// Adds the photos found on the item's own page (keeping the order, no logos).
+export function withPagePhotos(item, html) {
+  const own = (item.images || []).filter((u) => !isLogo(u));
+  const found = imagesFromHtml(html);
+  return { ...item, images: [...new Set([...found, ...own])].slice(0, 24) };
+}
+
+// The photos of the ad a page is about: its gallery when the page has one
+// (so photos of "other ads" further down are left out), else the first
+// listing photos in the page.
+const GALLERY = '[class*="Gallery"], [class*="gallery"], [class*="Carousel"], [class*="carousel"], [data-testid*="gallery"], [data-testid*="carousel"]';
+export function photosOfDocument(doc) {
+  const parts = [...doc.querySelectorAll(GALLERY)].map((e) => e.outerHTML).join('\n');
+  const gallery = parts ? imagesFromHtml(parts) : [];
+  return gallery.length ? gallery : imagesFromHtml(doc.documentElement?.outerHTML || '').slice(0, 12);
 }
 
 // Last resort for a single item page: Open Graph / product meta tags.

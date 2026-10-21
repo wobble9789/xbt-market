@@ -344,3 +344,7 @@ fieldset.delivery legend { font-weight: 600; padding: 0 4px; }
 .install-device .install-steps { margin-left: 8px; }
 .tab .badge { margin-left: 6px; }
 .explain li { margin: 4px 0; }
+.row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.backbar { margin: 0 0 8px; }
+.rejected-box { background: var(--warn-soft); border-left: 4px solid var(--danger); }
+.rejected-box b { color: var(--danger); }

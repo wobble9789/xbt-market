@@ -4,7 +4,7 @@ import { account, createAccount, importAccount, unlock, logout, shortNpub } from
 import { useProfile } from '../lib/nostr/profiles.js';
 import { useUsername } from '../lib/nostr/names.js';
 import { loadFollows } from '../lib/nostr/follows.js';
-import { loadBlocks } from '../lib/nostr/moderation.js';
+import { loadBlocks, loadBlockCounts, blockCounts, suspension } from '../lib/nostr/moderation.js';
 import { autoForward } from '../lib/trade/forward.js';
 import { startInbox, stopInbox, inbox, tradeIds } from '../lib/nostr/inbox.js';
 import { startMarket } from '../lib/market.js';
@@ -85,6 +85,33 @@ function Unlock() {
   );
 }
 
+// Tells the owner of an inactive or suspended account, who would otherwise
+// not notice: their listings look normal to themselves.
+function MyStatus({ me }) {
+  const dir = useStore(directory);
+  const { counts } = useStore(blockCounts);
+  useEffect(() => { if (me) loadBlockCounts([me]); }, [me]);
+  const why = me && suspension(me, dir, counts);
+  if (!why) return null;
+  return (
+    <p class="notice rejected-box">
+      <b>⛔ {why === 'admin' ? T('Your account is suspended by the community admin.', 'El administrador de la comunidad ha suspendido tu cuenta.') : T(`Your account is inactive: ${counts.get(me)} people blocked you.`, `Tu cuenta está inactiva: ${counts.get(me)} personas te han bloqueado.`)}</b>
+      <br />{T('Your listings are hidden for others and nobody can order from you. Think this is a mistake? Account → Report a problem.', 'Tus anuncios están ocultos para los demás y nadie puede hacerte pedidos. ¿Crees que es un error? Cuenta → Informar de un problema.')}
+    </p>
+  );
+}
+
+// Detail pages get a back button: an installed app on a computer has no
+// browser back button. Without history (a link opened directly) it goes to
+// the page one level up.
+const PARENT = { l: '#/', u: '#/', trade: '#/trades', sell: '#/sell', import: '#/sell', admin: '#/', arbiter: '#/', help: '#/' };
+function BackBar({ route }) {
+  const [p0, p1] = route.parts;
+  if (!PARENT[p0] || (p0 === 'sell' && !p1)) return null;
+  const back = () => { if (history.length > 1) history.back(); else location.hash = PARENT[p0]; };
+  return <div class="backbar"><button class="btn small ghost" onClick={back}>← {T('Back', 'Atrás')}</button></div>;
+}
+
 const NEEDS_ACCOUNT = new Set(['sell', 'import', 'trades', 'trade', 'arbiter', 'admin']);
 
 function Page({ route }) {
@@ -162,7 +189,7 @@ export function App() {
           <a href="#/help" class={here === 'help' ? 'active' : ''}>{T('How it works', 'Cómo funciona')}</a>
         </nav>
       </header>
-      <main>{body}</main>
+      <main>{!acc.locked && <MyStatus me={acc.pubkey} />}<BackBar route={route} />{body}</main>
       <nav class="bottom">
         {nav.map(([k, label, icon]) => (
           <a key={k} href={`#/${k}`} class={here === k || (k === 'trades' && here === 'trade') ? 'active' : ''}>

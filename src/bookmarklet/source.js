@@ -6,7 +6,27 @@
 import {
   BOOKMARKLET_VERSION, mpResults, nextDataFromHtml, mpSellerPath, fromMp, fromVinted, vintedMemberId,
   flattenJsonLd, productsFromJsonLd, cardsFromDocument, dedupeItems, findMpListings, itemFromMeta,
+  photosOfDocument, isLogo,
 } from './extract.js';
+
+// All photos of each ad, from the ad's own page (a profile only lists the
+// first one). Same site, a few at a time, at most ~40 s in total.
+async function addAllPhotos(items) {
+  const until = Date.now() + 40_000;
+  const todo = items.filter((it) => it.url).slice(0, 150);
+  const work = async () => {
+    while (todo.length && Date.now() < until) {
+      const it = todo.shift();
+      try {
+        const r = await fetch(it.url, { credentials: 'include' });
+        if (!r.ok) continue;
+        const photos = photosOfDocument(new DOMParser().parseFromString(await r.text(), 'text/html'));
+        if (photos.length) it.images = [...new Set([...photos, ...(it.images || []).filter((u) => !isLogo(u))])].slice(0, 24);
+      } catch { /* keep the photo we have */ }
+    }
+  };
+  await Promise.all([work(), work(), work(), work()]);
+}
 
 (async () => {
   const APP = '__XBT_APP__';
@@ -32,7 +52,12 @@ import {
     if (!first?.listings?.length && own) {
       // A single ad, or the seller's own view of one (/seller/view/m…).
       const found = findMpListings(own);
-      if (found.length) { platform = 'marktplaats'; found.forEach((l) => items.push(fromMp(l, here))); }
+      if (found.length) {
+        platform = 'marktplaats';
+        found.forEach((l) => items.push(fromMp(l, here)));
+        // One ad: its photos are on this very page.
+        if (items.length === 1) items[0].images = [...new Set([...photosOfDocument(document), ...items[0].images.filter((u) => !isLogo(u))])];
+      }
     }
     if (first?.listings?.length) {
       platform = 'marktplaats';
@@ -49,6 +74,7 @@ import {
         }
         complete = items.length >= total;
       }
+      await addAllPhotos(items);
     }
   } catch (e) { console.warn('xbt import: marktplaats', e); }
 
@@ -75,9 +101,30 @@ import {
   }
 
   // Listing grids (eBay), never on Marktplaats where the header would be misread.
-  if (!items.length && !/marktplaats\.|2dehands\.|2ememain\./.test(host)) items.push(...cardsFromDocument(document, here, host));
+  if (!items.length && !/marktplaats\.|2dehands\.|2ememain\./.test(host)) {
+    items.push(...cardsFromDocument(document, here, host));
+    // A seller's "items for sale" list or shop on eBay pages with _pgn: read
+    // every page, so the import is complete (and sold items can be noticed).
+    if (items.length && /ebay\./.test(host) && (/[?&]_ssn=/.test(location.search) || /^\/str\//.test(location.pathname))) {
+      try {
+        for (let page = 2; page <= 30; page++) {
+          const u = new URL(here);
+          u.searchParams.set('_pgn', String(page));
+          const r = await fetch(u, { credentials: 'include' });
+          if (!r.ok) break;
+          const more = cardsFromDocument(new DOMParser().parseFromString(await r.text(), 'text/html'), here, host);
+          const before = dedupeItems(items).length;
+          items.push(...more);
+          if (dedupeItems(items).length === before) { complete = true; break; }
+        }
+      } catch (e) { console.warn('xbt import: ebay pages', e); }
+      platform = 'ebay';
+    }
+  }
   // A single item page without structured data: its share tags (og:title, og:image…).
   if (!items.length) items.push(...itemFromMeta(document, here));
+  // One item from structured data or meta tags: all its photos, no logo.
+  if (items.length === 1 && platform !== 'marktplaats') items[0].images = [...new Set([...photosOfDocument(document), ...(items[0].images || []).filter((u) => !isLogo(u))])];
 
   const clean = dedupeItems(items);
   if (!clean.length) {

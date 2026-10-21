@@ -369,7 +369,7 @@ function eventText(state, e) {
     case 'open': return `💬 ${T('Conversation about', 'Conversación sobre')} “${state.listing?.title || ''}”`;
     case 'offer': return `🛒 ${T('Order', 'Pedido')}: ${formatCoin(b.priceSats)} · ${payShort(b.payment === 'direct' ? b.method : 'escrow')}${b.shipping?.carrier ? ` · ${carrier(b.shipping.carrier).name}` : ''}`;
     case 'accept': return `✅ ${T('Order accepted', 'Pedido aceptado')}`;
-    case 'reject': return `✖ ${T('Order rejected', 'Pedido rechazado')}${b.reason ? `: ${b.reason}` : ''}`;
+    case 'reject': return `✖ ${T('Order rejected', 'Pedido rechazado')}${b.reason ? ` · “${b.reason}”` : ''}`;
     case 'cancel': return `✖ ${T('Cancelled', 'Cancelado')}`;
     case 'details': return `📋 ${T('Details sent', 'Datos enviados')}${b.arbiter ? ` · ${T('arbiter chosen', 'árbitro elegido')}` : ''}`;
     case 'change': return `🔁 ${T('Asks to pay with', 'Pide pagar con')} ${payShort(b.method)}`;
@@ -848,7 +848,13 @@ export function TradePage({ tradeId, query = {} }) {
 
       {state.status === 'chat' && <ConversationStart state={state} role={role} query={query} />}
       {o && <OfferCard state={state} role={role} />}
-      {state.rejected && <p class="notice">{role === 'buyer' ? T('The seller rejected your order.', 'El vendedor ha rechazado tu pedido.') : T('You rejected this order.', 'Rechazaste este pedido.')} {state.rejected.reason}</p>}
+      {state.rejected && (
+        <div class="notice rejected-box">
+          <b>✖ {role === 'buyer' ? T('The seller rejected your order', 'El vendedor ha rechazado tu pedido') : T('You rejected this order', 'Rechazaste este pedido')}</b>
+          {state.rejected.reason && <div class="small">{role === 'buyer' ? T('Message from the seller', 'Mensaje del vendedor') : T('Your reason', 'Tu motivo')}: <i>“{state.rejected.reason}”</i></div>}
+          {role === 'buyer' && <div class="small">{T('Nothing was paid. You can make a new order below, or keep chatting.', 'No se ha pagado nada. Puedes hacer un pedido nuevo abajo o seguir chateando.')}</div>}
+        </div>
+      )}
       {state.cancelled && <p class="notice">{T('Cancelled by the', 'Cancelado por el')} {roleLabel(state.cancelled.by).toLowerCase()}. {state.cancelled.reason}</p>}
       {(state.rejected || (state.cancelled && !state.escrow)) && role === 'buyer' && <NewOffer state={state} />}
       {state.disputes.map((d, i) => <p key={i} class="notice danger">⚖️ {T('Dispute opened by the', 'Disputa abierta por el')} {roleLabel(d.by).toLowerCase()} ({timeAgo(d.at)}): {d.reason}</p>)}

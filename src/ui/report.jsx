@@ -30,6 +30,7 @@ export function BugReport() {
   if (sent) return <p class="notice ok">✓ {T('Thank you! Your report was sent.', '¡Gracias! Tu informe se ha enviado.')} <button class="btn small ghost" onClick={() => { setSent(false); setText(''); setFiles([]); }}>{T('Report another', 'Informar de otro')}</button></p>;
   return (
     <div class="form">
+      <p class="hint">{T('Goes privately to the maintainer. To get it fixed, it may be published as a public GitHub issue, without your name and without your screenshots.', 'Va en privado al responsable. Para que se arregle, puede publicarse como issue público en GitHub, sin tu nombre y sin tus capturas.')}</p>
       <Field label={T('What went wrong?', '¿Qué ha fallado?')} hint={T('What did you do, what did you expect, and what happened instead?', '¿Qué hiciste, qué esperabas y qué pasó en cambio?')}>
         <textarea rows="4" value={text} onInput={(e) => setText(e.target.value)} maxLength={5000} />
       </Field>
