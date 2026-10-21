@@ -84,7 +84,7 @@ function Password() {
   return (
     <>
       <ul class="small explain">
-        <li>{T('Optional. Like Damus and Primal, the app works without it: your phone\'s screen lock already protects it.', 'Opcional. Como Damus y Primal, la app funciona sin ella: el bloqueo de pantalla de tu móvil ya la protege.')}</li>
+        <li>{T('Optional. Like other Nostr apps, the app works without it: your phone\'s screen lock already protects it.', 'Opcional. Como otras apps de Nostr, la app funciona sin ella: el bloqueo de pantalla de tu móvil ya la protege.')}</li>
         <li>{T('Useful on a computer others can use: your key is then stored encrypted, the app asks for the password after the browser was closed, and before it shows your nsec.', 'Útil en un ordenador que usan otros: tu clave se guarda cifrada, la app pide la contraseña después de cerrar el navegador y antes de mostrar tu nsec.')}</li>
         <li>{T('Only for this device. Forgot it? Your nsec unlocks the app too.', 'Solo para este dispositivo. ¿La olvidaste? Tu nsec también desbloquea la app.')}</li>
       </ul>

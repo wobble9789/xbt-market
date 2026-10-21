@@ -367,7 +367,7 @@ try {
   });
   await step('ACC-3', 'Password: clear, per device, survives a refresh, guards the nsec, lock now', async () => {
     const p = await go('B', '#/settings?open=password');
-    await waitText(p, 'Like Damus and Primal');
+    await waitText(p, 'Like other Nostr apps');
     await fill(p, 'Password', '12345');
     await waitText(p, 'Too short: 5 of at least 8 characters.');
     await fill(p, 'Password', 'correct-horse-9');
