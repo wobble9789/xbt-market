@@ -88,6 +88,7 @@ Users install it via the browser's *Add to Home screen* / *Install app*. No stor
 - `/.well-known/nostr.json` and `/api/names`: unique usernames (`name@<worker domain>`, NIP-05), first come, first served, claimed with a NIP-98 signed request;
 - `/api/shipping/quote`, `/api/shipping/labels`: live rates and prepaid labels through **Sendcloud API v3**. The seller pays the label over Lightning to the platform's Lightning address (LUD-16 with LUD-21 *verify*); once paid, the Worker announces the shipment and serves the label PDF and, where the carrier supports it, a QR code;
 - `/api/import`: reads a public Marktplaats or Vinted page from a pasted link (for phones and the Marktplaats/Vinted apps);
+- `/api/issues`: the admin (and only the admin, checked against `ADMIN_NPUB`) publishes a reviewed bug report as a GitHub issue with the label `bug-report`;
 - `/api/bug`: e-mails a bug report with screenshots or a video (images and mp4/mov/webm, 15 MB at most) through **Resend** to the address in the `BUG_REPORT_EMAIL` secret. The address never reaches the app. At most 5 reports per account per hour.
 
 Without it, the app hides usernames and link import, shows estimated shipping prices and lets the seller buy labels on the carrier's site.
@@ -97,7 +98,8 @@ Without it, the app hides usernames and link import, shows estimated shipping pr
 2. In GitHub: *Settings → Secrets and variables → Actions → New repository secret*: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
 3. For shipping labels, also add: `SENDCLOUD_PUBLIC_KEY`, `SENDCLOUD_SECRET_KEY` (sendcloud.com → *Settings → Integrations → Sendcloud API*) and `PLATFORM_LN_ADDRESS` (a Lightning address whose provider supports LUD-21 *verify*, e.g. Alby, LNbits, BTCPay). Sendcloud bills postage to the platform's account; the label price the seller pays covers it (`LABEL_MARKUP_PCT` adds a margin).
 4. For bug reports by e-mail: a free account at resend.com, registered with the address that should receive the reports (without your own domain Resend only delivers to that address). *API Keys → Create API Key*, then the secrets `RESEND_API_KEY` and `BUG_REPORT_EMAIL`. Without them, bug reports still reach the admin over Nostr, without attachments.
-5. Re-run the *Test and deploy* workflow. It deploys the Worker, then builds the app with its address (`VITE_API_URL`, or set that repository variable to use your own domain).
+5. To publish bug reports as GitHub issues (Admin → Bug reports → *Publish as GitHub issue*): a fine-grained token at github.com → *Settings → Developer settings → Fine-grained tokens*, only this repository, permission *Issues: Read and write*. Save it as the secret `ISSUES_TOKEN`; the repository variable `VITE_ADMIN_NPUB` already says who the admin is. The admin edits the text first; the reporter's name and screenshots are never published. To let Claude pick up such an issue (it carries `@claude`) and open a pull request, add the secret `CLAUDE_CODE_OAUTH_TOKEN` (in Claude Code: `/install-github-app`); see `.github/workflows/claude.yml`.
+6. Re-run the *Test and deploy* workflow. It deploys the Worker, then builds the app with its address (`VITE_API_URL`, or set that repository variable to use your own domain).
 
 Locally: `npm run sendcloud` (a Sendcloud mock), `npm run wallets` (includes the platform's mock Lightning address) and `npm run service:dev`, then build with `VITE_API_URL=http://127.0.0.1:8787`.
 

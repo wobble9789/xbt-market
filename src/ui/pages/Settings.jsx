@@ -84,9 +84,9 @@ function Password() {
   return (
     <>
       <ul class="small explain">
-        <li>{T('Protects your key on this device: without the password, nobody who picks up this phone or computer can use your account or see your nsec.', 'Protege tu clave en este dispositivo: sin la contraseña, nadie que coja este móvil u ordenador puede usar tu cuenta ni ver tu nsec.')}</li>
-        <li>{T('Each device has its own password. On another device you log in with your nsec and can set a password there too.', 'Cada dispositivo tiene su propia contraseña. En otro dispositivo entras con tu nsec y allí también puedes poner una.')}</li>
-        <li>{T('Asked again after you close the browser or tap Lock now, not when you refresh the page. Forgot it? Your nsec unlocks the app too.', 'Se vuelve a pedir al cerrar el navegador o al tocar Bloquear ahora, no al recargar la página. ¿La olvidaste? Tu nsec también desbloquea la app.')}</li>
+        <li>{T('Optional. Like Damus and Primal, the app works without it: your phone\'s screen lock already protects it.', 'Opcional. Como Damus y Primal, la app funciona sin ella: el bloqueo de pantalla de tu móvil ya la protege.')}</li>
+        <li>{T('Useful on a computer others can use: your key is then stored encrypted, the app asks for the password after the browser was closed, and before it shows your nsec.', 'Útil en un ordenador que usan otros: tu clave se guarda cifrada, la app pide la contraseña después de cerrar el navegador y antes de mostrar tu nsec.')}</li>
+        <li>{T('Only for this device. Forgot it? Your nsec unlocks the app too.', 'Solo para este dispositivo. ¿La olvidaste? Tu nsec también desbloquea la app.')}</li>
       </ul>
       {done && <p class="notice ok small">✓ {done}</p>}
       {acc.encrypted && !changing && (
@@ -278,7 +278,7 @@ export function Settings({ query }) {
       <Section icon="🔑" title={T('Back up your key', 'Guarda una copia de tu clave')} summary={acc.backedUp ? `✓ ${T('done', 'hecho')}` : T('not done yet', 'aún no')} open={!!query.backup || openSet.has('backup-key')} attention={!acc.backedUp}>
         <Backup />
       </Section>
-      <Section icon="🔒" title={T('Password', 'Contraseña')} summary={acc.encrypted ? `✓ ${T('on this device', 'en este dispositivo')}` : T('off', 'desactivada')} open={openSet.has('password')}>
+      <Section icon="🔒" title={T('Password (optional)', 'Contraseña (opcional)')} summary={acc.encrypted ? `✓ ${T('on this device', 'en este dispositivo')}` : T('for shared computers', 'para ordenadores compartidos')} open={openSet.has('password')}>
         <Password />
       </Section>
       <Section icon="🌍" title={T('Language and currency', 'Idioma y moneda')} summary={`${lang} · ${s.currency}`} open={openSet.has('language')}>

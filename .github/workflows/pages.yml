@@ -87,7 +87,7 @@ jobs:
         run: |
           VITE_API_URL=http://127.0.0.1:8787 npm run build
           nohup npm run sendcloud > sendcloud.log 2>&1 &
-          nohup npm run service:dev > service.log 2>&1 &
+          ADMIN_NPUB=$(node test/e2e/testplan.e2e.mjs --admin-npub) nohup npm run service:dev > service.log 2>&1 &
           nohup npm run relay > relay.log 2>&1 &
           nohup npm run shim > shim.log 2>&1 &
           nohup npm run fixtures > fixtures.log 2>&1 &
@@ -172,11 +172,14 @@ jobs:
           PLATFORM_LN_ADDRESS: ${{ secrets.PLATFORM_LN_ADDRESS }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           BUG_REPORT_EMAIL: ${{ secrets.BUG_REPORT_EMAIL }}
+          ISSUES_TOKEN: ${{ secrets.ISSUES_TOKEN }}
+          ISSUES_REPO: ${{ github.repository }}
+          ADMIN_NPUB: ${{ vars.VITE_ADMIN_NPUB }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "No CLOUDFLARE_API_TOKEN secret: service not deployed"; exit 0; fi
           cd server
           npx --yes wrangler@4 deploy | tee deploy.log
-          for k in SENDCLOUD_PUBLIC_KEY SENDCLOUD_SECRET_KEY PLATFORM_LN_ADDRESS RESEND_API_KEY BUG_REPORT_EMAIL; do
+          for k in SENDCLOUD_PUBLIC_KEY SENDCLOUD_SECRET_KEY PLATFORM_LN_ADDRESS RESEND_API_KEY BUG_REPORT_EMAIL ISSUES_TOKEN ISSUES_REPO ADMIN_NPUB; do
             if [ -n "${!k}" ]; then printf '%s' "${!k}" | npx --yes wrangler@4 secret put $k; fi
           done
           url=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)

@@ -77,18 +77,25 @@ function score(qWords, nameWords) {
 }
 
 // [{ category, subcategory, model, label: [l1, l2, model?] names, score }] best first.
-export function searchCategories(query, tree, lang = 'nl') {
+// `synonyms`: extra words per category ("l1" or "l1/l2" -> [words]), see
+// category-synonyms/: what people type besides the category's own name.
+export function searchCategories(query, tree, lang = 'nl', synonyms = {}) {
   const q = words(query);
   if (!q.length || !tree) return [];
+  const nq0 = ` ${norm(query)} `;
+  // A whole phrase from the synonyms ("thermal vision") counts extra.
+  const phrase = (list) => (list || []).some((w) => w.includes(' ') && nq0.includes(` ${norm(w)} `)) ? 6 : 0;
   const li = lang === 'es' ? 3 : lang === 'en' ? 2 : 1;
   const pick = (row) => row[li] || row[2] || row[1];
   const out = [];
   for (const l1 of CATEGORY_LIST) {
-    const s1 = score(q, words(`${l1[1]} ${l1[2]} ${l1[3]}`));
+    const syn1 = synonyms[l1[0]] || [];
+    const s1 = score(q, words(`${l1[1]} ${l1[2]} ${l1[3]} ${syn1.join(' ')}`)) + phrase(syn1);
     if (s1 >= 6) out.push({ category: l1[0], subcategory: '', model: '', label: [pick(l1)], score: s1 - 1 });
     for (const l2 of tree.get(l1[0]) || []) {
       // Names like "Antiek | Bestek": the part after the bar is the subject.
-      const s2 = score(q, words(`${l2[1]} ${l2[2]} ${l2[3]}`));
+      const syn2 = synonyms[`${l1[0]}/${l2[0]}`] || [];
+      const s2 = score(q, words(`${l2[1]} ${l2[2]} ${l2[3]} ${syn2.join(' ')}`)) + phrase(syn2);
       if (s2 >= 4) out.push({ category: l1[0], subcategory: l2[0], model: '', label: [pick(l1), pick(l2)], score: s2 + (s1 >= 6 ? 2 : 0) });
       for (const [m, name] of MODELS[`${l1[0]}/${l2[0]}`] || []) {
         const sm = score(q, words(name));

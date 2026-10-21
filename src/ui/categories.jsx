@@ -5,7 +5,8 @@ import { T, lang } from './i18n.js';
 // The subcategory tree once loaded (null until then), with the models (third
 // level) and the category search, which load with it.
 let extras = null;
-const loadExtras = () => (extras ||= Promise.all([import('../lib/category-models.js'), import('../lib/category-search.js')]).then(([m, s]) => ({ MODELS: m.MODELS, searchCategories: s.searchCategories })));
+const loadExtras = () => (extras ||= Promise.all([import('../lib/category-models.js'), import('../lib/category-search.js'), import('../lib/category-synonyms/index.js')])
+  .then(([m, s, syn]) => ({ MODELS: m.MODELS, searchCategories: (q, tree, l) => s.searchCategories(q, tree, l, syn.SYNONYMS) })));
 
 export function useCategoryTree() {
   const [tree, setTree] = useState(null);

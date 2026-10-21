@@ -17,13 +17,16 @@
 //      LABELS_FREE=1 (development only: skip the payment), ALLOWED_ORIGINS (optional, comma separated)
 //      RESEND_API_KEY + BUG_REPORT_EMAIL (bug reports by e-mail, via resend.com), RESEND_BASE (optional),
 //      BUG_REPORT_FROM (optional sender, default "XBT Market <onboarding@resend.dev>")
+//      ISSUES_TOKEN + ISSUES_REPO ("owner/repo") + ADMIN_NPUB: the admin publishes a bug report as a
+//      GitHub issue, GITHUB_API (optional, for tests)
 
 import { verifyEvent } from 'nostr-tools/pure';
+import * as nip19 from 'nostr-tools/nip19';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { lnurlpUrl } from '../src/lib/ln/lnurl.js';
 import { decodeInvoice } from '../src/lib/ln/bolt11.js';
-import { nextDataFromHtml, mpResults, fromMp, fromVinted, flattenJsonLd, productsFromJsonLd, findMpListings, dedupeItems, BOOKMARKLET_VERSION } from '../src/bookmarklet/extract.js';
+import { nextDataFromHtml, mpResults, fromMp, fromVinted, flattenJsonLd, productsFromJsonLd, findMpListings, dedupeItems, imagesFromHtml, isLogo, BOOKMARKLET_VERSION } from '../src/bookmarklet/extract.js';
 
 export const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 const RESERVED = new Set(['admin', 'administrator', 'root', 'support', 'help', 'info', 'xbt', 'xbtmarket', 'xbt_market', 'market', 'marketplace', 'official', 'arbiter', 'moderator', 'mod', 'staff', 'team', 'security', 'abuse', 'postmaster', 'webmaster', 'nostr', 'bitcoin', 'satoshi', 'null', 'undefined']);
@@ -347,6 +350,21 @@ export async function importFromUrl(input, fetchImpl) {
       }
     }
   }
+  // Photos: a single ad has them all in its page; for a profile, read the
+  // first ads' own pages (a Worker may only make ~50 requests per call).
+  if (items.length === 1) {
+    const found = imagesFromHtml(html).slice(0, 12);
+    if (found.length) items[0].images = [...new Set([...found, ...(items[0].images || []).filter((u) => !isLogo(u))])];
+  } else if (platform === 'marktplaats') {
+    await Promise.all(items.slice(0, 25).map(async (it) => {
+      try {
+        const a = await fetchImpl(it.url, { headers: BROWSER_HEADERS });
+        if (!a.ok) return;
+        const found = imagesFromHtml(await a.text()).slice(0, 12);
+        if (found.length) it.images = [...new Set([...found, ...(it.images || []).filter((u) => !isLogo(u))])];
+      } catch { /* keep the first photo */ }
+    }));
+  }
   const clean = dedupeItems(items);
   if (!clean.length) throw Object.assign(new Error('No listings found at this link. Use the link of your public profile or of one ad.'), { status: 404 });
   return { v: BOOKMARKLET_VERSION, source: host, platform: platform || host, complete, page: finalUrl, at: Date.now(), items: clean };
@@ -385,6 +403,30 @@ async function bugReport(pk, body, env, store, fetchImpl) {
   return json({ ok: true });
 }
 
+// ---- GitHub issues -------------------------------------------------------------------
+// Only the community admin can publish (a bug report they reviewed) as a public issue.
+
+function adminPubkey(env) {
+  const v = String(env.ADMIN_NPUB || '').trim();
+  if (/^[0-9a-f]{64}$/.test(v)) return v;
+  try { const d = nip19.decode(v); return d.type === 'npub' ? d.data : null; } catch { return null; }
+}
+
+async function publishIssue(pk, body, env, fetchImpl) {
+  if (!env.ISSUES_TOKEN || !env.ISSUES_REPO) return fail(503, 'GitHub issues are not set up on this server');
+  if (!adminPubkey(env) || pk !== adminPubkey(env)) return fail(403, 'Only the admin can publish issues');
+  const title = String(body.title || '').trim().slice(0, 200);
+  if (!title) return fail(400, 'A title is required');
+  const r = await fetchImpl(`${(env.GITHUB_API || 'https://api.github.com').replace(/\/+$/, '')}/repos/${env.ISSUES_REPO}/issues`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${env.ISSUES_TOKEN}`, accept: 'application/vnd.github+json', 'content-type': 'application/json', 'user-agent': 'xbt-market-service' },
+    body: JSON.stringify({ title, body: String(body.body || '').slice(0, 60000), labels: ['bug-report'] }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) return fail(502, `GitHub: ${data.message || r.status}`);
+  return json({ number: data.number, url: data.html_url });
+}
+
 // ---- router -------------------------------------------------------------------------
 
 export async function handle(request, env, store, fetchImpl = globalThis.fetch.bind(globalThis)) {
@@ -420,7 +462,8 @@ async function route(request, url, env, store, fetchImpl) {
     try { data = text ? JSON.parse(text) : {}; } catch { throw Object.assign(new Error('Bad JSON'), { status: 400 }); }
     return { text, data };
   };
-  if (p === '/' && m === 'GET') return json({ service: 'xbt-market', usernames: true, shipping: !!env.SENDCLOUD_PUBLIC_KEY, labelPayments: env.LABELS_FREE === '1' ? 'free' : !!env.PLATFORM_LN_ADDRESS, bugReports: !!(env.RESEND_API_KEY && env.BUG_REPORT_EMAIL) });
+  if (p === '/' && m === 'GET') return json({ service: 'xbt-market', usernames: true, shipping: !!env.SENDCLOUD_PUBLIC_KEY, labelPayments: env.LABELS_FREE === '1' ? 'free' : !!env.PLATFORM_LN_ADDRESS, bugReports: !!(env.RESEND_API_KEY && env.BUG_REPORT_EMAIL), issues: !!(env.ISSUES_TOKEN && env.ISSUES_REPO) });
+  if (p === '/api/issues' && m === 'POST') { const b = await body(); return publishIssue(await authPubkey(request, b.text), b.data, env, fetchImpl); }
   if (p === '/api/bug' && m === 'POST') {
     if (Number(request.headers.get('content-length') || 0) > BUG_MAX_BYTES) return fail(413, 'Attachments are too large (15 MB at most)');
     const b = await body();

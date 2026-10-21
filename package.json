@@ -24,7 +24,7 @@
     "shim": "node dev/esplora-shim.mjs --port 3006 --rpc http://u:p@127.0.0.1:18443",
     "fixtures": "node test/e2e/shop-fixtures.mjs",
     "service": "node server/node.mjs 8787",
-    "service:dev": "SENDCLOUD_BASE=http://127.0.0.1:3011/api/v3 SENDCLOUD_POINTS_BASE=http://127.0.0.1:3011/points SENDCLOUD_PUBLIC_KEY=dev SENDCLOUD_SECRET_KEY=dev PLATFORM_LN_ADDRESS=platform@127.0.0.1:3010 XBT_RATE_EUR=50000 RESEND_BASE=http://127.0.0.1:3011/resend RESEND_API_KEY=dev BUG_REPORT_EMAIL=bugs@example.com node server/node.mjs 8787",
+    "service:dev": "SENDCLOUD_BASE=http://127.0.0.1:3011/api/v3 SENDCLOUD_POINTS_BASE=http://127.0.0.1:3011/points SENDCLOUD_PUBLIC_KEY=dev SENDCLOUD_SECRET_KEY=dev PLATFORM_LN_ADDRESS=platform@127.0.0.1:3010 XBT_RATE_EUR=50000 RESEND_BASE=http://127.0.0.1:3011/resend RESEND_API_KEY=dev BUG_REPORT_EMAIL=bugs@example.com ISSUES_TOKEN=dev ISSUES_REPO=test/xbt-market GITHUB_API=http://127.0.0.1:3011/github node server/node.mjs 8787",
     "sendcloud": "node dev/sendcloud-mock.mjs 3011"
   },
   "license": "MIT",

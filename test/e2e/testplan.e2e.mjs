@@ -339,7 +339,7 @@ try {
     const codeIsButton = await p.evaluate(() => !!document.querySelector('.npub-line code')?.closest('button'));
     if (codeIsButton) throw new Error('the npub text itself is a button');
     await click(p, 'Copy npub');
-    await p.waitForFunction(() => [...document.querySelectorAll('.npub-line button')].some((b) => b.textContent === '✓'), { timeout: 5000 }).catch(() => {});
+    await p.waitForFunction(() => [...document.querySelectorAll('.npub-line button')].some((b) => b.textContent.startsWith('✓')), { timeout: 5000 }).catch(() => {});
     await click(p, 'Show my nsec');
     people.B.nsec = (await (await el(p, '//div[@class="secret"]/code')).evaluate((e) => e.textContent)).trim();
     if (!people.B.nsec.startsWith('nsec1')) throw new Error('no nsec shown');
@@ -367,7 +367,7 @@ try {
   });
   await step('ACC-3', 'Password: clear, per device, survives a refresh, guards the nsec, lock now', async () => {
     const p = await go('B', '#/settings?open=password');
-    await waitText(p, 'Each device has its own password');
+    await waitText(p, 'Like Damus and Primal');
     await fill(p, 'Password', '12345');
     await waitText(p, 'Too short: 5 of at least 8 characters.');
     await fill(p, 'Password', 'correct-horse-9');
@@ -469,7 +469,7 @@ try {
     await catSearch(p, 'ssd');
     await (await el(p, '//button[contains(@class,"cat-hit")][contains(.,"Hard Drives") or contains(.,"Harde schijven")]')).click();
     if (await p.$eval('select[aria-label="Subcategory"]', (s) => s.value) !== 'harde-schijven') throw new Error('search did not set the subcategory');
-    await catSearch(p, 'warmtebeeldkijker');
+    await catSearch(p, 'thermal vision');
     await waitText(p, 'Binoculars');
     // Third level: a car brand asks for the model.
     await (await p.waitForSelector('select[aria-label="Category"]')).select('auto-s');
@@ -484,7 +484,7 @@ try {
     await fill(p, 'Price', '1');
     await click(p, 'Publish');
     await waitToast(p, 'Choose a subcategory');
-    return `36 main categories in Marktplaats order; search ("ssd", "warmtebeeldkijker"); Ford → model list; Kleding | Dames has ${subs} subcategories; publishing needs one`;
+    return `36 main categories in Marktplaats order; search ("ssd", "thermal vision"); Ford → model list; Kleding | Dames has ${subs} subcategories; publishing needs one`;
   });
   await step('LST-1b', 'Pick-up country and town; ships to exactly what you choose', async () => {
     const p = await as('B');
@@ -725,7 +725,7 @@ try {
     // A throwaway seller with one listing, blocked by ten other accounts.
     const xsk = generateSecretKey();
     const xpk = getPublicKey(xsk);
-    people.X = { pk: xpk };
+    people.X = { pk: xpk, sk: hex(xsk) };
     const pool = new SimplePool();
     const now = Math.floor(Date.now() / 1000);
     await Promise.any(pool.publish([RELAY], finalizeEvent({ kind: 30402, created_at: now, content: 'test', tags: [['d', 'x1'], ['title', 'Geblokkeerde verkoper'], ['price', '3', 'EUR'], ['t', 'xbt-market'], ['t', 'diversen'], ['country', 'NL'], ['payment', 'lightning'], ['shipping_option', 'pickup', '0', 'EUR']] }, xsk)));
@@ -737,8 +737,11 @@ try {
     if ((await text(c)).includes('Geblokkeerde verkoper')) throw new Error('inactive account still listed');
     await go('C', `#/u/${nip19.npubEncode(xpk)}`);
     await waitText(c, 'This account is inactive: too many people blocked it.');
+    // The owner is told too.
+    const x = await go('X', '#/sell');
+    await waitText(x, 'Your account is inactive: 10 people blocked you.', 30000);
     const a = await go('A', '#/admin');
-    await tab(a, 'Accounts');
+    await tab(a, 'Blocks');
     await waitText(a, 'Inactive: too many blocks (1)', 30000);
     await proof(a, 'plan', 'BLK-2 · Admin → Accounts: account inactief na 10 blokkades, met "Make active again"');
     await click(a, 'Make active again');
@@ -746,11 +749,11 @@ try {
     const c2 = await go('C', '#/?q=Geblokkeerde');
     await c2.reload({ waitUntil: 'load' });
     await waitText(c2, 'Geblokkeerde verkoper', 30000);
-    return 'ten blocks: hidden in Browse and "inactive" on the profile; admin "Make active again" brings it back';
+    return 'ten blocks: hidden in Browse, "inactive" on the profile, the owner sees a notice; admin "Make active again" brings it back';
   });
   await step('ADM-1', 'Admin: suspend and restore any account', async () => {
     const a = await go('A', '#/admin');
-    await tab(a, 'Accounts');
+    await tab(a, 'Blocks');
     // A throwaway account (the seller from BLK-2), so nothing else depends on it.
     await fillPh(a, 'npub1…', nip19.npubEncode(people.X.pk));
     await click(a, 'Suspend');
@@ -760,7 +763,7 @@ try {
     await c.reload({ waitUntil: 'load' });
     await waitText(c, 'suspended by the community admin', 30000);
     const a2 = await go('A', '#/admin');
-    await tab(a2, 'Accounts');
+    await tab(a2, 'Blocks');
     await waitText(a2, 'Suspended by you (1)');
     // The list re-renders while the block counts load: retry a click that lands on a replaced node.
     for (let i = 0; i < 3; i++) {
@@ -784,7 +787,15 @@ try {
     await tab(a, 'Bug reports');
     await waitText(a, 'Testbug: de knop doet niets.', 60000);
     await waitText(a, 'e-mailed with attachments');
-    return 'e-mail with the png attached to the address in the server secrets; also under Admin → Bug reports';
+    // The admin publishes it as a GitHub issue, without the reporter.
+    await click(a, '⇪ Publish as GitHub issue');
+    await click(a, 'Publish on GitHub');
+    await waitToast(a, 'Published as issue #');
+    const issues = await (await fetch('http://127.0.0.1:3011/github/issues')).json();
+    const issue = issues.find((i) => i.body.includes('Testbug: de knop doet niets.'));
+    if (!issue || !issue.body.includes('@claude') || issue.body.includes(people.C.pk) || !issue.labels.includes('bug-report')) throw new Error('issue: ' + JSON.stringify(issue));
+    await waitText(a, '✓ On GitHub');
+    return 'e-mail with the png attached to the address in the server secrets; under Admin → Bug reports; published as a GitHub issue (label bug-report, @claude, no reporter)';
   });
 
   // ---- edge cases that need no trade ----
@@ -1095,12 +1106,12 @@ try {
     await click(p, 'Reject');
     await fill(p, 'Why do you reject it? (optional)', 'Al verkocht, sorry.');
     await click(p, 'Reject order');
-    await waitText(p, 'You rejected this order.', 30000);
+    await waitText(p, 'You rejected this order', 30000);
     const c = await go('C', `#/trade/${id}`);
-    await waitText(c, 'The seller rejected your order.', 30000);
-    await waitText(c, 'Al verkocht, sorry.');
+    await waitText(c, 'The seller rejected your order', 30000);
+    await waitText(c, 'Message from the seller: “Al verkocht, sorry.”');
     await el(c, btnX('🛒 Make a new order'));
-    return 'buyer sees the rejection with the reason and can make a new order';
+    return 'buyer sees a red "rejected" box with "Message from the seller" and can make a new order';
   });
   await step('EDG-4', 'Invalid refund address blocks the details', async () => {
     const id = await order('C', 'Sorteertest duur', { pay: '🛡 Escrow', pickup: true });

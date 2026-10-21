@@ -39,12 +39,12 @@ export function Action({ onClick, children, class: cls = '', confirm, disabled, 
   return <button class={`btn ${cls}`} onClick={run} disabled={busy || disabled} title={title}>{busy ? <span class="spinner" /> : null}{children}</button>;
 }
 
-export function Copy({ text, label }) {
+export function Copy({ text, label, class: cls = 'btn small ghost' }) {
   const [done, setDone] = useState(false);
   const copy = async () => {
     try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1500); } catch { window.prompt('Copy:', text); }
   };
-  return <button class="btn small ghost" onClick={copy} type="button">{done ? '✓' : label || T('Copy', 'Copiar')}</button>;
+  return <button class={cls} onClick={copy} type="button">{done ? `✓ ${T('Copied', 'Copiado')}` : label || T('Copy', 'Copiar')}</button>;
 }
 
 // ---- people ------------------------------------------------------------------

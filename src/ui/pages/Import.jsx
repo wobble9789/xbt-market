@@ -25,8 +25,12 @@ async function loadMine(pubkey) {
 
 const STATUS_ORDER = { new: 0, changed: 1, same: 2 };
 
+// Reserved on the other site, but not (yet) here.
+const reservedThere = (it) => it.reserved && it.match && it.match.status === 'active';
+
 function StatusBadge({ it }) {
   if (it.reserved && it.status === 'new') return <span class="badge warn">{T('Reserved there', 'Reservado allí')}</span>;
+  if (reservedThere(it)) return <span class="badge warn">{T('Reserved there, not here', 'Reservado allí, aquí no')}</span>;
   if (it.status === 'new') return <span class="badge ok">{T('New', 'Nuevo')}</span>;
   if (it.status === 'changed') {
     return <span class="badge warn">{T('Changed', 'Cambiado')}{it.match.price !== it.price && it.price ? ` (${T('was', 'antes')} ${it.match.price})` : ''}</span>;
@@ -110,7 +114,7 @@ export function ImportPage({ query: q }) {
       } else {
         await publishListing({
           d: newListingId(), ...common, condition: it.condition, status: it.reserved ? 'reserved' : 'active', payments: [...DEFAULT_PAYMENTS],
-          country: s.country || '', city: it.location || '', shipsTo: ['EU'], packageSize: 'M',
+          country: s.country || '', city: it.location || '', shipsTo: s.country ? [s.country] : [], packageSize: 'M',
           shippingOptions: [{ id: 'pickup', price: 0 }, ...DEFAULT_CARRIERS.map((id) => ({ id }))],
         });
       }
@@ -118,6 +122,13 @@ export function ImportPage({ query: q }) {
     }
     toast(T(`Published ${done} listings`, `${done} anuncios publicados`), 'ok');
     setProgress(null);
+    await refreshMine();
+  };
+
+  const toReserve = items.filter(reservedThere);
+  const reserveHere = async (list) => {
+    for (const it of list) await publishListing({ ...it.match, status: 'reserved' });
+    toast(T(`${list.length} marked as reserved`, `${list.length} marcados como reservados`), 'ok');
     await refreshMine();
   };
 
@@ -144,13 +155,14 @@ export function ImportPage({ query: q }) {
       <h2>{T('Import your listings from Marktplaats, Vinted, eBay…', 'Importa tus anuncios de Marktplaats, Vinted, eBay…')}</h2>
       {!raw && (
         <>
+          {!apiEnabled() && <p class="notice small">🔗 {T('"Paste a link" (the easiest way, also on a phone) appears once the XBT Market service is set up.', '«Pega un enlace» (lo más fácil, también en el móvil) aparece cuando el servicio de XBT Market esté configurado.')}</p>}
           {apiEnabled() && (
             <div class="card">
               <h3>🔗 {T('Paste a link', 'Pega un enlace')} <span class="badge ok">{T('easiest, also on your phone', 'lo más fácil, también en el móvil')}</span></h3>
               <ol class="small">
-                <li>{T('In the Marktplaats or Vinted app or website, open your own profile (all your ads) or one ad.', 'En la app o web de Marktplaats o Vinted, abre tu propio perfil (todos tus anuncios) o un anuncio.')}</li>
-                <li>{T('Tap Share → Copy link.', 'Toca Compartir → Copiar enlace.')}</li>
-                <li>{T('Paste it here.', 'Pégalo aquí.')}</li>
+                <li>{T('All your ads: open your profile in the browser (marktplaats.nl/u/your-name/…, or vinted.nl/member/…) and copy the address from the address bar.', 'Todos tus anuncios: abre tu perfil en el navegador (marktplaats.nl/u/tu-nombre/…, o vinted.es/member/…) y copia la dirección de la barra.')}</li>
+                <li>{T('One ad, also from the app: open the ad → Share (↗ or ⋮) → Copy link. The Marktplaats app only shares single ads, not your profile.', 'Un anuncio, también desde la app: abre el anuncio → Compartir (↗ o ⋮) → Copiar enlace. La app de Marktplaats solo comparte anuncios sueltos, no tu perfil.')}</li>
+                <li>{T('Paste it here and tap Read.', 'Pégalo aquí y toca Leer.')}</li>
               </ol>
               <div class="row">
                 <input value={link} onInput={(e) => setLink(e.target.value)} placeholder="https://www.marktplaats.nl/u/…" inputmode="url" />
@@ -169,8 +181,9 @@ export function ImportPage({ query: q }) {
               <li>{T('Open your profile on Marktplaats (marktplaats.nl/u/…) or Vinted (vinted.nl/member/…), or a single ad, and click the bookmark.', 'Abre tu perfil en Marktplaats (marktplaats.nl/u/…) o Vinted (vinted.es/member/…), o un solo anuncio, y pulsa el marcador.')}</li>
             </ol>
             <h4>{T('On a phone', 'En el móvil')}</h4>
+            <p class="hint">{T('Phones make bookmark buttons fiddly. If it does not work, use "Paste a link" above: much easier.', 'En el móvil los botones de marcador son complicados. Si no funciona, usa «Pega un enlace» arriba: mucho más fácil.')}</p>
             <ol class="small">
-              <li><Copy text={bookmarklet} label={T('1. Copy the bookmark code', '1. Copia el código del marcador')} /></li>
+              <li>{T('Copy the bookmark code:', 'Copia el código del marcador:')} <Copy text={bookmarklet} label={`📋 ${T('Copy code', 'Copiar código')}`} class="btn primary" /></li>
               <li>{browser.device === 'ios' ? T('In Safari, tap Share □↑ → "Add Bookmark" → Save. Then open Bookmarks, tap Edit, open the new bookmark and replace its address with the copied code.', 'En Safari, toca Compartir □↑ → «Añadir marcador» → Guardar. Luego abre Marcadores, toca Editar, abre el nuevo marcador y sustituye su dirección por el código copiado.')
                 : T('In Chrome, tap ⋮ → ☆ to bookmark this page. Tap ⋮ → Bookmarks, hold the new bookmark → Edit, name it "xbt" and replace the URL with the copied code.', 'En Chrome, toca ⋮ → ☆ para guardar esta página. Toca ⋮ → Marcadores, mantén pulsado el nuevo marcador → Editar, llámalo «xbt» y sustituye la URL por el código copiado.')}</li>
               <li>{T('Open your Marktplaats or Vinted profile in the browser (not the app).', 'Abre tu perfil de Marktplaats o Vinted en el navegador (no en la app).')}</li>
@@ -220,6 +233,12 @@ export function ImportPage({ query: q }) {
             <div class="notice warn">
               <p>{T(`${gone.length} of your listings here are no longer on that profile (sold or removed there?):`, `${gone.length} de tus anuncios aquí ya no están en ese perfil (¿vendidos o borrados allí?):`)} {gone.slice(0, 5).map((l) => l.title).join(', ')}{gone.length > 5 ? '…' : ''}</p>
               <Action class="small" confirm={T('Mark these as sold on XBT Market?', '¿Marcarlos como vendidos en XBT Market?')} onClick={markGoneSold}>{T('Mark as sold on XBT Market', 'Marcar como vendidos en XBT Market')}</Action>
+            </div>
+          )}
+          {toReserve.length > 0 && (
+            <div class="notice warn">
+              <p>{T(`${toReserve.length} of your listings are reserved there, but not here:`, `${toReserve.length} de tus anuncios están reservados allí, pero aquí no:`)} {toReserve.slice(0, 5).map((i) => i.title).join(', ')}{toReserve.length > 5 ? '…' : ''}</p>
+              <Action class="small" onClick={() => reserveHere(toReserve)}>{T('Mark as reserved on XBT Market too', 'Marcar también como reservados en XBT Market')}</Action>
             </div>
           )}
           <p class="hint">{T('Changed listings update the existing one instead of adding a copy. Photos stay hosted where they are now. Ads reserved there are imported as reserved.', 'Los anuncios cambiados actualizan el existente en vez de crear una copia. Las fotos siguen alojadas donde están. Los anuncios reservados allí se importan como reservados.')}</p>
