@@ -241,16 +241,16 @@ async function shipCountry(c) {
 async function onSale(title) {
   const p = await go('B', '#/sell');
   await waitText(p, 'Your listings');
-  await sleep(2500);
+  await sleep(4000); // the seller's app reserves freshly paid listings now
   const tab = await p.$('::-p-xpath(//main//button[starts-with(normalize-space(.),"Reserved (")])');
   if (!tab) return;
   await tab.click();
   await sleep(500);
-  const edit = await p.$(`::-p-xpath(//div[contains(@class,"pickable")][.//div[@class="title" and normalize-space(.)="${title}"]]//a[contains(.,"Edit")])`);
-  if (!edit) return;
-  await edit.click();
+  const box = await p.$(`::-p-xpath(//div[contains(@class,"pickable")][.//div[@class="title" and normalize-space(.)="${title}"]]/input)`);
+  if (!box) return;
+  await box.click();
   await click(p, 'Put back on sale');
-  await waitText(p, 'Your listings');
+  await waitToast(p, 'updated', 30000).catch(async (e) => { throw new Error(`could not put "${title}" back on sale: ${await toasts(p)}`); });
 }
 async function order(who, title, { pay, pickup = false, carrier }) {
   await onSale(title);
@@ -1535,6 +1535,10 @@ try {
     await fillPh(p, 'nsec1…', people.B.nsec);
     await click(p, 'Log in');
     await p.evaluate(() => { location.hash = '#/sell'; });
+    await waitText(p, 'Your listings', 30000);
+    // Paid in an escrow trade, so it may be under "Reserved".
+    await sleep(3000);
+    if (!(await text(p)).includes('Wollen sjaal, rood')) { const t = await p.$('::-p-xpath(//main//button[starts-with(normalize-space(.),"Reserved (")])'); if (t) await t.click(); }
     await waitText(p, 'Wollen sjaal, rood', 30000);
     await p.evaluate(() => { location.hash = '#/trades'; });
     await waitText(p, 'Wollen sjaal', 60000);
