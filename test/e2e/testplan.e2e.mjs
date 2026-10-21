@@ -236,7 +236,24 @@ async function shipCountry(c) {
   const sel = await c.$('::-p-xpath(//label[span[normalize-space(.)="Ship to (country)"]]//select)');
   if (sel && !(await sel.evaluate((s) => s.value))) await sel.select('NL');
 }
+// A paid listing goes to "reserved" by itself; like a seller with more in
+// stock, put it back on sale before the next order of the same listing.
+async function onSale(title) {
+  const p = await go('B', '#/sell');
+  await waitText(p, 'Your listings');
+  await sleep(4000); // the seller's app reserves freshly paid listings now
+  const tab = await p.$('::-p-xpath(//main//button[starts-with(normalize-space(.),"Reserved (")])');
+  if (!tab) return;
+  await tab.click();
+  await sleep(500);
+  const box = await p.$(`::-p-xpath(//div[contains(@class,"pickable")][.//div[@class="title" and normalize-space(.)="${title}"]]/input)`);
+  if (!box) return;
+  await box.click();
+  await click(p, 'Put back on sale');
+  await waitToast(p, 'updated', 30000).catch(async (e) => { throw new Error(`could not put "${title}" back on sale: ${await toasts(p)}`); });
+}
 async function order(who, title, { pay, pickup = false, carrier }) {
+  await onSale(title);
   const c = await openListing(who, title);
   const before = await c.evaluate(() => location.hash);
   // An open conversation about this listing is reused, as a buyer would.
@@ -719,12 +736,14 @@ try {
     await b.reload({ waitUntil: 'load' });
     await sleep(3000);
     if ((await text(b)).includes('Sorteertest duur')) throw new Error('blocked seller still listed');
-    const c2 = await go('C', `#/u/${nip19.npubEncode(people.B.pk)}`);
-    await click(c2, 'Unblock');
+    // Unblock from the list under Account.
+    const c2 = await go('C', '#/settings?open=blocked');
+    await (await el(c2, '//details[.//h3[contains(.,"Blocked people")]]//div[contains(@class,"trade-row")]//button[normalize-space(.)="Unblock"]')).click();
+    await waitText(c2, 'You have not blocked anyone');
     const b2 = await go('C', '#/?q=Sorteertest');
     await b2.reload({ waitUntil: 'load' });
     await waitText(b2, 'Sorteertest duur');
-    return 'blocked: listings hidden for C, the admin sees "blocked by 1" in Reports; unblocked: back';
+    return 'blocked: listings hidden for C, the admin sees "blocked by 1" in Reports; unblocked from Account → Blocked people: back';
   });
   await step('BLK-2', `Blocked by ${10} people: the account is inactive; the admin can restore it`, async () => {
     // A throwaway seller with one listing, blocked by ten other accounts.
@@ -821,6 +840,18 @@ try {
     await waitText(c, 'New accounts can trade up to');
     if (!(await (await el(c, btnX('Send order'))).evaluate((b) => b.disabled))) throw new Error('Send order enabled');
     return 'warning about the limit, Send order disabled';
+  });
+
+  await step('ARB-7', 'Nobody arbitrates their own trade', async () => {
+    // A is the only approved arbiter: buying with escrow has no arbiter left.
+    const a = await openListing('A', 'Sorteertest duur');
+    await click(a, '🛒 Order now');
+    await waitText(a, 'How do you want to pay?');
+    await choose(a, '🛡 Escrow');
+    await choose(a, '🤝 Pick up');
+    await waitText(a, 'Escrow needs an arbiter who is not you or the seller');
+    if (!(await (await el(a, btnX('Send order'))).evaluate((b) => b.disabled))) throw new Error('Send order enabled');
+    return 'the arbiter buying with escrow: a clear message, Send order disabled (and the details form never offers buyer or seller as arbiter)';
   });
 
   // ---- a conversation, then an escrow trade ----
@@ -1221,7 +1252,12 @@ try {
     await waitText(c, 'Paid. The Lightning preimage proves it.', 60000);
     const p = await B(`#/trade/${tidLn}`);
     await waitText(p, 'Paid. The Lightning preimage proves it.', 30000);
-    return 'both see the payment proven by the preimage';
+    // Paid: the listing reserves itself, so nobody else orders it.
+    await waitToast(p, 'is paid and now reserved', 30000);
+    const c2 = await openListing('C', 'Fietslampjes set');
+    await waitText(c2, 'Reserved: the seller is holding this');
+    if (await exists(c2, btnX('🛒 Order now'))) throw new Error('can still order a paid listing');
+    return 'both see the payment proven by the preimage; the listing reserved itself ("Order now" gone)';
   });
   await step('LN-10', 'Hand over, complete and review', async () => {
     let p = await B(`#/trade/${tidLn}`);
@@ -1499,6 +1535,10 @@ try {
     await fillPh(p, 'nsec1…', people.B.nsec);
     await click(p, 'Log in');
     await p.evaluate(() => { location.hash = '#/sell'; });
+    await waitText(p, 'Your listings', 30000);
+    // Paid in an escrow trade, so it may be under "Reserved".
+    await sleep(3000);
+    if (!(await text(p)).includes('Wollen sjaal, rood')) { const t = await p.$('::-p-xpath(//main//button[starts-with(normalize-space(.),"Reserved (")])'); if (t) await t.click(); }
     await waitText(p, 'Wollen sjaal, rood', 30000);
     await p.evaluate(() => { location.hash = '#/trades'; });
     await waitText(p, 'Wollen sjaal', 60000);

@@ -25,6 +25,7 @@ import { Profile } from './pages/Profile.jsx';
 import { Settings } from './pages/Settings.jsx';
 import { Admin } from './pages/Admin.jsx';
 import { Help } from './pages/Help.jsx';
+import { AutoReserve } from './autoreserve.jsx';
 
 function Welcome({ reason }) {
   const [nsecIn, setNsecIn] = useState('');
@@ -197,6 +198,7 @@ export function App() {
           </a>
         ))}
       </nav>
+      {acc.pubkey && !acc.locked && <AutoReserve />}
       <Toasts />
     </div>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { useStore } from '../../lib/store.js';
 import { inbox, rumorsFor } from '../../lib/nostr/inbox.js';
+import { market } from '../../lib/market.js';
 import { account } from '../../lib/nostr/account.js';
 import { directory, refreshDirectory, arbiterFeePct, arbiterFeeLabel } from '../../lib/nostr/directory.js';
 import { publishReview, reviewsAbout, tradeLimitFor } from '../../lib/nostr/reviews.js';
@@ -453,6 +454,8 @@ function OfferCard({ state, role }) {
   // A version 1 offer names its arbiter up front.
   useEffect(() => { if (state.arbiter && !state.checks.arbiterTrusted) refreshDirectory(0).catch(() => {}); }, [state.arbiter?.pubkey]);
   const v1Arbiter = state.version === 1 && escrow ? state.arbiter : null;
+  const { listings } = useStore(market);
+  const listingNow = [...listings.values()].find((l) => l.coord === state.listing?.coord);
   const ok = !escrow || isValidAddress(payout, o.network);
   const title = role === 'buyer' ? T('Your order', 'Tu pedido') : role === 'seller' ? <>{T('Order from', 'Pedido de')} <Name pk={state.participants.buyer} /> <span class="muted small">({T('the buyer', 'el comprador')})</span></> : T('Order', 'Pedido');
   return (
@@ -471,6 +474,7 @@ function OfferCard({ state, role }) {
       {role === 'seller' && limit != null && escrow && tm.priceSats > limit && <p class="notice warn">{T(`This buyer has few verified trades; the community limit for them is ${formatCoin(limit)}.`, `Este comprador tiene pocas compras verificadas; el límite de la comunidad para él es ${formatCoin(limit)}.`)}</p>}
       {state.status === 'offered' && role === 'seller' && (
         <>
+          {listingNow && listingNow.status !== 'active' && <p class="notice warn">{listingNow.status === 'reserved' ? T('This item is reserved: someone else already paid for it. Only accept if you have another one.', 'Este artículo está reservado: otra persona ya lo ha pagado. Acepta solo si tienes otro.') : T('This item is marked as sold. Only accept if you have another one.', 'Este artículo está marcado como vendido. Acepta solo si tienes otro.')}</p>}
           {escrow && (
             <Field label={T('Your XBT payout address', 'Tu dirección XBT de cobro')} hint={T('Where the escrow pays you. A wallet that follows the BLAKE2b chain.', 'Donde te paga el escrow. Una cartera que siga la cadena BLAKE2b.')}>
               <input value={payout} onInput={(e) => setPayout(e.target.value)} class={payout && !ok ? 'invalid' : ''} placeholder="bc1q…" />
@@ -527,7 +531,10 @@ function ServicePointPicker({ state, value, onChange, postalCode }) {
 function DetailsForm({ state, role }) {
   const s = settings.get();
   const dir = useStore(directory);
-  const arbiters = [...dir.arbiters.values()];
+  // Buyer and seller cannot be the arbiter of their own trade.
+  const others = (a) => a.pubkey !== state.participants?.buyer && a.pubkey !== state.participants?.seller;
+  const allArbiters = [...dir.arbiters.values()];
+  const arbiters = allArbiters.filter(others);
   const escrow = state.payment === 'escrow';
   const sh = state.offer.shipping;
   const needShip = role === 'buyer' && needsAddress(state) && !state.shipTo;
@@ -543,7 +550,7 @@ function DetailsForm({ state, role }) {
   if (!state.accept || state.cancelled || state.rejected || !(needShip || needPoint || needArbiter || needPayout)) return null;
   const addrOk = !needShip || (addressComplete(address) && address.country === sh.country);
   const payoutOk = !needPayout || isValidAddress(payout, state.offer.network);
-  const ready = addrOk && payoutOk && (!needArbiter || dir.arbiters.has(arbiter)) && (!needPoint || point);
+  const ready = addrOk && payoutOk && (!needArbiter || (dir.arbiters.has(arbiter) && arbiters.some((a) => a.pubkey === arbiter))) && (!needPoint || point);
   return (
     <div class="card form attention details-form">
       <h3>📋 {role === 'buyer' ? T('Accepted! A few details for the seller', '¡Aceptado! Unos datos para el vendedor') : T('Your payout address', 'Tu dirección de cobro')}</h3>
@@ -560,7 +567,7 @@ function DetailsForm({ state, role }) {
             <select value={arbiter} onChange={(e) => setArbiter(e.target.value)}>
               {arbiters.map((a) => <option key={a.pubkey} value={a.pubkey}>{a.name || a.pubkey.slice(0, 12)}{a.languages ? ` (${a.languages})` : ''} · {arbiterFeeLabel(a)}</option>)}
             </select>
-          ) : <p class="notice warn">{dir.loaded ? T('No approved arbiters yet. Ask the seller to switch to Lightning, or add an arbiter you trust under Account.', 'Aún no hay árbitros aprobados. Pide al vendedor cambiar a Lightning o añade un árbitro de confianza en Cuenta.') : <Spinner />}</p>}
+          ) : <p class="notice warn">{dir.loaded && allArbiters.length ? T('You cannot be the arbiter of your own trade, and neither can the seller, and there is no other approved arbiter yet. Ask the seller to switch to Lightning, or add another arbiter you trust under Account.', 'No puedes ser el árbitro de tu propia compra, ni tampoco el vendedor, y aún no hay otro árbitro aprobado. Pide al vendedor cambiar a Lightning o añade otro árbitro de confianza en Cuenta.') : dir.loaded ? T('No approved arbiters yet. Ask the seller to switch to Lightning, or add an arbiter you trust under Account.', 'Aún no hay árbitros aprobados. Pide al vendedor cambiar a Lightning o añade un árbitro de confianza en Cuenta.') : <Spinner />}</p>}
         </Field>
       )}
       {needPayout && (

@@ -71,18 +71,9 @@
 </main>
 <script>
 const PLAN = [
-  ['Jouw oordeel: teksten en gevoel', 'Seller, Buyer', [
-    ['ACC-3', 'Uitleg wachtwoord', ['Account → "Password (optional)": lees de uitleg.'], 'Duidelijk dat het niet hoeft (zoals bij andere Nostr-apps) en wanneer het wel handig is.'],
-    ['NAV-1', 'Terugknop in de app op de pc', ['Open in de geïnstalleerde app op de pc een trade, advertentie of profiel en gebruik "← Back".'], 'Voelt logisch: terug naar waar je was.'],
-    ['ARB-6', 'Afgewezen bestelling', ['Seller: wijs een bestelling af met een reden. Buyer: open de chat.'], 'Meteen duidelijk dat het is afgewezen en wat de verkoper schreef.'],
-    ['LST-1a', 'Categorie zoeken', ['New listing → "🔎 Search a category": probeer woorden zoals jij ze zou typen, in het Engels en Spaans (bv. thermal, sofa, laptop, bici, nevera).'], 'De voorgestelde categorieën kloppen meestal.'],
-    ['TRD-3b', 'Teksten bij escrow', ['Seller accepteert een escrow-bestelling; Buyer vult de details in en opent "Recovery details".'], 'Begrijpelijk voor een leek, zonder wallet-voorbeelden.'],
-  ]],
-  ['Echte sites: importeren', 'Seller (met je eigen Marktplaats/eBay)', [
-    ['IMP-2', 'eBay: verdwenen advertenties', ['Op eBay: open je "items for sale"-lijst (ebay.nl/sch/i.html?_ssn=jouwnaam) of je shop, klik de nieuwe bladwijzer (v5).'], 'Alle pagina\'s gelezen; advertenties die daar weg zijn: melding met "Mark as sold on XBT Market".'],
-    ['IMP-7', 'Gereserveerd, al op XBT Market', ['Zet op Marktplaats een advertentie die al op XBT Market staat op gereserveerd. Importeer opnieuw.'], 'Melding "… reserved there, but not here" met knop om hier ook te reserveren.'],
-    ['IMP-8', 'Alle foto\'s', ['Importeer een losse advertentie met meerdere foto\'s, en daarna je hele profiel.'], 'Geen Marktplaats-logo; alle foto\'s per advertentie.'],
-    ['IMP-11', 'Bladwijzer op de telefoon', ['Import → "On a phone": "📋 Copy code" en volg de stappen.'], 'Lukt het, of is het te omslachtig? (Anders na SVC-1 "Paste a link".)'],
+  ['Echte sites: importeren (hertest)', 'Seller (met je eigen Marktplaats/eBay)', [
+    ['IMP-8', 'Alle foto\'s en de prijs', ['Verwijder je oude bladwijzer en sleep de nieuwe (v6) naar je balk.', 'Importeer een losse Marktplaats-advertentie met meerdere foto\'s, je hele Marktplaats-profiel en je eBay-lijst.'], 'Elke advertentie met al haar foto\'s en de juiste prijs, ook de losse. Lukt een foto of prijs niet: noteer welke advertentie (link).'],
+    ['IMP-11', 'Bladwijzer op de telefoon', ['Log in Firefox (of Vanadium) in op XBT Market. Import → "On a phone": "📋 Copy code" en volg de stappen. Tik de bladwijzer op je Marktplaats- of Vinted-profiel.'], 'XBT Market opent met je advertenties, ook als de browser een pop-up blokkeert (dan in hetzelfde tabblad).'],
   ]],
   ['Later: met de dienst', 'Admin', [
     ['SVC-1', 'XBT Market-dienst staat live', ['Cloudflare: gratis account → API-token (sjabloon "Edit Cloudflare Workers") + Account ID. GitHub → Settings → Secrets and variables → Actions: CLOUDFLARE_API_TOKEN en CLOUDFLARE_ACCOUNT_ID. Actions → laatste run → Re-run all jobs.', 'Open de workers.dev-link uit de deploy-log.'], 'Je ziet {"service":"xbt-market","usernames":true,…}.'],
@@ -114,7 +105,7 @@ const PLAN = [
   ], 'Nodig: een API-sleutel van Anthropic. Overslaan als je die (nog) niet wilt.'],
 ];
 
-const KEY = 'xbt-testplan-v5';
+const KEY = 'xbt-testplan-v6';
 let state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { state = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} render(); };
