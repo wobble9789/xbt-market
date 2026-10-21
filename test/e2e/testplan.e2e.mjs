@@ -710,16 +710,21 @@ try {
     const c = await go('C', `#/u/${nip19.npubEncode(people.B.pk)}`);
     await click(c, '⛔ Block');
     await waitText(c, 'You blocked this user');
+    // The admin sees the block count in Reports straight away.
+    const adm = await go('A', '#/admin');
+    await tab(adm, 'Reports');
+    await choose(adm, 'Show handled reports too');
+    await waitText(adm, 'blocked by 1', 30000);
     const b = await go('C', '#/?q=Sorteertest');
     await b.reload({ waitUntil: 'load' });
     await sleep(3000);
     if ((await text(b)).includes('Sorteertest duur')) throw new Error('blocked seller still listed');
-    await go('C', `#/u/${nip19.npubEncode(people.B.pk)}`);
-    await click(c, 'Unblock');
+    const c2 = await go('C', `#/u/${nip19.npubEncode(people.B.pk)}`);
+    await click(c2, 'Unblock');
     const b2 = await go('C', '#/?q=Sorteertest');
     await b2.reload({ waitUntil: 'load' });
     await waitText(b2, 'Sorteertest duur');
-    return 'blocked: listings hidden for C; unblocked: back';
+    return 'blocked: listings hidden for C, the admin sees "blocked by 1" in Reports; unblocked: back';
   });
   await step('BLK-2', `Blocked by ${10} people: the account is inactive; the admin can restore it`, async () => {
     // A throwaway seller with one listing, blocked by ten other accounts.
