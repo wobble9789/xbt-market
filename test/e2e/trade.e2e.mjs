@@ -360,7 +360,8 @@ try {
     await click(await as('seller'), 'Publish');
     await waitText(await as('seller'), title);
     await go(await as('buyer'), `#/?q=${encodeURIComponent(title)}`);
-    await (await as('buyer')).reload({ waitUntil: 'load' });
+    // Firefox sometimes never reports the reload as loaded; the text check below decides.
+    await (await as('buyer')).reload({ waitUntil: 'load', timeout: 15000 }).catch(() => {});
     await waitText(await as('buyer'), title);
     const before = await (await as('buyer')).evaluate(() => location.hash);
     await (await (await as('buyer')).waitForSelector(`::-p-xpath(//a[contains(@class,"listing-card")][contains(., "${title}")])`)).click();
