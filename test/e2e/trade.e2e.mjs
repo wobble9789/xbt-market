@@ -34,6 +34,16 @@ const browser = await puppeteer.launch({
 
 let current = null;
 const lastHash = {};
+// Days each person's clock runs ahead, to reach a deadline without waiting.
+const shift = {};
+async function shiftClock(who, days) {
+  shift[who] = days;
+  if (current?.who === who) {
+    lastHash[who] = await current.evaluate(() => location.hash);
+    await current.browserContext().close();
+    current = null;
+  }
+}
 async function as(who) {
   if (current?.who === who) return current;
   if (current) {
@@ -49,6 +59,12 @@ async function open(who) {
   const ctx = await browser.createBrowserContext();
   const page = await ctx.newPage();
   await setupPage(page);
+  if (shift[who]) {
+    const ahead = shift[who] * 86400000;
+    await page.evaluateOnNewDocument(`(() => { const D = Date; const now = () => D.now() + ${ahead};
+      class Shifted extends D { constructor(...a) { if (a.length) super(...a); else super(now()); } static now() { return now(); } }
+      window.Date = Shifted; })()`);
+  }
   page.on('pageerror', (e) => { if (!/establish a connection/.test(e.message)) console.log(`[${who} pageerror]`, e.message); });
   page.on('console', (m) => { if (m.type() === 'error') console.log(`[${who} console]`, m.text()); });
   page.on('dialog', (d) => d.accept());
@@ -214,17 +230,25 @@ try {
   await click(await as('seller'), 'Refresh');
   await waitText(await as('seller'), 'Ship the item', 40000);
   await waitText(await as('seller'), 'Kerkstraat 1');
+  await waitText(await as('seller'), 'Paid. Ship by');
+  await waitText(await as('seller'), 'Was this your only one? Mark the listing as reserved');
   await shot(await as('seller'), 'Verkoper: escrow volledig betaald en bevestigd door de node, verzendformulier met het adres van de koper');
 
   step('seller ships');
   await fill(await as('seller'), 'Tracking code', '3SXBT123');
   await click(await as('seller'), 'Mark as shipped');
   await waitText(await as('seller'), 'Shipped with PostNL');
+  await waitText(await as('seller'), 'Waiting for the buyer to confirm, until');
   await shot(await as('seller'), 'Verkoper: verzonden met PostNL, trackingcode met Volgen-knop');
+  await click(await as('seller'), 'Delivered, per the tracking');
+  await waitNoText(await as('seller'), 'Delivered, per the tracking', 30000);
 
   step('buyer releases');
   await click(await as('buyer'), 'Refresh');
   await waitText(await as('buyer'), 'Received the item?', 40000);
+  await waitText(await as('buyer'), 'The seller says the tracking shows it was delivered', 30000);
+  await waitText(await as('buyer'), 'Check it and confirm below, or open a dispute, before');
+  await shot(await as('buyer'), 'Koper: geleverd volgens de verkoper; 2 dagen om te bevestigen of te klagen');
   await click(await as('buyer'), 'Everything OK: release payment');
   await waitText(await as('buyer'), 'Payout proposals', 30000);
 
@@ -325,6 +349,115 @@ try {
   await shot(await as('buyer'), 'Koper: uitspraak meegetekend, terugbetaling verzonden');
   mine(1);
   console.log('buyer refund total now', cli('getreceivedbyaddress', buyerAddr, '1'));
+
+  // An escrow trade with shipping, paid in full by both: returns what each paid.
+  async function paidEscrowTrade(title) {
+    await go(await as('seller'), '#/sell/new');
+    await fill(await as('seller'), 'Title', title);
+    await pickSubcategory(await as('seller'));
+    await fill(await as('seller'), 'Price', '10');
+    await choose(await as('seller'), '🛡 Escrow');
+    await click(await as('seller'), 'Publish');
+    await waitText(await as('seller'), title);
+    await go(await as('buyer'), `#/?q=${encodeURIComponent(title)}`);
+    await (await as('buyer')).reload({ waitUntil: 'load' });
+    await waitText(await as('buyer'), title);
+    const before = await (await as('buyer')).evaluate(() => location.hash);
+    await (await (await as('buyer')).waitForSelector(`::-p-xpath(//a[contains(@class,"listing-card")][contains(., "${title}")])`)).click();
+    await click(await as('buyer'), '🛒 Order now');
+    await (await as('buyer')).waitForFunction((b) => location.hash.startsWith('#/trade/') && location.hash !== b, { timeout: 20000 }, before);
+    const id = await tradeId(await as('buyer'));
+    await choose(await as('buyer'), '🛡 Escrow');
+    await choose(await as('buyer'), 'PostNL');
+    await click(await as('buyer'), 'Send order');
+    await waitText(await as('buyer'), 'Waiting for the seller to accept');
+    await go(await as('seller'), `#/trade/${id}`);
+    await waitText(await as('seller'), 'Order from', 30000);
+    await fillPh(await as('seller'), 'bc1q…', sellerAddr);
+    await click(await as('seller'), '✓ Accept');
+    await waitText(await as('seller'), 'Waiting for the buyer to choose an arbiter', 30000);
+    await go(await as('buyer'), `#/trade/${id}`);
+    await waitText(await as('buyer'), 'A few details for the seller', 30000);
+    await (await as('buyer')).waitForFunction(() => [...document.querySelectorAll('.details-form select')].some((s) => s.textContent.includes('Alice Arbiter')), { timeout: 30000 });
+    await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
+    await click(await as('buyer'), 'Send');
+    await waitText(await as('buyer'), 'Total needed', 30000);
+    await waitText(await as('seller'), 'Total needed', 30000);
+    await sleep(3000);
+    const amounts = await (await as('buyer')).$$eval('table.amounts tr td:last-child', (tds) => tds.map((t) => t.innerText));
+    const coin = (t) => Number(t.match(/([\d.]+) XBT/)[1]);
+    const paid = { buyer: coin(amounts[0]), seller: coin(amounts[1]) };
+    const addr = await escrowAddress(await as('buyer'));
+    cli('sendtoaddress', addr, paid.buyer.toFixed(8));
+    cli('sendtoaddress', addr, paid.seller.toFixed(8));
+    mine(1);
+    await click(await as('buyer'), 'Refresh');
+    await waitText(await as('buyer'), 'The seller ships by', 40000);
+    return { id, paid };
+  }
+  const received = (addr) => Number(cli('getreceivedbyaddress', addr, '1'));
+
+  step('deadline: the seller does not ship; 6 days later the buyer asks a refund, the arbiter rules the seller at fault');
+  const late = await paidEscrowTrade('Oude radio');
+  await shiftClock('buyer', 6);
+  await go(await as('buyer'), `#/trade/${late.id}`);
+  await waitText(await as('buyer'), 'The seller did not ship in time', 40000);
+  await shot(await as('buyer'), 'Koper: 6 dagen later niet verzonden, knop om het geld terug te vragen');
+  await click(await as('buyer'), 'Ask for a refund');
+  await waitText(await as('buyer'), 'Dispute opened by the buyer', 30000);
+  await waitText(await as('buyer'), 'The seller has until', 30000);
+  await go(await as('seller'), `#/trade/${late.id}`);
+  await waitText(await as('seller'), 'Answer in the chat before', 30000);
+  await shiftClock('arbiter', 10);
+  await go(await as('arbiter'), `#/trade/${late.id}`);
+  await waitText(await as('arbiter'), 'The seller did not answer within 3 days. You may rule for the buyer.', 40000);
+  await click(await as('arbiter'), 'Propose a ruling');
+  await click(await as('arbiter'), 'Seller at fault: everything to the buyer');
+  const sellerGets = await (await as('arbiter')).$eval('::-p-xpath(//label[span[normalize-space(.)="Seller receives (XBT)"]]//input)', (i) => i.value);
+  if (Number(sellerGets) !== 0) throw new Error(`seller at fault should get nothing, got ${sellerGets}`);
+  await shot(await as('arbiter'), 'Arbiter: verkoper reageerde niet binnen 3 dagen; "verkoper schuldig" geeft alles aan de koper');
+  await click(await as('arbiter'), 'Sign and propose');
+  await waitText(await as('arbiter'), 'Arbiter ruling', 30000);
+  const buyerBefore = received(buyerAddr);
+  await go(await as('buyer'), `#/trade/${late.id}`);
+  await waitText(await as('buyer'), 'Arbiter ruling', 30000);
+  await click(await as('buyer'), 'Agree and sign');
+  await waitText(await as('buyer'), 'Broadcast:', 40000);
+  mine(1);
+  const refund = received(buyerAddr) - buyerBefore;
+  console.log(`  buyer got ${refund} XBT back (paid ${late.paid.buyer}, seller deposit ${late.paid.seller})`);
+  if (refund < late.paid.buyer + late.paid.seller - 0.00002) throw new Error('the buyer should get the seller\'s deposit too');
+
+  step('deadline: the buyer does not confirm; after the deadline the seller asks the arbiter, who co-signs the release');
+  await shiftClock('buyer', 0);
+  const quiet = await paidEscrowTrade('Oude camera');
+  await go(await as('seller'), `#/trade/${quiet.id}`);
+  await waitText(await as('seller'), 'Ship the item', 40000);
+  await fill(await as('seller'), 'Tracking code', '3SXBT456');
+  await click(await as('seller'), 'Mark as shipped');
+  await waitText(await as('seller'), 'Shipped with PostNL');
+  await click(await as('seller'), 'Delivered, per the tracking');
+  await waitNoText(await as('seller'), 'Delivered, per the tracking', 30000);
+  await shiftClock('seller', 3);
+  await go(await as('seller'), `#/trade/${quiet.id}`);
+  await waitText(await as('seller'), 'The buyer did not confirm in time', 40000);
+  await click(await as('seller'), 'Ask the arbiter to pay out');
+  await waitText(await as('seller'), 'Dispute opened by the seller', 30000);
+  await waitText(await as('seller'), 'Release to seller', 30000);
+  await shiftClock('buyer', 3);
+  await go(await as('buyer'), `#/trade/${quiet.id}`);
+  await waitText(await as('buyer'), 'Answer in the chat before', 30000);
+  if ((await text(await as('buyer'))).includes('Open a dispute')) throw new Error('the buyer can still complain after the deadline');
+  await shiftClock('arbiter', 7);
+  await go(await as('arbiter'), `#/trade/${quiet.id}`);
+  await waitText(await as('arbiter'), 'The buyer did not answer within 3 days. You may rule for the seller.', 40000);
+  const sellerBefore = received(sellerAddr);
+  await click(await as('arbiter'), 'Agree and sign');
+  await waitText(await as('arbiter'), 'Broadcast:', 40000);
+  mine(1);
+  const payout = received(sellerAddr) - sellerBefore;
+  console.log(`  seller got ${payout} XBT`);
+  if (payout < 0.0001 + quiet.paid.seller - 0.00002) throw new Error('the seller should get the price and their deposit');
 
   console.log('\nE2E PASSED');
 } catch (e) {

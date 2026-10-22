@@ -21,7 +21,9 @@ const sats = (btc) => Math.round(btc * 1e8);
 async function utxos(address) {
   const tip = await rpc('getblockcount');
   const scan = await rpc('scantxoutset', ['start', [`addr(${address})`]]);
-  const confirmed = scan.unspents.map((u) => ({ txid: u.txid, vout: u.vout, value: sats(u.amount), status: { confirmed: true, block_height: u.height } }));
+  const times = new Map();
+  for (const h of new Set(scan.unspents.map((u) => u.height))) times.set(h, (await rpc('getblockheader', [await rpc('getblockhash', [h])])).time);
+  const confirmed = scan.unspents.map((u) => ({ txid: u.txid, vout: u.vout, value: sats(u.amount), status: { confirmed: true, block_height: u.height, block_time: times.get(u.height) } }));
   // add mempool outputs to this address that are not spent in the mempool
   const mem = await rpc('getrawmempool');
   const unconfirmed = [];

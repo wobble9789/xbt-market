@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { getPublicKey } from 'nostr-tools/pure';
 import { deriveTradeKey, arbiterBaseKey, arbiterTradeKey, pubkeyOf, planPayout, signEscrow } from '../src/lib/btc/escrow.js';
-import { reduceTrade, presetAllocations, finalizeProposal, TRADE_KIND, CHAT_KIND } from '../src/lib/trade/protocol.js';
+import { reduceTrade, presetAllocations, finalizeProposal, deadlines, disputeClocks, shipDaysFor, DAY, TRADE_KIND, CHAT_KIND } from '../src/lib/trade/protocol.js';
 
 const sk = () => secp256k1.utils.randomSecretKey();
 const people = { buyer: sk(), seller: sk(), arbiter: sk(), mallory: sk() };
@@ -239,4 +239,67 @@ test('v2: shipping labels come from the seller only', () => {
   assert.equal(s.labels.length, 1);
   assert.equal(s.labels[0].qrUrl, '');
   assert.equal(s.labels[0].labelUrl, 'https://svc/label.pdf');
+});
+
+// ---- deadlines ---------------------------------------------------------------
+
+
+test('deadlines: ship within 5 days of paying (7 abroad), confirm within 14 days or 2 after delivery', () => {
+  assert.equal(shipDaysFor('NL', { country: 'NL' }), 5);
+  assert.equal(shipDaysFor('NL', { country: 'DE' }), 7);
+  assert.equal(shipDaysFor('NL', null), 5);
+  const T0 = 1_000_000;
+  const log = [open2(), offer2({ shipDays: 5, confirmDays: 14 }), msg('seller', 'accept', { seller: { escrowPubkey: pubkeyOf(key('seller')), payoutAddress: SELLER_ADDR } }, T0), details2()];
+  let s = reduceTrade(TID, log, { arbiters });
+  // Unpaid: counted from the accept. Paid: from the block that completed the escrow.
+  assert.equal(deadlines(s).shipBy, T0 + 5 * DAY);
+  assert.equal(deadlines(s, { fundedAt: T0 + DAY }).shipBy, T0 + 6 * DAY);
+  assert.equal(deadlines(s, { fundedAt: T0 + DAY }).remindAt, T0 + 4 * DAY);
+  log.push(msg('seller', 'shipped', { carrier: 'postnl', tracking: 'X' }, T0 + 2 * DAY));
+  s = reduceTrade(TID, log, { arbiters });
+  assert.equal(deadlines(s).confirmBy, T0 + 16 * DAY);
+  // Only the seller reports the delivery, and only once shipped; the buyer then has 2 days.
+  log.push(msg('buyer', 'delivered', {}, T0 + 3 * DAY), msg('seller', 'delivered', {}, T0 + 4 * DAY));
+  s = reduceTrade(TID, log, { arbiters });
+  assert.equal(s.delivered.at, T0 + 4 * DAY);
+  assert.equal(deadlines(s).confirmBy, T0 + 6 * DAY);
+  assert.ok(s.errors.some((e) => e.includes('only the seller reports the delivery')));
+});
+
+test('deadlines: a dispute after the confirmation deadline is flagged, and an unanswered one too', () => {
+  const T0 = 2_000_000;
+  const log = [open2(), offer2({ shipDays: 5, confirmDays: 14 }), accept2(), details2(), msg('seller', 'shipped', { carrier: 'postnl' }, T0)];
+  log.push(msg('buyer', 'dispute', { reason: 'never arrived' }, T0 + 15 * DAY));
+  let [d] = disputeClocks(reduceTrade(TID, log, { arbiters }));
+  assert.equal(d.late, true);
+  assert.equal(d.other, 'seller');
+  assert.equal(d.answered, false);
+  assert.equal(d.respondBy, T0 + 18 * DAY);
+  log.push(msg('seller', 'chat', 'Here is the tracking: delivered on day 3', T0 + 16 * DAY));
+  [d] = disputeClocks(reduceTrade(TID, log, { arbiters }));
+  assert.equal(d.answered, true);
+});
+
+test('deadlines: in a direct trade the buyer may cancel after paying only once the seller is late', () => {
+  const T0 = 3_000_000;
+  const direct = offer2({ payment: 'direct', method: 'onchain', buyerDepositSats: undefined, sellerDepositSats: undefined, shipDays: 5 });
+  const base = [open2(), direct, accept2(null), msg('seller', 'request', { method: 'onchain', address: SELLER_ADDR, amountSats: 100_000 }), msg('buyer', 'paid', { txid: 'ab'.repeat(32) }, T0)];
+  const early = reduceTrade(TID, [...base, msg('buyer', 'cancel', { reason: 'changed my mind' }, T0 + 2 * DAY)]);
+  assert.equal(early.cancelled, null);
+  assert.ok(early.errors.some((e) => e.includes('already paid')));
+  const late = reduceTrade(TID, [...base, msg('buyer', 'cancel', { reason: 'not shipped' }, T0 + 6 * DAY)]);
+  assert.equal(late.status, 'cancelled');
+  assert.equal(late.cancelled.late, true);
+  // Once shipped, no late cancel.
+  const shipped = reduceTrade(TID, [...base, msg('seller', 'shipped', { carrier: 'postnl' }, T0 + 6 * DAY), msg('buyer', 'cancel', {}, T0 + 7 * DAY)]);
+  assert.equal(shipped.cancelled, null);
+});
+
+test('deadlines: the arbiter\'s at-fault splits give both deposits to the honest side', () => {
+  const s = reduceTrade(TID, [open2(), offer2(), accept2(), details2()], { arbiters });
+  const seller = (purpose) => presetAllocations(s, purpose, 130_000).find((a) => a.role === 'seller')?.sats || 0;
+  assert.equal(seller('buyer-fault'), 130_000);
+  assert.equal(seller('seller-fault'), 0);
+  assert.equal(seller('refund'), 15_000);
+  assert.equal(seller('release'), 115_000);
 });

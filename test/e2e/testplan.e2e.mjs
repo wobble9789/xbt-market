@@ -238,22 +238,7 @@ async function shipCountry(c) {
 }
 // A paid listing goes to "reserved" by itself; like a seller with more in
 // stock, put it back on sale before the next order of the same listing.
-async function onSale(title) {
-  const p = await go('B', '#/sell');
-  await waitText(p, 'Your listings');
-  await sleep(4000); // the seller's app reserves freshly paid listings now
-  const tab = await p.$('::-p-xpath(//main//button[starts-with(normalize-space(.),"Reserved (")])');
-  if (!tab) return;
-  await tab.click();
-  await sleep(500);
-  const box = await p.$(`::-p-xpath(//div[contains(@class,"pickable")][.//div[@class="title" and normalize-space(.)="${title}"]]/input)`);
-  if (!box) return;
-  await box.click();
-  await click(p, 'Put back on sale');
-  await waitToast(p, 'updated', 30000).catch(async (e) => { throw new Error(`could not put "${title}" back on sale: ${await toasts(p)}`); });
-}
 async function order(who, title, { pay, pickup = false, carrier }) {
-  await onSale(title);
   const c = await openListing(who, title);
   const before = await c.evaluate(() => location.hash);
   // An open conversation about this listing is reused, as a buyer would.
@@ -1252,12 +1237,19 @@ try {
     await waitText(c, 'Paid. The Lightning preimage proves it.', 60000);
     const p = await B(`#/trade/${tidLn}`);
     await waitText(p, 'Paid. The Lightning preimage proves it.', 30000);
-    // Paid: the listing reserves itself, so nobody else orders it.
-    await waitToast(p, 'is paid and now reserved', 30000);
+    // Paid: a seller with only one reserves the listing from the trade, by choice.
+    await click(p, 'Mark as reserved');
+    await waitToast(p, 'Marked as reserved', 30000);
     const c2 = await openListing('C', 'Fietslampjes set');
     await waitText(c2, 'Reserved: the seller is holding this');
-    if (await exists(c2, btnX('🛒 Order now'))) throw new Error('can still order a paid listing');
-    return 'both see the payment proven by the preimage; the listing reserved itself ("Order now" gone)';
+    if (await exists(c2, btnX('🛒 Order now'))) throw new Error('can still order a reserved listing');
+    const p2 = await B('#/sell');
+    await waitText(p2, 'Your listings');
+    await (await el(p2, '//main//button[starts-with(normalize-space(.),"Reserved (")]')).click();
+    await (await el(p2, '//div[contains(@class,"pickable")][.//div[@class="title" and normalize-space(.)="Fietslampjes set"]]/input')).click();
+    await click(p2, 'Put back on sale');
+    await waitToast(p2, 'updated', 30000);
+    return 'both see the payment proven by the preimage; "Mark as reserved" in the trade takes it off the market, "Put back on sale" brings it back';
   });
   await step('LN-10', 'Hand over, complete and review', async () => {
     let p = await B(`#/trade/${tidLn}`);
@@ -1335,6 +1327,12 @@ try {
     await waitText(p, 'Payment method changed');
     await waitText(p, 'On-chain');
     return 'request card for the seller; after "Agree" the order is on-chain; both shown in the chat';
+  });
+  await step('TRD-12', 'A second order for the same item warns the seller', async () => {
+    const p = await B(`#/trade/${people.C.onchainTrade}`);
+    await waitText(p, 'Order from', 30000);
+    await waitText(p, 'You already accepted another order for this listing', 30000);
+    return 'the seller sees that an earlier order for this item was already accepted';
   });
   await step('LN-9', 'Direct on-chain payment', async () => {
     const id = people.C.onchainTrade;
@@ -1535,10 +1533,6 @@ try {
     await fillPh(p, 'nsec1…', people.B.nsec);
     await click(p, 'Log in');
     await p.evaluate(() => { location.hash = '#/sell'; });
-    await waitText(p, 'Your listings', 30000);
-    // Paid in an escrow trade, so it may be under "Reserved".
-    await sleep(3000);
-    if (!(await text(p)).includes('Wollen sjaal, rood')) { const t = await p.$('::-p-xpath(//main//button[starts-with(normalize-space(.),"Reserved (")])'); if (t) await t.click(); }
     await waitText(p, 'Wollen sjaal, rood', 30000);
     await p.evaluate(() => { location.hash = '#/trades'; });
     await waitText(p, 'Wollen sjaal', 60000);

@@ -155,6 +155,7 @@ Version 2 adds a conversation before the order and moves everything not needed f
 | `change` | buyer or seller | `{ method:"lightning"\|"onchain"\|"escrow", buyerDepositSats?, sellerDepositSats?, note? }` |
 | `change_ok` / `change_no` | the other side | `{ changeId, reason? }` |
 | `label` | seller | `{ carrier, service, tracking, trackingUrl, labelUrl, qrUrl }` |
+| `delivered` | seller | `{ note? }`: the tracking shows the parcel was delivered (after `shipped`; the first one counts) |
 
 When the arbiter is chosen (`details` from the buyer), the arbiter was not a recipient of earlier messages. Buyer and seller each re-send their own earlier rumors to the arbiter, unchanged, in new seals signed by themselves (so they stay authenticated); later messages are wrapped to all three.
 
@@ -189,8 +190,16 @@ The state is a pure function of the set of rumors. Sort by `created_at`, then `i
    - A `request` comes from the seller after the accept and before any payment. A Lightning invoice must be for exactly `priceSats × 1000` msat (an invoice without an amount is refused); a client may pin the expected network prefix (`lightningNetwork` in config). An on-chain request must name a valid address for `network` and `amountSats = priceSats`. The latest valid request is the current one.
    - A `paid` comes from the buyer. A Lightning `preimage` must hash (SHA-256) to the invoice's payment hash; that makes the payment **verified** for everyone. Without a preimage the payment is only claimed. An on-chain `txid` is a claim; clients check it against the chain.
    - `confirm_paid` comes from the seller and needs a request.
-   - A `cancel` after a payment or confirmation is refused (agree a refund in the chat).
+   - A `cancel` after a payment or confirmation is refused (agree a refund in the chat), except from the buyer after the shipping deadline while nothing was shipped.
    - Status, in order: `rejected`, `cancelled`, `completed` (`received`), `shipped`, `paid` (`paid` or `confirm_paid`), `accepted`, `offered`.
+
+10. **Deadlines.** The offer carries `shipDays` (5, or 7 when `shipping.country` differs from `listing.country`) and `confirmDays` (14). All times are unix seconds.
+    - *Paid at*: direct, the `paid` or `confirm_paid` time; escrow, the block time at which the escrow first held the full amount (fallback: the buyer's `funded` hint, then the accept).
+    - *Ship by* = paid at + `shipDays` days. The seller's client reminds them 2 days before. After it, in escrow the buyer may open a dispute and propose the standard refund; in a direct trade the buyer may cancel.
+    - *Confirm by* = `shipped` + `confirmDays` days, or 2 days after `delivered` (a pick-up counts as delivered when handed over), whichever is first. After it the buyer's client offers no dispute, and the seller may open one and propose the standard release for the arbiter to co-sign.
+    - *Answer by* = a `dispute` + 3 days. The other party answers by sending any message after it; clients show the arbiter who left a dispute unanswered.
+    - The arbiter may give both deposits to the honest side (`presetAllocations` purposes `buyer-fault`: all to the seller; `seller-fault`: all to the buyer).
+    Deadlines guide clients and the arbiter; the escrow itself has no timelock, so nothing moves without two signatures.
 
 **Before signing, a client must:**
 - check that every proposal input is still an unspent escrow UTXO with the stated value;

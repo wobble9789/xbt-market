@@ -25,6 +25,12 @@
 //   request (seller: invoice or address) -> paid (buyer: preimage or txid) /
 //   confirm_paid (seller) -> label / shipped -> received
 //
+// Deadlines (see deadlines()), like on Vinted: the seller ships within 5 days
+// of the payment (7 abroad); the buyer confirms or complains within 2 days of
+// delivery (seller: delivered) or 14 days of shipping. After that the other
+// side may ask the arbiter, who also sees who left a dispute unanswered for
+// 3 days. In a direct trade the buyer may cancel once the seller is late.
+//
 // Version 1 offers (arbiter and addresses inside the offer, no "open") are still
 // understood, so older trades keep working.
 
@@ -126,7 +132,7 @@ function decisionError(m, offer) {
 function emptyState(tradeId) {
   return {
     tradeId, status: 'unknown', open: null, offer: null, offerAt: 0, participants: null, accept: null, acceptedAt: 0,
-    escrow: null, escrowKeys: null, arbiter: null, rejected: null, cancelled: null, shipped: null, received: null,
+    escrow: null, escrowKeys: null, arbiter: null, rejected: null, cancelled: null, shipped: null, delivered: null, received: null,
     disputes: [], proposals: {}, proposalOrder: [], broadcasts: [], fundingHints: [], chat: [], log: [], errors: [],
     checks: {}, payment: 'escrow', method: null, terms: null, payout: { buyer: '', seller: '' }, shipTo: '', servicePointId: null,
     changes: [], labels: [], requests: [], request: null, paid: null, paymentConfirmed: null, listing: null, version: 2,
@@ -421,8 +427,8 @@ export function reduceTrade(tradeId, rumors, ctx = {}) {
         case 'cancel':
           if (role === 'arbiter') err = 'arbiter cannot cancel';
           else if (state.rejected || state.cancelled) err = 'already closed';
-          else if (direct && (state.paid || state.paymentConfirmed)) err = 'already paid; agree a refund in the chat';
-          else state.cancelled = { by: role, reason: str(b.reason), at: m.at };
+          else if (direct && (state.paid || state.paymentConfirmed) && !(role === 'buyer' && !state.shipped && m.at > deadlines(state).shipBy)) err = 'already paid; agree a refund in the chat';
+          else state.cancelled = { by: role, reason: str(b.reason), at: m.at, late: direct && !!(state.paid || state.paymentConfirmed) };
           break;
         case 'funded':
           if (HEX64.test(b.txid || '')) state.fundingHints.push({ by: role, txid: b.txid, at: m.at });
@@ -436,6 +442,11 @@ export function reduceTrade(tradeId, rumors, ctx = {}) {
           if (role !== 'seller') err = 'only the seller ships';
           else if (!afterAccept) err = 'not accepted yet';
           else state.shipped = { carrier: str(b.carrier, 40), tracking: str(b.tracking, 60), note: str(b.note), at: m.at };
+          break;
+        case 'delivered':
+          if (role !== 'seller') err = 'only the seller reports the delivery';
+          else if (!state.shipped) err = 'not shipped yet';
+          else if (!state.delivered) state.delivered = { at: m.at, note: str(b.note, 500) };
           break;
         case 'received':
           if (role !== 'buyer') err = 'only the buyer confirms receipt';
@@ -532,6 +543,8 @@ export function presetAllocations(state, purpose, balance) {
   let s;
   if (purpose === 'release') s = Math.min(balance, sellerShare); // buyer gets deposit + any overpayment
   else if (purpose === 'refund') s = Math.max(0, balance - (o.priceSats + o.buyerDepositSats));
+  else if (purpose === 'buyer-fault') s = balance; // the seller also gets the buyer's deposit
+  else if (purpose === 'seller-fault') s = 0; // the buyer also gets the seller's deposit
   else s = Math.floor(balance / 2);
   return [
     { role: 'seller', address: seller, sats: s },
@@ -539,13 +552,54 @@ export function presetAllocations(state, purpose, balance) {
   ].filter((a) => a.sats > 0);
 }
 
-export function deadlines(state) {
-  const day = 86400;
-  const base = state.acceptedAt || state.offerAt;
-  return {
-    shipBy: base + (state.offer.shipDays || 7) * day,
-    confirmBy: (state.shipped?.at || base) + (state.offer.confirmDays || 21) * day,
-  };
+export const DAY = 86400;
+export const SHIP_DAYS = 5;
+export const SHIP_DAYS_ABROAD = 7;
+export const CONFIRM_DAYS = 14;
+export const CONFIRM_AFTER_DELIVERY_DAYS = 2;
+export const RESPOND_DAYS = 3;
+export const REMIND_DAYS = 2; // the seller is reminded this long before the shipping deadline
+
+// Shipping time the order promises: longer when it crosses a border.
+export function shipDaysFor(listingCountry, shipping) {
+  const to = shipping?.country;
+  return to && listingCountry && to !== listingCountry ? SHIP_DAYS_ABROAD : SHIP_DAYS;
+}
+
+// When the buyer paid (unix seconds), or null. For escrow the UI passes the
+// block time at which the escrow was fully funded; the buyer's "I paid" hint
+// is the fallback.
+export function paidAt(state, fundedAt) {
+  if (state.payment === 'direct') return state.paid?.at || state.paymentConfirmed?.at || null;
+  return fundedAt || state.fundingHints.find((h) => h.by === 'buyer')?.at || null;
+}
+
+// The trade's deadlines (unix seconds). shipBy runs from the payment (from the
+// accept while unpaid); confirmBy from the shipment, or sooner from a reported
+// delivery or a pick-up, the moment the buyer has the item.
+export function deadlines(state, { fundedAt } = {}) {
+  const o = state.offer;
+  const paid = paidAt(state, fundedAt);
+  const start = paid || state.acceptedAt || state.offerAt;
+  const shipBy = start + (o.shipDays || SHIP_DAYS) * DAY;
+  const shippedAt = state.shipped?.at || 0;
+  const handedOver = state.shipped?.carrier === 'pickup' ? shippedAt : 0;
+  const deliveredAt = state.delivered?.at || handedOver || 0;
+  let confirmBy = (shippedAt || start) + (o.confirmDays || CONFIRM_DAYS) * DAY;
+  if (deliveredAt) confirmBy = Math.min(confirmBy, deliveredAt + CONFIRM_AFTER_DELIVERY_DAYS * DAY);
+  return { paidAt: paid, shipBy, remindAt: shipBy - REMIND_DAYS * DAY, confirmBy, deliveredAt: deliveredAt || null };
+}
+
+// Each dispute with the other side's answer deadline: answered once they
+// write anything after it was opened. `late`: a buyer's complaint after the
+// confirmation deadline.
+export function disputeClocks(state, opts) {
+  const dl = deadlines(state, opts);
+  return state.disputes.map((d) => {
+    const other = d.by === 'buyer' ? 'seller' : 'buyer';
+    const answered = state.log.some((e) => e.role === other && !e.error && e.at > d.at);
+    return { ...d, other, respondBy: d.at + RESPOND_DAYS * DAY, answered, late: d.by === 'buyer' && !!state.shipped && d.at > dl.confirmBy };
+  });
 }
 
 export const newTradeId = () => {

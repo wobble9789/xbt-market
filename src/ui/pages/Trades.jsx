@@ -5,8 +5,8 @@ import { inbox, tradeIds, rumorsFor } from '../../lib/nostr/inbox.js';
 import { account } from '../../lib/nostr/account.js';
 import { directory } from '../../lib/nostr/directory.js';
 import { blocks } from '../../lib/nostr/moderation.js';
-import { reduceTrade } from '../../lib/trade/protocol.js';
-import { T, timeAgo } from '../i18n.js';
+import { reduceTrade, deadlines } from '../../lib/trade/protocol.js';
+import { T, timeAgo, fmtDate } from '../i18n.js';
 import { Coin, Img, Empty, Spinner, Name } from '../components.jsx';
 import { statusLabel } from './Trade.jsx';
 
@@ -17,8 +17,21 @@ export function useMyTrades() {
   return useMemo(() => tradeIds(rumors).map((t) => ({ ...t, state: reduceTrade(t.id, rumorsFor(t.id, rumors), { arbiters: dir.arbiters, me, lightningNetwork: settings.get().lightningNetwork }) })).filter((t) => t.state.participants), [rumors, me, dir]);
 }
 
+// The next deadline for me in this trade, if any.
+function dueLine(s) {
+  if (!s.offer || s.cancelled || s.rejected || ['closed', 'completed', 'disputed'].includes(s.status)) return null;
+  const dl = deadlines(s);
+  const now = Date.now() / 1000;
+  const sh = s.offer.shipping;
+  const ships = sh && sh.carrier !== 'pickup' && sh.id !== 'pickup' && s.listing?.kind !== 'service';
+  if (s.role === 'seller' && ships && dl.paidAt && !s.shipped) return { text: T(`Ship by ${fmtDate(dl.shipBy)}`, `Envíalo antes del ${fmtDate(dl.shipBy)}`), urgent: now > dl.remindAt };
+  if (s.role === 'buyer' && s.payment === 'escrow' && s.shipped && !s.received && now < dl.confirmBy) return { text: T(`Confirm or complain by ${fmtDate(dl.confirmBy)}`, `Confirma o reclama antes del ${fmtDate(dl.confirmBy)}`), urgent: dl.confirmBy - now < 2 * 86400 };
+  return null;
+}
+
 export function TradeRow({ t }) {
   const s = t.state;
+  const due = dueLine(s);
   const other = s.role === 'buyer' ? s.participants.seller : s.participants.buyer;
   const last = s.chat[s.chat.length - 1]?.text?.slice(0, 80);
   return (
@@ -27,6 +40,7 @@ export function TradeRow({ t }) {
       <div class="grow">
         <div class="title">{s.listing?.title}</div>
         <div class="muted small">{s.role === 'buyer' ? T('Buying from', 'Compras a') : s.role === 'seller' ? T('Selling to', 'Vendes a') : T('Arbiter for', 'Árbitro de')} <Name pk={other} link={false} avatar={false} /> · {timeAgo(t.last)}</div>
+        {due && <div class={`small ${due.urgent ? 'error' : 'muted'}`}>⏰ {due.text}</div>}
         {last && <div class="muted small last-msg">{last}</div>}
       </div>
       <div class="right">

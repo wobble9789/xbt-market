@@ -44,7 +44,7 @@ export async function escrowFunding(esplora, address, minConf) {
   const [utxos, tip] = await Promise.all([esplora.utxos(address), esplora.tipHeight()]);
   const conf = (u) => (u.status?.confirmed ? tip - u.status.block_height + 1 : 0);
   const list = utxos
-    .map((u) => ({ txid: u.txid, vout: u.vout, value: u.value, confirmations: conf(u) }))
+    .map((u) => ({ txid: u.txid, vout: u.vout, value: u.value, confirmations: conf(u), blockTime: u.status?.block_time || null }))
     .sort((a, b) => (a.txid === b.txid ? a.vout - b.vout : a.txid < b.txid ? -1 : 1));
   const confirmed = list.filter((u) => u.confirmations >= minConf);
   return {
