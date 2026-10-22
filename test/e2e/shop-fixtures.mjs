@@ -29,6 +29,16 @@ function mpPage(page) {
   return `<html><body><h1>Profiel</h1><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script></body></html>`;
 }
 
+// An ad page as fetched in the background: the server-rendered gallery shows
+// only the first photo; all photos are in the page data, next to similar ads.
+const photo = (n, k) => `https://images.marktplaats.com/api/v1/listing-mp-p/images/${n}${k}/${n}${k}abcdef12-photo?rule=ecg_mp_eps$_#.jpg`;
+function mpAdPage(n) {
+  const ad = { ...mpListing(n, n * 10), pictures: [1, 2, 3].map((k) => ({ url: photo(n, k) })) };
+  const similar = { ...mpListing(9, 90), itemId: 'm999999999', pictures: [{ url: photo(9, 9) }] };
+  const data = { props: { pageProps: { listing: ad, similarItems: [similar] } } };
+  return `<html><body><div class="Gallery-root"><img src="${photo(n, 1).replace('$_#', '$_82')}"></div><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script></body></html>`;
+}
+
 // The seller's own view of one ad (marktplaats.nl/seller/view/m…): the ad sits
 // deep in the page data, and it is reserved ("gereserveerd").
 pages['/seller/view/m2454474184'] = `<html><body><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps: { initialState: { ad: { listing: {
@@ -41,6 +51,8 @@ http.createServer((req, res) => {
   if (p === '/__variant') { variant = Number(new URL(req.url, 'http://x').searchParams.get('v')); return res.end('ok'); }
   const mp = p.match(/^\/u\/test-seller\/123456\/(?:p\/(\d+)\/)?$/);
   if (mp) { res.setHeader('Content-Type', 'text/html'); return res.end(mpPage(Number(mp[1] || 1))); }
+  const ad = p.match(/^\/v\/cat\/sub\/m21000000(\d)-/);
+  if (ad) { res.setHeader('Content-Type', 'text/html'); return res.end(mpAdPage(Number(ad[1]))); }
   const body = pages[p];
   if (!body) { res.statusCode = 404; return res.end(); }
   res.setHeader('Content-Type', p.startsWith('/api') ? 'application/json' : 'text/html');

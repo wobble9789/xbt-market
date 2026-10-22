@@ -64,12 +64,13 @@ async function runMp(label) {
     price: r.querySelector('.price-in').value,
     checked: r.querySelector('input[type=checkbox]').checked,
     badge: r.querySelector('.badge')?.textContent,
+    photos: Number(r.querySelector('.photos-count')?.textContent.replace(/\D/g, '') || 0),
   })));
   const summary = await imp.evaluate(() => document.querySelector('.import-summary').innerText.replace(/\n/g, ' '));
-  const goneText = await imp.evaluate(() => document.querySelector('.notice.warn')?.innerText.split('\n')[0] || '');
-  console.log(`  ${label}: ${summary} ${goneText ? '| ' + goneText : ''}`);
-  for (const r of rows) console.log(`    [${r.checked ? 'x' : ' '}] ${r.title} €${r.price} ${r.badge}`);
-  return { shop, imp, rows, summary, goneText };
+  const notices = await imp.evaluate(() => [...document.querySelectorAll('.notice')].map((n) => n.innerText).join(' | '));
+  console.log(`  ${label}: ${summary} ${notices ? '| ' + notices : ''}`);
+  for (const r of rows) console.log(`    [${r.checked ? 'x' : ' '}] ${r.title} €${r.price} ${r.badge} 📷${r.photos}`);
+  return { shop, imp, rows, summary, notices };
 }
 await fetch('http://127.0.0.1:4300/__variant?v=1');
 let r = await runMp('first import');
@@ -78,7 +79,7 @@ check(r.rows.length === 5 && r.rows.filter((x) => x.badge.match(/New/)).length =
 check(r.rows.find((x) => x.title === 'MP item 5').checked === false, 'price-less item not preselected');
 check(r.rows.find((x) => x.title === 'MP item 1').price === '10', 'price parsed');
 check(r.rows.find((x) => x.title === 'MP item 4').price === '40', 'MIN_BID price parsed');
-check(!r.goneText, 'other platforms are never reported as gone');
+check(r.rows.every((x) => x.photos === 3), 'all 3 photos of every ad, read from the ad pages (the profile shows only one)');
 await r.imp.evaluate(() => [...document.querySelectorAll('button')].find((b) => /^Publish \d/.test(b.textContent)).click());
 await r.imp.waitForFunction(() => /4 already on XBT Market/.test(document.querySelector('.import-summary')?.innerText || ''), { timeout: 30000 });
 await r.imp.close(); await r.shop.close();
@@ -92,8 +93,7 @@ await r.imp.close(); await r.shop.close();
 await fetch('http://127.0.0.1:4300/__variant?v=2');
 r = await runMp('re-import after changes on Marktplaats');
 check(/1 changed/.test(r.summary), 'price change detected');
-check(/^1 of your listings/.test(r.goneText) && /MP item 3/.test(r.goneText), 'exactly the removed listing detected');
-check(await r.imp.evaluate(() => [...document.querySelectorAll('button')].some((b) => b.textContent === 'Mark as sold on XBT Market')), 'button says "Mark as sold on XBT Market"');
+check(!/no longer on that profile/.test(r.notices) && !(await r.imp.evaluate(() => [...document.querySelectorAll('button')].some((b) => /Mark as sold/.test(b.textContent)))), 'no "no longer on that profile" notice or button (removed: confusing)');
 await r.imp.close(); await r.shop.close();
 
 // An old (v1) bookmark still imports, without a warning.

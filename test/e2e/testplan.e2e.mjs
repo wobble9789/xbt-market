@@ -1430,8 +1430,8 @@ try {
     await waitText(p, 'Copy the bookmark code');
     return 'numbered phone steps for Chrome and Safari';
   });
-  for (const [id, title] of [['IMP-2', 'Marktplaats profile, reserved recognised'], ['IMP-3', 'Published items disappear from the list'], ['IMP-7', '"Mark as sold on XBT Market"'], ['IMP-8', 'Single ad /seller/view/m…']]) {
-    manual(id, title, 'Needs your real shop pages. The same logic passes in test:import against fake Marktplaats/Vinted/eBay pages (incl. /seller/view/m…, reserved, hidden duplicates, "Mark as sold on XBT Market").');
+  for (const [id, title] of [['IMP-2', 'Marktplaats profile, reserved recognised'], ['IMP-3', 'Published items disappear from the list'], ['IMP-8', 'Single ad /seller/view/m…']]) {
+    manual(id, title, 'Needs your real shop pages. The same logic passes in test:import against fake Marktplaats/Vinted/eBay pages (incl. /seller/view/m…, reserved, hidden duplicates, all photos of each ad from a profile).');
   }
 
   // ---- AI ----
