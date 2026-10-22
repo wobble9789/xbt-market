@@ -43,7 +43,6 @@ export function ImportPage({ query: q }) {
   const [raw, setRaw] = useState(null); // { items, complete }
   const [mine, setMine] = useState(null);
   const [items, setItems] = useState([]);
-  const [gone, setGone] = useState([]);
   const [paste, setPaste] = useState('');
   const [progress, setProgress] = useState(null);
   const bookmarklet = useMemo(() => 'javascript:' + encodeURIComponent(BOOKMARKLET_SOURCE.replace('__XBT_APP__', appUrl())), []);
@@ -58,7 +57,6 @@ export function ImportPage({ query: q }) {
     setItems(res.items
       .map((i) => ({ ...i, selected: i.status === 'new' && i.price > 0 && !i.reserved }))
       .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]));
-    setGone(res.gone);
   }, [raw, mine]);
 
   const load = (list) => {
@@ -138,12 +136,6 @@ export function ImportPage({ query: q }) {
     await refreshMine();
   };
 
-  const markGoneSold = async () => {
-    for (const l of gone) await publishListing({ ...l, status: 'sold' });
-    toast(T(`${gone.length} marked as sold`, `${gone.length} marcados como vendidos`), 'ok');
-    await refreshMine();
-  };
-
   const [link, setLink] = useState('');
   const [showSame, setShowSame] = useState(false);
   const browser = detectBrowser();
@@ -187,14 +179,18 @@ export function ImportPage({ query: q }) {
               <li>{T('Open your profile on Marktplaats (marktplaats.nl/u/…) or Vinted (vinted.nl/member/…), or a single ad, and click the bookmark.', 'Abre tu perfil en Marktplaats (marktplaats.nl/u/…) o Vinted (vinted.es/member/…), o un solo anuncio, y pulsa el marcador.')}</li>
             </ol>
             <h4>{T('On a phone', 'En el móvil')}</h4>
-            <p class="hint">{T('Phones make bookmark buttons fiddly. If it does not work, use "Paste a link" above: much easier. Log in to XBT Market in the same browser you use for Marktplaats or Vinted: the bookmark opens your listings there.', 'En el móvil los botones de marcador son complicados. Si no funciona, usa «Pega un enlace» arriba: mucho más fácil. Inicia sesión en XBT Market en el mismo navegador que usas para Marktplaats o Vinted: el marcador abre allí tus anuncios.')}</p>
+            {apiEnabled() && <p class="hint">{T('Fiddly on a phone? "Paste a link" above is easier.', '¿Complicado en el móvil? «Pega un enlace» arriba es más fácil.')}</p>}
             <ol class="small">
+              <li>{T('Use one browser for everything, and be logged in to XBT Market in it (you are, if you see this page).', 'Usa un solo navegador para todo y ten la sesión de XBT Market abierta en él (la tienes, si ves esta página).')}</li>
               <li>{T('Copy the bookmark code:', 'Copia el código del marcador:')} <Copy text={bookmarklet} label={`📋 ${T('Copy code', 'Copiar código')}`} class="btn primary" /></li>
-              <li>{browser.device === 'ios' ? T('In Safari, tap Share □↑ → "Add Bookmark" → Save. Then open Bookmarks, tap Edit, open the new bookmark and replace its address with the copied code.', 'En Safari, toca Compartir □↑ → «Añadir marcador» → Guardar. Luego abre Marcadores, toca Editar, abre el nuevo marcador y sustituye su dirección por el código copiado.')
-                : T('In Chrome, tap ⋮ → ☆ to bookmark this page. Tap ⋮ → Bookmarks, hold the new bookmark → Edit, name it "xbt" and replace the URL with the copied code.', 'En Chrome, toca ⋮ → ☆ para guardar esta página. Toca ⋮ → Marcadores, mantén pulsado el nuevo marcador → Editar, llámalo «xbt» y sustituye la URL por el código copiado.')}</li>
-              <li>{T('Open your Marktplaats or Vinted profile in the browser (not the app).', 'Abre tu perfil de Marktplaats o Vinted en el navegador (no en la app).')}</li>
-              <li>{T('Tap the bookmark (next step). If the browser says a pop-up was blocked, ignore it: XBT Market then opens in the same tab with your listings.', 'Toca el marcador (siguiente paso). Si el navegador dice que bloqueó una ventana emergente, ignóralo: XBT Market se abre en la misma pestaña con tus anuncios.')}</li>
-              <li>{browser.device === 'ios' ? T('Tap the book icon and choose the bookmark.', 'Toca el icono del libro y elige el marcador.') : T('Type "xbt" in the address bar and tap the bookmark that appears (with the star).', 'Escribe «xbt» en la barra de direcciones y toca el marcador que aparece (con la estrella).')}</li>
+              <li>{browser.device === 'ios'
+                ? T('Save it as a bookmark: tap Share □↑ → "Add Bookmark" → Save. Then open Bookmarks → Edit, open the new bookmark, replace its address with the copied code and name it "xbt".', 'Guárdalo como marcador: toca Compartir □↑ → «Añadir marcador» → Guardar. Luego abre Marcadores → Editar, abre el nuevo marcador, sustituye su dirección por el código copiado y llámalo «xbt».')
+                : T('Save it as a bookmark: tap ⋮ → ☆. Then ⋮ → Bookmarks, hold the new bookmark → Edit, name it "xbt" and replace the URL with the copied code.', 'Guárdalo como marcador: toca ⋮ → ☆. Luego ⋮ → Marcadores, mantén pulsado el nuevo marcador → Editar, llámalo «xbt» y sustituye la URL por el código copiado.')}</li>
+              <li>{T('In the same browser, open your Marktplaats or Vinted profile (not the app).', 'En el mismo navegador, abre tu perfil de Marktplaats o Vinted (no la app).')}</li>
+              <li>{browser.device === 'ios'
+                ? T('On that page, tap the book icon and choose the "xbt" bookmark.', 'En esa página, toca el icono del libro y elige el marcador «xbt».')
+                : T('On that page, type "xbt" in the address bar and tap the bookmark with the ☆ that appears.', 'En esa página, escribe «xbt» en la barra de direcciones y toca el marcador con la ☆ que aparece.')}</li>
+              <li>{T('XBT Market opens with your listings. A message that a pop-up was blocked? Ignore it: it then opens in the same tab.', 'XBT Market se abre con tus anuncios. ¿Un aviso de ventana emergente bloqueada? Ignóralo: se abre en la misma pestaña.')}</li>
             </ol>
             <p class="hint">{T('Run it again whenever you like: listings that are already here are recognised and not added twice.', 'Úsalo cuando quieras: los anuncios que ya están aquí se reconocen y no se duplican.')}</p>
           </details>
@@ -229,12 +225,6 @@ export function ImportPage({ query: q }) {
             <span class="badge">{counts.same || 0} {T('already on XBT Market', 'ya en XBT Market')}</span>
             {noPrice > 0 && <span class="badge danger">{noPrice} {T('without price', 'sin precio')}</span>}
           </p>
-          {gone.length > 0 && (
-            <div class="notice warn">
-              <p>{T(`${gone.length} of your listings here are no longer on that profile (sold or removed there?):`, `${gone.length} de tus anuncios aquí ya no están en ese perfil (¿vendidos o borrados allí?):`)} {gone.slice(0, 5).map((l) => l.title).join(', ')}{gone.length > 5 ? '…' : ''}</p>
-              <Action class="small" confirm={T('Mark these as sold on XBT Market?', '¿Marcarlos como vendidos en XBT Market?')} onClick={markGoneSold}>{T('Mark as sold on XBT Market', 'Marcar como vendidos en XBT Market')}</Action>
-            </div>
-          )}
           {toReserve.length > 0 && (
             <div class="notice warn">
               <p>{T(`${toReserve.length} of your listings are reserved there, but not here:`, `${toReserve.length} de tus anuncios están reservados allí, pero aquí no:`)} {toReserve.slice(0, 5).map((i) => i.title).join(', ')}{toReserve.length > 5 ? '…' : ''}</p>
@@ -253,6 +243,7 @@ export function ImportPage({ query: q }) {
                   <div class="row">
                     <input class={`price-in ${Number(it.price) > 0 ? '' : 'invalid'}`} inputmode="decimal" value={it.price} placeholder={T('price', 'precio')} onInput={(e) => update(i, { price: e.target.value.replace(',', '.') })} />
                     <span>{it.currency}</span>
+                    <span class="muted small photos-count" title={T('Photos', 'Fotos')}>📷 {it.images?.length || 0}</span>
                     <select value={it.category} onChange={(e) => update(i, { category: e.target.value, subcategory: '' })}>
                       {CATEGORIES.map((c) => <option key={c} value={c}>{label(CATEGORY_LABELS, c)}</option>)}
                     </select>

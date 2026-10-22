@@ -6,7 +6,7 @@
 import {
   BOOKMARKLET_VERSION, mpResults, nextDataFromHtml, mpSellerPath, fromMp, fromVinted, vintedMemberId,
   flattenJsonLd, productsFromJsonLd, cardsFromDocument, dedupeItems, findMpListings, itemFromMeta,
-  photosOfDocument, isLogo, priceOfDocument,
+  photosOfDocument, isLogo, priceOfDocument, adPhotosOfPage,
 } from './extract.js';
 
 // All photos of each ad, from the ad's own page (a profile only lists the
@@ -20,8 +20,10 @@ async function addAllPhotos(items) {
       try {
         const r = await fetch(it.url, { credentials: 'include' });
         if (!r.ok) continue;
-        const photos = photosOfDocument(new DOMParser().parseFromString(await r.text(), 'text/html'));
-        if (photos.length) it.images = [...new Set([...photos, ...(it.images || []).filter((u) => !isLogo(u))])].slice(0, 24);
+        const html = await r.text();
+        const photos = adPhotosOfPage(html, new DOMParser().parseFromString(html, 'text/html'), it.id);
+        // The ad's own page is the full set; the profile's thumbnail is one of them.
+        if (photos.length >= (it.images || []).length) it.images = photos.slice(0, 24);
       } catch { /* keep the photo we have */ }
     }
   };
@@ -57,7 +59,8 @@ async function addAllPhotos(items) {
         found.forEach((l) => items.push(fromMp(l, here)));
         // One ad: its photos are on this very page.
         if (items.length === 1) {
-          items[0].images = [...new Set([...photosOfDocument(document), ...items[0].images.filter((u) => !isLogo(u))])];
+          const photos = adPhotosOfPage(document.documentElement.outerHTML, document, items[0].id);
+          if (photos.length >= items[0].images.length) items[0].images = photos;
           if (!items[0].price) items[0].price = priceOfDocument(document);
         }
       }

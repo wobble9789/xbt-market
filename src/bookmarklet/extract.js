@@ -3,10 +3,10 @@
 // test/extract.test.js and bundled into the bookmarklet by
 // scripts/build-bookmarklet.mjs.
 //
-// Bump BOOKMARKLET_VERSION whenever extraction changes: the import page warns
-// users whose saved bookmark is older, because bookmarks never update themselves.
+// Bump BOOKMARKLET_VERSION whenever extraction changes: bookmarks never update
+// themselves, and the version travels with every import.
 
-export const BOOKMARKLET_VERSION = 6;
+export const BOOKMARKLET_VERSION = 7;
 
 export const absUrl = (u, base) => { try { return new URL(u, base).href; } catch { return ''; } };
 
@@ -125,6 +125,26 @@ export function photosOfDocument(doc) {
   const parts = [...doc.querySelectorAll(GALLERY)].map((e) => e.outerHTML).join('\n');
   const gallery = parts ? imagesFromHtml(parts) : [];
   return gallery.length ? gallery : imagesFromHtml(doc.documentElement?.outerHTML || '').slice(0, 12);
+}
+
+// All photos of one Marktplaats ad from its page's HTML. A fetched ad page
+// only renders the first photo of its gallery; the full list is in the
+// page's Next.js data, next to "similar ads", so it is matched by the ad id.
+export function mpAdPhotos(html, id) {
+  const ad = findMpListings(nextDataFromHtml(html)).find((l) => l.itemId === id);
+  if (!ad) return [];
+  const own = fromMp(ad, 'https://www.marktplaats.nl/').images.filter((u) => u && !isLogo(u));
+  return own.map((u) => imagesFromHtml(u)[0] || u).filter((u, i, a) => a.indexOf(u) === i).slice(0, 24);
+}
+
+// The photos of the ad on a fetched ad page: the longest of its own data
+// (Marktplaats, by ad id), its schema.org Product images and its gallery.
+export function adPhotosOfPage(html, doc, id) {
+  const blocks = [];
+  doc.querySelectorAll('script[type="application/ld+json"]').forEach((sc) => { try { blocks.push(JSON.parse(sc.textContent)); } catch { /* skip */ } });
+  const ld = (productsFromJsonLd(flattenJsonLd(blocks), 'https://x/')[0]?.images || []).map((u) => imagesFromHtml(u)[0] || u).filter((u) => !isLogo(u));
+  const options = [id ? mpAdPhotos(html, id) : [], ld, photosOfDocument(doc)];
+  return options.reduce((best, o) => (o.length > best.length ? o : best), []);
 }
 
 // The price shown on an item page: meta tags first, then the visible price.

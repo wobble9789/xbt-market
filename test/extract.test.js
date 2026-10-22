@@ -115,3 +115,16 @@ test('a page with only share tags still gives one item', () => {
   assert.equal(item.price, 12.5);
   assert.deepEqual(item.images, ['https://shop.example/img/a.jpg']);
 });
+
+test('a fetched Marktplaats ad page: all photos of that ad, not of similar ads', async () => {
+  const { mpAdPhotos } = await import('../src/bookmarklet/extract.js');
+  const pic = (id) => ({ url: `https://images.marktplaats.com/api/v1/listing-mp-p/images/a${id}/a${id}0000000-0000?rule=ecg_mp_eps$_#.jpg` });
+  const data = { props: { pageProps: { listing: { itemId: 'm2456656978', title: 'Coaxkabel', priceInfo: { priceCents: 500, priceType: 'FIXED' }, pictures: [1, 2, 3, 4, 5, 6, 7, 8, 9].map(pic) },
+    similar: [{ itemId: 'm1111111111', title: 'Other', priceInfo: { priceCents: 100, priceType: 'FIXED' }, pictures: [pic(99)] }] } } };
+  const html = `<div class="Gallery"><img src="https://images.marktplaats.com/api/v1/listing-mp-p/images/a1/a10000000-0000?rule=ecg_mp_eps$_82.jpg"></div><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script>`;
+  const photos = mpAdPhotos(html, 'm2456656978');
+  assert.equal(photos.length, 9);
+  assert.ok(photos.every((u) => u.endsWith('?rule=ecg_mp_eps$_85.jpg')));
+  assert.ok(!photos.some((u) => u.includes('a99')));
+  assert.deepEqual(mpAdPhotos(html, 'm0000000000'), []);
+});
