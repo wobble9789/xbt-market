@@ -6,7 +6,7 @@ import { sendTradeMessage, forwardOwnRumors } from '../nostr/inbox.js';
 import { deriveTradeKey, arbiterTradeKey, arbiterBaseKey, pubkeyOf, planPayout, signEscrow, finalizeEscrow } from '../btc/escrow.js';
 import { escrowFunding, Esplora } from '../btc/esplora.js';
 import { settings } from '../settings.js';
-import { newTradeId, roleOf } from './protocol.js';
+import { newTradeId, roleOf, shipDaysFor, CONFIRM_DAYS } from './protocol.js';
 import { decodeInvoice } from '../ln/bolt11.js';
 import { isService } from '../categories.js';
 import { invoiceFromAddress } from '../ln/lnurl.js';
@@ -58,12 +58,11 @@ export async function openConversation({ listing, network, text, prev }) {
 export async function createOffer({ tradeId, listing, priceSats, buyerDepositSats, sellerDepositSats, note, network, payment = 'escrow', method, shipping }) {
   const me = account.get().pubkey;
   if (listing.pubkey === me) throw new Error('You cannot buy your own listing');
-  const s = settings.get();
   const body = {
     v: 2, tradeId, network, listing: listingInfoOf(listing), payment, priceSats,
     ...(payment === 'direct' ? { method } : { buyerDepositSats, sellerDepositSats }),
     buyer: { escrowPubkey: pubkeyOf(deriveTradeKey(secretKey(), tradeId)) },
-    shipping: shipping || null, note: note || '', shipDays: s.shipDays, confirmDays: s.confirmDays,
+    shipping: shipping || null, note: note || '', shipDays: shipDaysFor(listing.country, shipping), confirmDays: CONFIRM_DAYS,
   };
   await sendTradeMessage(tradeId, 'offer', body, [listing.pubkey]);
   return tradeId;
@@ -96,6 +95,7 @@ export const sendLabel = (state, label) => send(state, 'label', label);
 export const rejectOffer = (state, reason) => send(state, 'reject', { reason });
 export const cancelTrade = (state, reason) => send(state, 'cancel', { reason });
 export const markShipped = (state, info) => send(state, 'shipped', info);
+export const markDelivered = (state, note) => send(state, 'delivered', { note });
 export const markReceived = (state, note) => send(state, 'received', { note });
 export const openDispute = (state, reason) => send(state, 'dispute', { reason });
 export const sendChat = (state, text) => send(state, 'chat', { text });

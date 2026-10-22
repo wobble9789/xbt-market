@@ -40,8 +40,6 @@ export const DEFAULTS = {
   minConfirmations: 3,
   buyerDepositPct: 15,
   sellerDepositPct: 15,
-  shipDays: 7,
-  confirmDays: 21,
   // Highest trade value (price, in sats) allowed by number of completed trades.
   tradeLimits: [
     { minTrades: 0, maxSats: 20_000_000 },

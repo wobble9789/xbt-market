@@ -6,9 +6,9 @@ import { account } from '../../lib/nostr/account.js';
 import { directory, refreshDirectory, arbiterFeePct, arbiterFeeLabel } from '../../lib/nostr/directory.js';
 import { publishReview, reviewsAbout, tradeLimitFor } from '../../lib/nostr/reviews.js';
 import { settings, updateSettings } from '../../lib/settings.js';
-import { reduceTrade, expectedTotal, presetAllocations, deadlines, paymentProof, methodOf } from '../../lib/trade/protocol.js';
+import { reduceTrade, expectedTotal, presetAllocations, deadlines, disputeClocks, paymentProof, methodOf, DAY, RESPOND_DAYS, CONFIRM_AFTER_DELIVERY_DAYS } from '../../lib/trade/protocol.js';
 import {
-  acceptOffer, rejectOffer, cancelTrade, markShipped, markReceived, openDispute, sendChat, sendFundedHint,
+  acceptOffer, rejectOffer, cancelTrade, markShipped, markDelivered, markReceived, openDispute, sendChat, sendFundedHint,
   loadFunding, proposePayout, signProposal, broadcastProposal, myEscrowKey, esploraFor,
   requestLightning, requestOnchain, payWithWallet, reportPaid, confirmPaid, checkOnchainPayment,
   sendDetails, requestChange, answerChange, sendLabel, openConversation,
@@ -27,6 +27,8 @@ import { T, fmtDate, timeAgo, countryName } from '../i18n.js';
 import { Action, Field, Name, Coin, QR, Copy, Img, Empty, Spinner, AddressForm, addressComplete, formatAddress, toast } from '../components.jsx';
 import { Reputation, payLabel, payShort, useListing } from './Listing.jsx';
 import { OrderForm } from './Order.jsx';
+import { useMyTrades } from './Trades.jsx';
+import { publishListing } from './Sell.jsx';
 
 const ROLE = { buyer: ['Buyer', 'Comprador'], seller: ['Seller', 'Vendedor'], arbiter: ['Arbiter', 'Árbitro'], other: ['Unknown', 'Desconocido'] };
 // Below this an output would be dust (546 sats) once its share of the network fee is taken.
@@ -129,12 +131,12 @@ function EscrowBox({ state, funding, fundErr, refresh, role, done }) {
       </div>
       <details class="small">
         <summary>{T('Recovery details', 'Datos de recuperación')}</summary>
-        <p>{T('2-of-3 P2WSH multisig. Keys (sorted):', 'Multisig P2WSH 2 de 3. Claves (ordenadas):')}</p>
-        <ul>{state.escrow.pubkeys.map((k) => <li key={k}><code>{k}</code> {Object.entries(state.escrowKeys).find(([, v]) => v === k)?.[0]}</li>)}</ul>
+        <p>{T('2-of-3 P2WSH multisig. The three public keys (sorted), made for this trade only:', 'Multisig P2WSH 2 de 3. Las tres claves públicas (ordenadas), creadas solo para esta compra:')}</p>
+        <ul>{state.escrow.pubkeys.map((k) => <li key={k}><code>{k}</code> {roleLabel(Object.entries(state.escrowKeys).find(([, v]) => v === k)?.[0]).toLowerCase()}</li>)}</ul>
         <p>{T('Witness script', 'Witness script')}: <code class="break">{state.escrow.witnessScript}</code></p>
         <ul class="hint">
           <li>{T('The escrow is a lock with three keys: buyer, seller and arbiter. Any two of them together can move the coins.', 'El escrow es un candado con tres llaves: comprador, vendedor y árbitro. Dos de ellas juntas pueden mover las monedas.')}</li>
-          <li>{T('Your key is one of these three. The app makes it from your nsec and this trade, so your nsec backup is all you need.', 'Tu llave es una de las tres. La app la crea a partir de tu nsec y esta compra, así que basta con tu copia del nsec.')}</li>
+          <li>{T('The public keys above belong to buyer, seller and arbiter. Each one is made from that person\'s nsec and this trade, so it differs per trade and your nsec backup is all you need.', 'Las claves públicas de arriba son del comprador, el vendedor y el árbitro. Cada una se crea a partir del nsec de esa persona y esta compra, así que cambia en cada compra y basta con tu copia del nsec.')}</li>
           <li>{T('The witness script is the exact lock. With it and two keys, the coins can be moved with another wallet too, should this app ever be gone.', 'El witness script es el candado exacto. Con él y dos llaves, las monedas también se pueden mover con otra cartera si esta app desapareciera.')}</li>
         </ul>
       </details>
@@ -164,9 +166,23 @@ function SplitEditor({ state, balance, purpose: initialPurpose, onDone, role }) 
     { role: 'arbiter', address: feeAddress, sats: fee },
   ].filter((a) => a.sats > 0) : [];
   const purposes = role === 'arbiter' ? ['ruling'] : ['release', 'refund', 'custom'];
+  // The arbiter's quick splits: the usual outcomes, and both deposits to the honest side.
+  const setSeller = (sats) => setSellerText(formatCoin(Math.max(0, Math.min(rest, sats)), { unit: false }));
+  const RULINGS = [
+    ['seller-fault', T('Seller at fault: everything to the buyer', 'Culpa del vendedor: todo al comprador')],
+    ['buyer-fault', T('Buyer at fault: everything to the seller', 'Culpa del comprador: todo al vendedor')],
+    ['refund', T('Normal refund', 'Reembolso normal')],
+    ['release', T('Normal release', 'Liberación normal')],
+  ];
   return (
     <div class="card">
       <h3>{T('Propose a payout', 'Proponer un pago')}</h3>
+      {role === 'arbiter' && (
+        <>
+          <div class="row wrap">{RULINGS.map(([k, l]) => <button key={k} type="button" class="btn small ghost" onClick={() => setSeller(presetAllocations(state, k, balance).find((a) => a.role === 'seller')?.sats || 0)}>{l}</button>)}</div>
+          <p class="hint">{T('Whoever cheated loses their deposit to the other side. Normal refund and release give both deposits back.', 'Quien hizo trampa pierde su depósito en favor del otro. El reembolso y la liberación normales devuelven ambos depósitos.')}</p>
+        </>
+      )}
       {purposes.length > 1 && (
         <div class="row">
           {purposes.map((p) => <button key={p} class={`btn small ${purpose === p ? 'primary' : 'ghost'}`} onClick={() => setPurpose(p)}>{{ release: T('Release to seller', 'Liberar al vendedor'), refund: T('Refund buyer', 'Reembolsar al comprador'), custom: T('Custom split', 'Reparto personalizado') }[p]}</button>)}
@@ -456,6 +472,9 @@ function OfferCard({ state, role }) {
   const v1Arbiter = state.version === 1 && escrow ? state.arbiter : null;
   const { listings } = useStore(market);
   const listingNow = [...listings.values()].find((l) => l.coord === state.listing?.coord);
+  // Other orders for the same listing this seller already accepted and that are still running.
+  const busy = useMyTrades().filter((t) => t.id !== state.tradeId && t.state.role === 'seller' && t.state.listing?.coord && t.state.listing.coord === state.listing?.coord
+    && t.state.accept && !['rejected', 'cancelled', 'closed', 'completed'].includes(t.state.status)).length;
   const ok = !escrow || isValidAddress(payout, o.network);
   const title = role === 'buyer' ? T('Your order', 'Tu pedido') : role === 'seller' ? <>{T('Order from', 'Pedido de')} <Name pk={state.participants.buyer} /> <span class="muted small">({T('the buyer', 'el comprador')})</span></> : T('Order', 'Pedido');
   return (
@@ -474,7 +493,8 @@ function OfferCard({ state, role }) {
       {role === 'seller' && limit != null && escrow && tm.priceSats > limit && <p class="notice warn">{T(`This buyer has few verified trades; the community limit for them is ${formatCoin(limit)}.`, `Este comprador tiene pocas compras verificadas; el límite de la comunidad para él es ${formatCoin(limit)}.`)}</p>}
       {state.status === 'offered' && role === 'seller' && (
         <>
-          {listingNow && listingNow.status !== 'active' && <p class="notice warn">{listingNow.status === 'reserved' ? T('This item is reserved: someone else already paid for it. Only accept if you have another one.', 'Este artículo está reservado: otra persona ya lo ha pagado. Acepta solo si tienes otro.') : T('This item is marked as sold. Only accept if you have another one.', 'Este artículo está marcado como vendido. Acepta solo si tienes otro.')}</p>}
+          {busy > 0 && <p class="notice warn">{T(`You already accepted ${busy === 1 ? 'another order' : `${busy} other orders`} for this listing. Only accept this one too if you have more than one: otherwise this buyer pays for nothing.`, `Ya aceptaste ${busy === 1 ? 'otro pedido' : `${busy} pedidos más`} de este anuncio. Acepta este también solo si tienes más de uno: si no, este comprador paga para nada.`)}</p>}
+          {listingNow && listingNow.status !== 'active' && <p class="notice warn">{listingNow.status === 'reserved' ? T('You marked this item as reserved. Only accept if you have another one.', 'Marcaste este artículo como reservado. Acepta solo si tienes otro.') : T('This item is marked as sold. Only accept if you have another one.', 'Este artículo está marcado como vendido. Acepta solo si tienes otro.')}</p>}
           {escrow && (
             <Field label={T('Your XBT payout address', 'Tu dirección XBT de cobro')} hint={T('Where the escrow pays you. A wallet that follows the BLAKE2b chain.', 'Donde te paga el escrow. Una cartera que siga la cadena BLAKE2b.')}>
               <input value={payout} onInput={(e) => setPayout(e.target.value)} class={payout && !ok ? 'invalid' : ''} placeholder="bc1q…" />
@@ -770,7 +790,6 @@ function ShipForm({ state }) {
 }
 
 function DirectFlow({ state, role }) {
-  const dl = deadlines(state);
   const paid = !!(state.paid || state.paymentConfirmed);
   if (!state.accept) return null;
   return (
@@ -780,7 +799,6 @@ function DirectFlow({ state, role }) {
       {!state.cancelled && <PaymentBox state={state} role={role} />}
       {state.request && !paid && role === 'seller' && state.request.method === 'lightning' && state.request.expiresAt < Date.now() / 1000 && <RequestForm state={state} />}
       {paid && !state.shipped && role === 'seller' && <ShipForm state={state} />}
-      {paid && !state.shipped && role === 'buyer' && <p class="notice">{T(`Paid. The seller should ship by ${fmtDate(dl.shipBy)}.`, `Pagado. El vendedor debe enviarlo antes del ${fmtDate(dl.shipBy)}.`)}</p>}
       {state.shipped && !state.received && role === 'buyer' && (
         <div class="card">
           <h3>{receivedQuestion(state)}</h3>
@@ -791,6 +809,140 @@ function DirectFlow({ state, role }) {
         <Action class="ghost" confirm={T('Cancel this order?', '¿Cancelar este pedido?')} onClick={() => cancelTrade(state, '')}>{T('Cancel order (nothing paid yet)', 'Cancelar pedido (aún no se ha pagado)')}</Action>
       )}
     </>
+  );
+}
+
+const inDays = (t, now) => {
+  const d = Math.floor((t - now) / DAY);
+  return d < 1 ? T('less than a day left', 'queda menos de un día') : d === 1 ? T('1 day left', 'queda 1 día') : T(`${d} days left`, `quedan ${d} días`);
+};
+
+// The block time at which the escrow held the full amount.
+function fundedTime(funding, need) {
+  if (!funding) return null;
+  let sum = 0;
+  for (const u of [...funding.confirmedUtxos].sort((a, b) => (a.blockTime || 0) - (b.blockTime || 0))) {
+    sum += u.value;
+    if (sum >= need) return u.blockTime || null;
+  }
+  return null;
+}
+
+// What each side has to do by when (see deadlines() in the protocol), and
+// what they may do once the other side is late.
+function Deadlines({ state, role, dl, paid, balance, now }) {
+  if (!role || role === 'arbiter' || state.cancelled || state.rejected || ['closed', 'completed'].includes(state.status)) return null;
+  const direct = state.payment === 'direct';
+  const disputed = state.disputes.length > 0;
+  const date = (t) => fmtDate(t);
+  if (paid && !state.shipped) {
+    // Pick-up and services: the moment is agreed in the chat.
+    if (!needsAddress(state)) return role === 'buyer' && !direct ? <p class="notice">{isServiceTrade(state) ? T('Fully paid. The seller can start the job.', 'Pagado del todo. El vendedor puede empezar el trabajo.') : T('Fully paid. Agree the hand-over in the chat.', 'Pagado del todo. Acordad la entrega en el chat.')}</p> : null;
+    const late = now > dl.shipBy;
+    if (role === 'seller') {
+      return (
+        <p class={`notice ${late ? 'danger' : now > dl.remindAt ? 'warn' : ''}`}>⏰ {late
+          ? T(`The shipping deadline (${date(dl.shipBy)}) has passed. The buyer may now cancel and get a refund. Ship today, or explain in the chat.`, `El plazo de envío (${date(dl.shipBy)}) ha pasado. El comprador ya puede cancelar y recuperar su dinero. Envíalo hoy o explícalo en el chat.`)
+          : now > dl.remindAt
+            ? T(`Reminder: ship by ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}). After that the buyer can cancel and get a refund.`, `Recordatorio: envíalo antes del ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}). Después el comprador puede cancelar y recuperar su dinero.`)
+            : T(`Paid. Ship by ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}).`, `Pagado. Envíalo antes del ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}).`)}
+        </p>
+      );
+    }
+    if (!late) return <p class="notice">⏰ {direct ? T('Paid.', 'Pagado.') : T('Fully paid.', 'Pagado del todo.')} {T(`The seller ships by ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}).`, `El vendedor lo envía antes del ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}).`)}</p>;
+    if (disputed) return null;
+    const reason = T(`The seller did not ship by ${date(dl.shipBy)}.`, `El vendedor no lo envió antes del ${date(dl.shipBy)}.`);
+    return (
+      <div class="card attention">
+        <h3>⏰ {T('The seller did not ship in time', 'El vendedor no lo envió a tiempo')}</h3>
+        {direct ? (
+          <>
+            <p>{T(`The deadline was ${date(dl.shipBy)}. You paid directly, without escrow, so the app cannot take the money back. Cancel the order, then ask the seller in the chat to pay you back. If they do not, report them.`, `El plazo era el ${date(dl.shipBy)}. Pagaste directamente, sin escrow, así que la app no puede devolver el dinero. Cancela el pedido y pide al vendedor en el chat que te lo devuelva. Si no lo hace, denúncialo.`)}</p>
+            <Action class="danger" confirm={T('Cancel this order?', '¿Cancelar este pedido?')} onClick={() => cancelTrade(state, reason)}>{T('Cancel the order', 'Cancelar el pedido')}</Action>
+          </>
+        ) : (
+          <>
+            <p>{T(`The deadline was ${date(dl.shipBy)}. Ask for your money back: you sign a refund of the price and your deposit, and the seller or the arbiter co-signs it. The arbiter can also give you the seller's deposit.`, `El plazo era el ${date(dl.shipBy)}. Pide tu dinero: firmas un reembolso del precio y tu depósito, y el vendedor o el árbitro lo firma también. El árbitro también puede darte el depósito del vendedor.`)}</p>
+            <Action class="danger" disabled={!balance} onClick={async () => {
+              await openDispute(state, reason);
+              await proposePayout(state, { purpose: 'refund', allocations: presetAllocations(state, 'refund', balance), note: reason });
+              toast(T('Refund asked. The seller or the arbiter co-signs it.', 'Reembolso pedido. El vendedor o el árbitro lo firma.'), 'ok');
+            }}>{T('Ask for a refund', 'Pedir el reembolso')}</Action>
+          </>
+        )}
+      </div>
+    );
+  }
+  if (!state.shipped || state.received) return null;
+  const out = [];
+  if (role === 'seller' && needsAddress(state) && !state.delivered && !disputed) {
+    out.push(
+      <div class="card" key="delivered">
+        <p class="hint">{T(`Does the tracking show it was delivered? Let the buyer know: they then have ${CONFIRM_AFTER_DELIVERY_DAYS} days to confirm or complain.`, `¿El seguimiento dice que se ha entregado? Avisa al comprador: entonces tiene ${CONFIRM_AFTER_DELIVERY_DAYS} días para confirmar o reclamar.`)}</p>
+        <Action class="small" onClick={() => markDelivered(state, '')}>📬 {T('Delivered, per the tracking', 'Entregado, según el seguimiento')}</Action>
+      </div>,
+    );
+  }
+  if (state.delivered && role === 'buyer') out.push(<p key="dlv" class="notice">📬 {T('The seller says the tracking shows it was delivered.', 'El vendedor dice que el seguimiento lo da por entregado.')}</p>);
+  if (!direct && !disputed) {
+    const over = now > dl.confirmBy;
+    const buyerReleased = state.proposalOrder.some((id) => state.proposals[id].purpose === 'release' && state.proposals[id].signedBy.includes('buyer'));
+    if (role === 'buyer') {
+      out.push(<p key="cb" class={`notice ${over ? '' : 'warn'}`}>⏰ {over
+        ? T(`The time to report a problem ended on ${date(dl.confirmBy)}. The seller can now ask the arbiter to pay out.`, `El plazo para reclamar terminó el ${date(dl.confirmBy)}. El vendedor ya puede pedir al árbitro que le pague.`)
+        : T(`Check it and confirm below, or open a dispute, before ${date(dl.confirmBy)} (${inDays(dl.confirmBy, now)}). After that the seller can ask the arbiter to pay out.`, `Revísalo y confírmalo abajo, o abre una disputa, antes del ${date(dl.confirmBy)} (${inDays(dl.confirmBy, now)}). Después el vendedor puede pedir al árbitro que le pague.`)}</p>);
+    } else if (!buyerReleased) {
+      const reason = T(`The buyer did not confirm or complain by ${date(dl.confirmBy)}.`, `El comprador no confirmó ni reclamó antes del ${date(dl.confirmBy)}.`);
+      out.push(over ? (
+        <div class="card attention" key="cb">
+          <h3>⏰ {T('The buyer did not confirm in time', 'El comprador no confirmó a tiempo')}</h3>
+          <p>{T(`The deadline was ${date(dl.confirmBy)}. Ask the arbiter to pay you: you sign the normal release, and the arbiter co-signs it.`, `El plazo era el ${date(dl.confirmBy)}. Pide al árbitro que te pague: firmas la liberación normal y el árbitro la firma también.`)}</p>
+          <Action class="primary" disabled={!balance} onClick={async () => {
+            await openDispute(state, reason);
+            await proposePayout(state, { purpose: 'release', allocations: presetAllocations(state, 'release', balance), note: reason });
+            toast(T('Sent to the arbiter', 'Enviado al árbitro'), 'ok');
+          }}>{T('Ask the arbiter to pay out', 'Pedir al árbitro que pague')}</Action>
+        </div>
+      ) : <p key="cb" class="notice">⏰ {T(`Waiting for the buyer to confirm, until ${date(dl.confirmBy)} (${inDays(dl.confirmBy, now)}). After that you can ask the arbiter to pay you.`, `Esperando a que el comprador confirme, hasta el ${date(dl.confirmBy)} (${inDays(dl.confirmBy, now)}). Después puedes pedir al árbitro que te pague.`)}</p>);
+    }
+  }
+  return out.length ? <>{out}</> : null;
+}
+
+// A dispute, with how long the other side has to answer it.
+function DisputeLine({ d, role, now }) {
+  const by = roleLabel(d.by).toLowerCase();
+  const other = roleLabel(d.other).toLowerCase();
+  const until = fmtDate(d.respondBy);
+  return (
+    <div class="notice danger">
+      ⚖️ {T('Dispute opened by the', 'Disputa abierta por el')} {by} ({timeAgo(d.at)}): {d.reason}
+      {d.late && <div class="small">{T('Opened after the deadline to complain.', 'Abierta después del plazo para reclamar.')}</div>}
+      {!d.answered && (
+        <div class="small">{now < d.respondBy
+          ? (role === d.other
+            ? T(`Answer in the chat before ${until}, or the arbiter may decide without you.`, `Responde en el chat antes del ${until} o el árbitro puede decidir sin ti.`)
+            : T(`The ${other} has until ${until} to answer.`, `El ${other} tiene hasta el ${until} para responder.`))
+          : role === 'arbiter'
+            ? T(`The ${other} did not answer within ${RESPOND_DAYS} days. You may rule for the ${by}.`, `El ${other} no respondió en ${RESPOND_DAYS} días. Puedes resolver a favor del ${by}.`)
+            : T(`The ${other} did not answer within ${RESPOND_DAYS} days. The arbiter may now decide.`, `El ${other} no respondió en ${RESPOND_DAYS} días. El árbitro ya puede decidir.`)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// After a payment: a seller with only one may take the listing off the market.
+function ReserveHint({ state }) {
+  const { listings } = useStore(market);
+  const me = useStore(account, (a) => a.pubkey);
+  const l = [...listings.values()].find((x) => x.coord === state.listing?.coord && x.pubkey === me);
+  if (!l || l.status !== 'active') return null;
+  return (
+    <div class="notice small">
+      {T('Paid. Was this your only one? Mark the listing as reserved, so nobody else orders it.', 'Pagado. ¿Era el único? Marca el anuncio como reservado para que nadie más lo pida.')}{' '}
+      <Action class="small" onClick={async () => { await publishListing({ ...l, status: 'reserved' }); toast(T('Marked as reserved', 'Marcado como reservado'), 'ok'); }}>{T('Mark as reserved', 'Marcar como reservado')}</Action>
+    </div>
   );
 }
 
@@ -829,8 +981,9 @@ export function TradePage({ tradeId, query = {} }) {
   const balance = funding?.confirmedTotal || 0;
   const paidOut = state.escrow && funding && funding.total === 0 && state.broadcasts.length > 0;
   const status = state.status === 'accepted' && fullyFunded ? 'funded' : state.status;
-  const dl = o ? deadlines(state) : null;
+  const dl = o ? deadlines(state, { fundedAt: fundedTime(funding, need) }) : null;
   const now = Date.now() / 1000;
+  const paid = direct ? !!(state.paid || state.paymentConfirmed) : fullyFunded;
   const openProposals = state.proposalOrder.map((id) => state.proposals[id]).reverse();
   const canPropose = !direct && role && state.escrow && balance > 0 && state.status !== 'closed';
   const label = state.labels[state.labels.length - 1];
@@ -863,8 +1016,9 @@ export function TradePage({ tradeId, query = {} }) {
         </div>
       )}
       {state.cancelled && <p class="notice">{T('Cancelled by the', 'Cancelado por el')} {roleLabel(state.cancelled.by).toLowerCase()}. {state.cancelled.reason}</p>}
+      {state.cancelled?.late && role === 'seller' && <p class="notice danger">{T('The buyer had already paid you. Pay them back, or agree something in the chat.', 'El comprador ya te había pagado. Devuélvele el dinero o acordad algo en el chat.')}</p>}
       {(state.rejected || (state.cancelled && !state.escrow)) && role === 'buyer' && <NewOffer state={state} />}
-      {state.disputes.map((d, i) => <p key={i} class="notice danger">⚖️ {T('Dispute opened by the', 'Disputa abierta por el')} {roleLabel(d.by).toLowerCase()} ({timeAgo(d.at)}): {d.reason}</p>)}
+      {o && disputeClocks(state, { fundedAt: dl.paidAt }).map((d, i) => <DisputeLine key={i} d={d} role={role} now={now} />)}
       {o && <ChangeBox state={state} role={role} funded={fullyFunded} />}
       {o && <DetailsForm state={state} role={role} />}
       {state.arbiter && !state.checks.arbiterTrusted && role === 'seller' && !state.broadcasts.length && <p class="notice danger">{T('The buyer chose an arbiter who is not on your trusted list. Do not pay your deposit; cancel the trade or ask in the chat.', 'El comprador eligió un árbitro que no está en tu lista de confianza. No pagues tu depósito; cancela la compra o pregunta en el chat.')}</p>}
@@ -874,6 +1028,8 @@ export function TradePage({ tradeId, query = {} }) {
       {label && role === 'seller' && !state.shipped && <LabelCard label={label} />}
       {state.received && <p class="notice ok">✓ {T('Buyer confirmed receipt', 'El comprador ha confirmado la recepción')}</p>}
       {paidOut && <p class="notice ok">✅ {T('The escrow has been paid out.', 'El escrow se ha pagado.')}</p>}
+      {o && <Deadlines state={state} role={role} dl={dl} paid={paid} balance={balance} now={now} />}
+      {o && role === 'seller' && paid && !state.cancelled && <ReserveHint state={state} />}
 
       {o && direct && <DirectFlow state={state} role={role} />}
 
@@ -885,9 +1041,6 @@ export function TradePage({ tradeId, query = {} }) {
         <Action class="ghost" confirm={T('Cancel this trade?', '¿Cancelar esta compra?')} onClick={() => cancelTrade(state, '')}>{T('Cancel trade (nothing paid yet)', 'Cancelar compra (aún no se ha pagado)')}</Action>
       )}
       {!direct && state.status === 'accepted' && fullyFunded && role === 'seller' && <ShipForm state={state} />}
-      {!direct && state.status === 'accepted' && fullyFunded && role === 'buyer' && (
-        <p class="notice">{T(`Fully paid. The seller should ship by ${fmtDate(dl.shipBy)}.`, `Pagado del todo. El vendedor debe enviarlo antes del ${fmtDate(dl.shipBy)}.`)}</p>
-      )}
 
       {/* Shipped stage */}
       {!direct && ['shipped', 'accepted', 'disputed'].includes(state.status) && role === 'buyer' && state.shipped && fullyFunded && !openProposals.some((p) => p.purpose === 'release' && p.signedBy.includes('buyer')) && (
@@ -901,9 +1054,6 @@ export function TradePage({ tradeId, query = {} }) {
           }}>{T('Everything OK: release payment', 'Todo bien: liberar el pago')}</Action>
         </div>
       )}
-      {!direct && state.status === 'shipped' && role === 'seller' && !openProposals.length && (
-        <p class="notice">{T(`Waiting for the buyer to confirm receipt. If they do not respond by ${fmtDate(dl.confirmBy)}, open a dispute.`, `Esperando a que el comprador confirme la recepción. Si no responde antes del ${fmtDate(dl.confirmBy)}, abre una disputa.`)}</p>
-      )}
 
       {/* Proposals */}
       {openProposals.length > 0 && <h3>{T('Payout proposals', 'Propuestas de pago')}</h3>}
@@ -915,7 +1065,7 @@ export function TradePage({ tradeId, query = {} }) {
           <div class="row">
             {role === 'arbiter' && state.disputes.length > 0 && <button class="btn primary" onClick={() => setProposing('ruling')}>{T('Propose a ruling', 'Proponer una resolución')}</button>}
             {role !== 'arbiter' && <button class="btn ghost" onClick={() => setProposing(state.cancelled ? 'refund' : 'custom')}>{T('Propose a payout or refund', 'Proponer un pago o reembolso')}</button>}
-            {role !== 'arbiter' && !state.disputes.some((d) => d.by === role) && state.status !== 'closed' && (now > dl.shipBy || state.shipped || fullyFunded) && <DisputeBox state={state} role={role} />}
+            {role !== 'arbiter' && !state.disputes.some((d) => d.by === role) && state.status !== 'closed' && (now > dl.shipBy || state.shipped || fullyFunded) && !(role === 'buyer' && state.shipped && now > dl.confirmBy) && <DisputeBox state={state} role={role} />}
           </div>
         ))}
 

@@ -62,7 +62,7 @@
 </header>
 <main class="wrap">
   <p class="intro">
-    Alles wat objectief moet werken, testen de automatische tests bij elke wijziging (83 stappen, als computer en als telefoon, in Chrome en Firefox). Hier staat alleen wat <b>jouw oordeel</b> nodig heeft, of <b>echte sites, accounts of geld</b>.
+    Alles wat objectief moet werken, testen de automatische tests bij elke wijziging (85 stappen, als computer en als telefoon, in Chrome en Firefox). Hier staat alleen wat <b>jouw oordeel</b> nodig heeft, of <b>echte sites, accounts of geld</b>.
     Onderaan, gestippeld, wat iets nodig heeft dat je nog niet hebt: daar staat bij wat. Dat kun je overslaan tot het zover is.
     Vink per test <b>✓ Werkt</b>, <b>✗ Fout</b> of <b>—</b> aan; bij een fout opent een notitieveld. Klaar of halverwege? <b>Kopieer resultaten</b> en plak ze in de chat.
     Accounts: <b>Admin</b>, <b>Seller</b>, <b>Buyer</b>, <b>Arbiter</b> en <b>Dummy</b>.
@@ -88,6 +88,7 @@ const PLAN = [
     ['WAL-1', 'XBT-node klaar', ['Start9 → knots-blake2b: "Blockchain Sync" klaar en de "chain"-controle groen.'], 'Hoogte gelijk aan mempool.guide.'],
     ['WAL-4', 'XBT op de keten', ['knots-blake2b → Get Address. Koop ~€20 XBT en stuur het daarheen.'], 'Saldo zichtbaar met Get Balance.'],
     ['REAL-1', 'Escrow-aankoop met echte XBT', ['Buyer en Seller betalen hun deel vanuit knots-blake2b (Send Coins). Seller verzendt, Buyer geeft vrij, Seller tekent mee.'], 'Bedragen komen aan in beide wallets (Seller: prijs + borg − fee-aandeel; Buyer: borg terug).'],
+    ['TRD-7', 'Termijnen in een echte aankoop', ['Kijk tijdens REAL-1 naar de ⏰-regels: Seller ziet "Ship by …", Buyer "The seller ships by …". Na verzenden: Seller tikt "📬 Delivered, per the tracking"; Buyer ziet hoe lang hij heeft om te bevestigen of te klagen.', 'Wat er gebeurt als iemand te laat is, testen de automatische tests (met een verzette klok).'], 'De teksten zijn duidelijk en de data kloppen (5 dagen verzenden, 7 naar het buitenland; 2 dagen na levering of 14 na verzenden).'],
     ['REAL-2', 'Direct on-chain met echte XBT', ['Bestelling on-chain: Seller stuurt adres, Buyer betaalt en plakt de txid.'], '"✓ …, N confirmations"; geld bij Seller.'],
     ['NODE-2', 'Eigen node als server', ['Account → Network → vul de API van je eigen Mempool/electrs op de Start9 in → Use.'], '"✓ block …".'],
   ], 'Nodig: knots-blake2b gesynchroniseerd en ~€20 XBT. Voor NODE-2 ook Mempool Pruned + Electrs Pruned op je Start9. Overslaan tot je node klaar is.'],

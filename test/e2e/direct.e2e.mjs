@@ -184,10 +184,12 @@ try {
   await shot(await as('buyer'), 'Koper: betaalverzoek in de chat met QR-code, factuur, netwerk (lnbcrt) en "Betaal met mijn wallet"');
   await click(await as('buyer'), '⚡ Pay with my wallet');
   await waitText(await as('buyer'), 'Paid. The Lightning preimage proves it.', 60000);
+  await waitText(await as('buyer'), 'The seller ships by');
 
   step('seller buys a prepaid label over Lightning and gets a QR code');
   await waitText(await as('seller'), 'Paid. The Lightning preimage proves it.', 30000);
   await waitText(await as('seller'), 'Bob Buyer');
+  await waitText(await as('seller'), 'Paid. Ship by');
   await click(await as('seller'), 'Get the label price');
   await waitText(await as('seller'), 'Buy label');
   await click(await as('seller'), 'Buy label €6.95');
