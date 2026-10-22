@@ -240,8 +240,8 @@ try {
   await waitText(await as('seller'), 'Shipped with PostNL');
   await waitText(await as('seller'), 'Waiting for the buyer to confirm, until');
   await shot(await as('seller'), 'Verkoper: verzonden met PostNL, trackingcode met Volgen-knop');
-  await click(await as('seller'), 'Delivered, per the tracking');
-  await waitNoText(await as('seller'), 'Delivered, per the tracking', 30000);
+  await click(await as('seller'), '📬 Delivered, per the tracking');
+  await waitNoText(await as('seller'), '📬 Delivered, per the tracking', 30000);
 
   step('buyer releases');
   await click(await as('buyer'), 'Refresh');
@@ -436,8 +436,8 @@ try {
   await fill(await as('seller'), 'Tracking code', '3SXBT456');
   await click(await as('seller'), 'Mark as shipped');
   await waitText(await as('seller'), 'Shipped with PostNL');
-  await click(await as('seller'), 'Delivered, per the tracking');
-  await waitNoText(await as('seller'), 'Delivered, per the tracking', 30000);
+  await click(await as('seller'), '📬 Delivered, per the tracking');
+  await waitNoText(await as('seller'), '📬 Delivered, per the tracking', 30000);
   await shiftClock('seller', 3);
   await go(await as('seller'), `#/trade/${quiet.id}`);
   await waitText(await as('seller'), 'The buyer did not confirm in time', 40000);

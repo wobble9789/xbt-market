@@ -264,6 +264,9 @@ test('deadlines: ship within 5 days of paying (7 abroad), confirm within 14 days
   assert.equal(s.delivered.at, T0 + 4 * DAY);
   assert.equal(deadlines(s).confirmBy, T0 + 6 * DAY);
   assert.ok(s.errors.some((e) => e.includes('only the seller reports the delivery')));
+  // Shipped and delivered in the same second still count, whatever their ids.
+  const same = reduceTrade(TID, [open2(), offer2(), accept2(), msg('seller', 'delivered', {}, T0), msg('seller', 'shipped', { carrier: 'postnl' }, T0)], { arbiters });
+  assert.equal(same.delivered?.at, T0);
 });
 
 test('deadlines: a dispute after the confirmation deadline is flagged, and an unanswered one too', () => {

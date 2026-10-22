@@ -376,6 +376,7 @@ export function reduceTrade(tradeId, rumors, ctx = {}) {
     }
   }
 
+  const deliveries = [];
   for (const m of msgs) {
     if (seen.has(m.id)) continue;
     seen.add(m.id);
@@ -444,9 +445,9 @@ export function reduceTrade(tradeId, rumors, ctx = {}) {
           else state.shipped = { carrier: str(b.carrier, 40), tracking: str(b.tracking, 60), note: str(b.note), at: m.at };
           break;
         case 'delivered':
+          // Checked against the shipment after the loop: both may carry the same second.
           if (role !== 'seller') err = 'only the seller reports the delivery';
-          else if (!state.shipped) err = 'not shipped yet';
-          else if (!state.delivered) state.delivered = { at: m.at, note: str(b.note, 500) };
+          else deliveries.push({ at: m.at, note: str(b.note, 500) });
           break;
         case 'received':
           if (role !== 'buyer') err = 'only the buyer confirms receipt';
@@ -490,6 +491,8 @@ export function reduceTrade(tradeId, rumors, ctx = {}) {
   }
   // The role may only be known now (an arbiter chosen after the offer).
   state.role = ctx.me ? roleOf(state, ctx.me) : null;
+  state.delivered = (state.shipped && deliveries.find((d) => d.at >= state.shipped.at)) || null;
+  if (deliveries.length && !state.delivered) state.errors.push('delivered from seller: not shipped yet');
 
   if (!state.offer) return state;
   if (state.payment === 'direct') {
