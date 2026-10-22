@@ -16,6 +16,12 @@ const CLI = process.env.KNOTS_CLI;
 if (!CLI) { console.log('KNOTS_CLI not set, skipping'); process.exit(0); }
 const cli = (...a) => execSync(`${CLI} ${a.map((x) => `'${x}'`).join(' ')}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 const json = (...a) => JSON.parse(cli(...a));
+// The node's txindex can lag a block it just mined for a moment.
+function rawTx(txid) {
+  for (let i = 0; ; i++) {
+    try { return json('getrawtransaction', txid, 'true'); } catch (e) { if (i >= 20) throw e; execSync('sleep 0.5'); }
+  }
+}
 
 const info = json('getdeploymentinfo');
 const dep = info.blake2b ?? info.deployments?.blake2b;
@@ -39,7 +45,7 @@ async function run(label, signers) {
   const f2 = cli('sendtoaddress', esc.address, '0.001');
   mine(1);
   const utxos = [f1, f2].map((t) => {
-    const tx = json('getrawtransaction', t, 'true');
+    const tx = rawTx(t);
     const o = tx.vout.find((v) => v.scriptPubKey.address === esc.address);
     return { txid: t, vout: o.n, value: Math.round(o.value * 1e8) };
   });
@@ -55,7 +61,7 @@ async function run(label, signers) {
   assert.ok(accept.allowed, `${label}: node rejected payout: ${accept['reject-reason']}`);
   assert.equal(cli('sendrawtransaction', fin.hex), fin.txid);
   mine(1);
-  const tx = json('getrawtransaction', fin.txid, 'true');
+  const tx = rawTx(fin.txid);
   assert.ok(tx.confirmations >= 1);
   const decoded = json('decoderawtransaction', fin.hex);
   const ht = decoded.vin[0].txinwitness[1].slice(-2);
