@@ -173,7 +173,7 @@ export function OrderForm({ state, listing, onClose }) {
         </Field>
       )}
       {escrow && <PayoutInput pick={refundPick} value={refund} onChange={setRefund} network={s.network} label={T('Your XBT address for refunds and your deposit', 'Tu dirección XBT para reembolsos y tu depósito')} />}
-      {noArbiter && <p class="notice warn">{listing.arbiters?.length
+      {noArbiter && <p class="notice warn">{listing.arbiters?.some((pk) => pk !== me && pk !== listing.pubkey)
         ? T('You trust none of the arbiters this seller accepts, so escrow is not possible here. Choose another payment method, ask the seller in the chat, or add one of their arbiters under Account → Trusted arbiters.', 'No confías en ninguno de los árbitros que acepta este vendedor, así que aquí no es posible el escrow. Elige otro método de pago, pregunta al vendedor en el chat o añade uno de sus árbitros en Cuenta → Árbitros de confianza.')
         : T('Escrow needs an arbiter who is not you or the seller, and there is none yet. Choose another payment method, or add an arbiter you trust under Account.', 'El escrow necesita un árbitro que no seas tú ni el vendedor, y aún no hay ninguno. Elige otro método de pago o añade un árbitro de confianza en Cuenta.')}</p>}
       {overLimit && <p class="notice warn">{T(`New accounts can trade up to ${formatCoin(limit)} per escrow trade. Complete a few smaller trades first.`, `Las cuentas nuevas pueden operar hasta ${formatCoin(limit)} por compra con escrow. Haz antes algunas compras más pequeñas.`)}</p>}
