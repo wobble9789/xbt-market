@@ -168,7 +168,7 @@ The browser console exposes `window.xbt` (stores and relay pool) for debugging.
 | `npm run test:plan` | Walks through every item of `public/testplan.html` with three people (admin/arbiter, seller, buyer): accounts and password lock, admin approval, listings with photos, search and sorting, an escrow trade with real confirmations, recovery from relays with only the nsec, disputes, cancels, Lightning and on-chain direct payments, the AI assistant, node choice, backup and restore. Items that need real coins, real shop pages or a real phone are reported as "manual" |
 | `npm run test:import` | The bookmarklet against fake Vinted wardrobe, eBay list, JSON-LD product and paginated Marktplaats profile pages, through the real popup/postMessage handshake. Then a Marktplaats re-import (everything recognised) and a re-import after a price change and a removed ad |
 
-CI (`.github/workflows/pages.yml`) runs all four on every push, against a checksum-verified Knots release in headless Firefox, and deploys only when they pass. Screenshots and logs are uploaded as the `e2e-output` artifact.
+CI (`.github/workflows/pages.yml`) runs every suite on each pull request against a checksum-verified (and cached) Knots release, in Firefox desktop, Firefox phone and Chrome phone, each split into three parallel shards (escrow, test plan, the rest), so a run takes about as long as the test plan alone. A passing run marks its exact source tree as tested; when that tree lands on main it is built and deployed right away, and any other push to main runs the full suite first. Screenshots and logs are uploaded as `e2e-output-*` artifacts.
 
 To run them locally:
 
