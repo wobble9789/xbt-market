@@ -306,3 +306,26 @@ test('deadlines: the arbiter\'s at-fault splits give both deposits to the honest
   assert.equal(seller('refund'), 15_000);
   assert.equal(seller('release'), 115_000);
 });
+
+test('v2: the order itself names the arbiter, refund address and delivery address; the escrow exists at the accept', () => {
+  const arb = { pubkey: pk.arbiter, escrowBase: arbiterBase };
+  const shipTo = { name: 'B', street: 'Weg', number: '1', postalCode: '1234AB', city: 'Utrecht', country: 'NL' };
+  const log = [open2(), offer2({ arbiter: arb, buyer: { escrowPubkey: pubkeyOf(key('buyer')), payoutAddress: BUYER_ADDR }, shipTo }), accept2()];
+  const s = reduceTrade(TID, log, { arbiters, me: pk.arbiter });
+  assert.equal(s.version, 2);
+  assert.equal(s.errors.length, 0, s.errors.join());
+  assert.match(s.escrow.address, /^bc1q/);
+  assert.equal(s.role, 'arbiter');
+  assert.ok(s.checks.arbiterTrusted);
+  assert.equal(s.payout.buyer, BUYER_ADDR);
+  assert.equal(s.shipTo.city, 'Utrecht');
+  // A later arbiter choice changes nothing.
+  const later = reduceTrade(TID, [...log, details2()], { arbiters });
+  assert.equal(later.escrow.address, s.escrow.address);
+  assert.ok(later.errors.some((e) => e.includes('already chosen')));
+  // The seller's payout address may follow later; the buyer cannot be the arbiter.
+  assert.ok(reduceTrade(TID, [open2(), offer2({ arbiter: arb }), accept2(null)], { arbiters }).escrow);
+  assert.equal(reduceTrade(TID, [open2(), offer2({ arbiter: { pubkey: pk.buyer, escrowBase: arbiterBase } })], { arbiters }).offer, null);
+  // An untrusted arbiter is flagged for the seller.
+  assert.equal(reduceTrade(TID, log, { arbiters: new Map() }).checks.arbiterTrusted, false);
+});

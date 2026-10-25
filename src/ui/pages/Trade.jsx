@@ -29,6 +29,7 @@ import { Reputation, payLabel, payShort, useListing } from './Listing.jsx';
 import { OrderForm } from './Order.jsx';
 import { useMyTrades } from './Trades.jsx';
 import { publishListing } from './Sell.jsx';
+import { DEPOSIT_PCT } from '../../config.js';
 import { usePayoutPick, PayoutInput } from '../payout.jsx';
 import { markPayoutUsed } from '../../lib/payout.js';
 
@@ -198,7 +199,7 @@ function SplitEditor({ state, balance, purpose: initialPurpose, onDone, role }) 
       {valid && <p>{T('Buyer receives', 'El comprador recibe')}: <Coin sats={rest - sellerSats} /></p>}
       {fee > 0 && <p>{T(`Your fee (${feePct}%)`, `Tu comisión (${feePct}%)`)}: <Coin sats={fee} /></p>}
       {feeSats > 0 && !fee && <p class="hint">{T(`Your fee (${feePct}%, ${feeSats} sats) is too small to pay out on chain and is left out.`, `Tu comisión (${feePct}%, ${feeSats} sats) es demasiado pequeña para pagarla en cadena y se omite.`)}</p>}
-      {feePct > 0 && !feeAddress && <p class="notice warn small">{T('No fee: add your wallet key (or a payout address) under Account → Trading first.', 'Sin comisión: primero añade la clave de tu cartera (o una dirección de cobro) en Cuenta → Compraventa.')}</p>}
+      {feePct > 0 && !feeAddress && <p class="notice warn small">{T('No fee: add your wallet key (or a payout address) under Account → Getting paid first.', 'Sin comisión: primero añade la clave de tu cartera (o una dirección de cobro) en Cuenta → Cobrar.')}</p>}
       <p class="hint">{T('The network fee is shared in proportion to each amount.', 'La comisión de red se reparte en proporción a cada importe.')}</p>
       <Field label={T('Note', 'Nota')}><textarea rows="2" value={note} onInput={(e) => setNote(e.target.value)} /></Field>
       <div class="row">
@@ -459,6 +460,12 @@ function ShippingLine({ state }) {
   return <div><span>{T('Shipping', 'Envío')}: {carrier(shipCarrierOf(state)).name} → {countryName(sh.country)}</span><b>{sh.estimate ? '≈ ' : ''}{sh.price != null ? formatFiat(sh.price, sh.currency || 'EUR') : ''}</b></div>;
 }
 
+// Whether this user trusts the trade's arbiter (their own list, or the community's).
+function ArbiterBadge({ state, ok }) {
+  if (state.role === 'arbiter') return null;
+  return ok ? <span class="badge ok">✓ {T('you trust this arbiter', 'confías en este árbitro')}</span> : <span class="badge danger">⚠ {T('not one of your trusted arbiters', 'no es uno de tus árbitros de confianza')}</span>;
+}
+
 // The order, as both sides see it, with the seller's accept / reject.
 function OfferCard({ state, role }) {
   const s = settings.get();
@@ -472,11 +479,16 @@ function OfferCard({ state, role }) {
   const tm = state.terms;
   const escrow = state.payment === 'escrow';
   useEffect(() => { if (role === 'seller') reviewsAbout(state.participants.buyer).then((r) => setLimit(tradeLimitFor(r.verifiedTrades, s.tradeLimits))).catch(() => {}); }, []);
-  // A version 1 offer names its arbiter up front.
+  // An order may name its arbiter up front.
   useEffect(() => { if (state.arbiter && !state.checks.arbiterTrusted) refreshDirectory(0).catch(() => {}); }, [state.arbiter?.pubkey]);
-  const v1Arbiter = state.version === 1 && escrow ? state.arbiter : null;
   const { listings } = useStore(market);
   const listingNow = [...listings.values()].find((l) => l.coord === state.listing?.coord);
+  // An arbiter named in the order itself (always in version 1; in version 2
+  // when the buyer picked one of the listing's arbiters).
+  const offerArbiter = escrow && !state.accept ? state.arbiter : null;
+  const arbiterOk = !offerArbiter || (state.checks.arbiterTrusted && (!listingNow?.arbiters?.length || listingNow.arbiters.includes(offerArbiter.pubkey)));
+  // Both deposits are the fixed share of the price; an order that lowers the buyer's or raises the seller's is refused.
+  const depositOk = !escrow || (tm.buyerDepositSats >= Math.floor((tm.priceSats * DEPOSIT_PCT) / 100) && tm.sellerDepositSats <= Math.ceil((tm.priceSats * DEPOSIT_PCT) / 100));
   // Other orders for the same listing this seller already accepted and that are still running.
   const busy = useMyTrades().filter((t) => t.id !== state.tradeId && t.state.role === 'seller' && t.state.listing?.coord && t.state.listing.coord === state.listing?.coord
     && t.state.accept && !['rejected', 'cancelled', 'closed', 'completed'].includes(t.state.status)).length;
@@ -495,7 +507,8 @@ function OfferCard({ state, role }) {
         {escrow && <div class="muted small"><span>{T('Deposits', 'Depósitos')}: {T('buyer', 'comprador')} {formatCoin(tm.buyerDepositSats)} · {T('seller', 'vendedor')} {formatCoin(tm.sellerDepositSats)}</span></div>}
       </div>
       {o.note && <p class="quote">{o.note}</p>}
-      {v1Arbiter && <p>{T('Arbiter', 'Árbitro')}: <Name pk={v1Arbiter.pubkey} /> {state.checks.arbiterTrusted ? <span class="badge ok">✓ {T('approved', 'aprobado')}</span> : <span class="badge danger">{T('NOT an approved arbiter', 'NO es un árbitro aprobado')}</span>}</p>}
+      {offerArbiter && <p>{T('Arbiter', 'Árbitro')}: <Name pk={offerArbiter.pubkey} /> <ArbiterBadge state={state} ok={arbiterOk} /></p>}
+      {role === 'seller' && !depositOk && state.status === 'offered' && <p class="notice danger">{T(`The deposits in this order are not ${DEPOSIT_PCT}% each. Do not accept; ask the buyer to order again.`, `Los depósitos de este pedido no son del ${DEPOSIT_PCT}% cada uno. No aceptes; pide al comprador que vuelva a pedir.`)}</p>}
       {role === 'seller' && limit != null && escrow && tm.priceSats > limit && <p class="notice warn">{T(`This buyer has few verified trades; the community limit for them is ${formatCoin(limit)}.`, `Este comprador tiene pocas compras verificadas; el límite de la comunidad para él es ${formatCoin(limit)}.`)}</p>}
       {state.status === 'offered' && role === 'seller' && (
         <>
@@ -515,7 +528,7 @@ function OfferCard({ state, role }) {
             </div>
           ) : (
             <div class="row">
-              <Action class="primary" disabled={!ok || (v1Arbiter && !state.checks.arbiterTrusted)} onClick={async () => { await acceptOffer(state, escrow ? payout : ''); if (escrow) markPayoutUsed(pick, payout); }}>✓ {T('Accept', 'Aceptar')}</Action>
+              <Action class="primary" disabled={!ok || !arbiterOk || !depositOk} onClick={async () => { await acceptOffer(state, escrow ? payout : ''); if (escrow) markPayoutUsed(pick, payout); }}>✓ {T('Accept', 'Aceptar')}</Action>
               <button class="btn danger ghost" onClick={() => setRejecting(true)}>{T('Reject', 'Rechazar')}</button>
             </div>
           )}
@@ -527,7 +540,7 @@ function OfferCard({ state, role }) {
           <Action class="ghost small" onClick={() => cancelTrade(state, '')}>{T('Withdraw order', 'Retirar pedido')}</Action>
         </div>
       )}
-      {v1Arbiter && !state.checks.arbiterTrusted && role === 'seller' && <p class="notice danger">{T('Do not accept: the arbiter or its escrow key is not on your trusted list.', 'No aceptes: el árbitro o su clave de escrow no está en tu lista de confianza.')}</p>}
+      {offerArbiter && !arbiterOk && role === 'seller' && <p class="notice danger">{T('You cannot accept: this arbiter is not one of the arbiters you trust and accept for this listing. Ask the buyer in the chat to order again with one of yours.', 'No puedes aceptar: este árbitro no es uno de los que aceptas para este anuncio. Pide al comprador en el chat que vuelva a pedir con uno de los tuyos.')}</p>}
     </div>
   );
 }
@@ -637,14 +650,14 @@ function ChangeBox({ state, role, funded }) {
   if (!options.length) return null;
   if (!open) return <button class="btn ghost small" onClick={() => { setOpen(true); setMethod(options[0]); }}>🔁 {T('Change payment method', 'Cambiar método de pago')}</button>;
   const p = state.terms.priceSats;
-  const sdPct = state.offer.listing.sellerDepositPct ?? s.sellerDepositPct;
+
   return (
     <div class="card change-box">
       <h4>🔁 {T('Ask to pay another way', 'Pedir pagar de otra forma')}</h4>
       <p class="small">{T('Now', 'Ahora')}: <b>{payShort(current)}</b>. {T('The other side has to agree.', 'La otra parte tiene que aceptar.')}</p>
       <div class="choices">{options.map((m) => <label key={m} class={`choice ${method === m ? 'on' : ''}`}><input type="radio" name="chg" checked={method === m} onChange={() => setMethod(m)} /><span>{payLabel(m)}</span></label>)}</div>
       <div class="row">
-        <Action class="primary" disabled={!method} onClick={async () => { await requestChange(state, { method, buyerDepositSats: Math.round((p * s.buyerDepositPct) / 100), sellerDepositSats: Math.round((p * sdPct) / 100) }); setOpen(false); }}>{T('Ask', 'Pedir')}</Action>
+        <Action class="primary" disabled={!method} onClick={async () => { await requestChange(state, { method, buyerDepositSats: Math.round((p * DEPOSIT_PCT) / 100), sellerDepositSats: Math.round((p * DEPOSIT_PCT) / 100) }); setOpen(false); }}>{T('Ask', 'Pedir')}</Action>
         <button class="btn ghost" onClick={() => setOpen(false)}>{T('Cancel', 'Cancelar')}</button>
       </div>
     </div>
@@ -1025,7 +1038,7 @@ export function TradePage({ tradeId, query = {} }) {
       {o && <ChangeBox state={state} role={role} funded={fullyFunded} />}
       {o && <DetailsForm state={state} role={role} />}
       {state.arbiter && !state.checks.arbiterTrusted && role === 'seller' && !state.broadcasts.length && <p class="notice danger">{T('The buyer chose an arbiter who is not on your trusted list. Do not pay your deposit; cancel the trade or ask in the chat.', 'El comprador eligió un árbitro que no está en tu lista de confianza. No pagues tu depósito; cancela la compra o pregunta en el chat.')}</p>}
-      {state.arbiter && <p class="small muted">{T('Arbiter', 'Árbitro')}: <Name pk={state.arbiter.pubkey} /> {state.checks.arbiterTrusted ? <span class="badge ok">✓ {T('approved', 'aprobado')}</span> : <span class="badge danger">{T('not approved', 'no aprobado')}</span>}</p>}
+      {state.arbiter && state.accept && <p class="small muted">{T('Arbiter', 'Árbitro')}: <Name pk={state.arbiter.pubkey} /> <ArbiterBadge state={state} ok={state.checks.arbiterTrusted} /></p>}
       {state.shipped && isServiceTrade(state) && <p class="notice ok">✅ {T('The seller marked the job as done.', 'El vendedor ha marcado el trabajo como hecho.')} {state.shipped.note}</p>}
       {state.shipped && !isServiceTrade(state) && <p class="notice ok">📦 {carrier(state.shipped.carrier).pickup ? T('Handed over', 'Entregado') : <>{T('Shipped with', 'Enviado con')} {carrier(state.shipped.carrier).name}</>}{state.shipped.tracking && <> · <b>{state.shipped.tracking}</b> <Copy text={state.shipped.tracking} />{trackingUrl(state.shipped.carrier, state.shipped.tracking) && <> <a class="btn small" href={trackingUrl(state.shipped.carrier, state.shipped.tracking)} target="_blank" rel="noopener noreferrer">{T('Track', 'Seguir')}</a></>}</>} {state.shipped.note && `· ${state.shipped.note}`}</p>}
       {label && role === 'seller' && !state.shipped && <LabelCard label={label} />}

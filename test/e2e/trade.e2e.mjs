@@ -175,10 +175,15 @@ try {
   await fillPh(await as('seller'), 'xpub… / ypub… / zpub…', sellerDesc);
   await click(await as('seller'), 'Save wallet key');
   await waitText(await as('seller'), 'Wallet linked.');
-  await waitText(await as('seller'), firstAddr);
-  await waitText(await as('seller'), 'Your next trade gets');
-  // Why this address: either #0 itself (never used) or the first after the used ones.
-  await (await as('seller')).waitForFunction(() => /it has never been used, so it comes first|addresses are used already, so this is address \d+/.test(document.querySelector('main').innerText), { timeout: 30000 });
+  // The check: the first two unused receiving addresses, as the wallet app shows them.
+  await (await as('seller')).waitForFunction(() => document.querySelectorAll('.wallet-check code').length === 2 && [...document.querySelectorAll('.wallet-check code')].every((c) => /^bcrt1/.test(c.textContent)), { timeout: 30000 });
+  const unused = await (await as('seller')).$$eval('.wallet-check code', (cs) => cs.map((c) => c.textContent.trim()));
+  for (const a of unused) {
+    if (!JSON.parse(cli('getaddressinfo', a)).ismine) throw new Error(`${a} is not from the seller's wallet`);
+    if (JSON.parse(cli('listreceivedbyaddress', '0', 'true', 'true', a))[0]?.txids?.length) throw new Error(`${a} was used before`);
+  }
+  if (unused[0] === unused[1]) throw new Error('first and second unused address are the same');
+  void firstAddr;
   await waitText(await as('seller'), 'Unlink wallet');
   await shot(await as('seller'), 'Verkoper: wallet-sleutel ingesteld; eerste adres ter controle en het adres voor de volgende trade');
 
@@ -189,7 +194,7 @@ try {
   await pickSubcategory(await as('seller'));
   await fill(await as('seller'), 'Price', '25');
   await choose(await as('seller'), '🛡 Escrow');
-  await waitText(await as('seller'), 'Your escrow deposit');
+  await waitText(await as('seller'), 'Arbiters you accept for escrow');
   await shot(await as('seller'), 'Verkoper: nieuwe advertentie met categorie + subcategorie, land, vervoerders zonder prijs, Lightning standaard aan en escrow aangevinkt (borgveld verschijnt)');
   await click(await as('seller'), 'Publish');
   await waitText(await as('seller'), 'Trezor Model One, sealed');
@@ -223,9 +228,13 @@ try {
   await waitText(await as('buyer'), 'You pay into escrow');
   await choose(await as('buyer'), 'PostNL');
   const priceVal = await (await as('buyer')).$eval('.order-form input[inputmode="decimal"]', (e) => e.value);
-  const pageText = await text(await as('buyer'));
-  if (/Delivery address|Arbiter|refund/i.test(pageText.split('Messages')[0])) throw new Error('the order form asks for address, arbiter or refund address');
-  await shot(await as('buyer'), 'Koper: bestellen vanuit de chat: alleen betaalmethode, land + vervoerder met prijs, prijs en bericht; escrow-berekening zichtbaar, geen adres/arbiter');
+  // The order names the arbiter (one the seller accepts), the refund address and
+  // the delivery address from the account: nothing to send after the accept.
+  await (await as('buyer')).waitForFunction(() => [...document.querySelectorAll('.order-form select')].some((s) => s.textContent.includes('Alice Arbiter')), { timeout: 30000 });
+  await waitText(await as('buyer'), 'Kerkstraat 1');
+  const buyerAddr = cli('getnewaddress', 'buyer', 'bech32');
+  await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
+  await shot(await as('buyer'), 'Koper: bestellen: betaalmethode, vervoerder, bod, arbiter van de verkoper, terugbetaaladres en verzendadres uit het account; overzicht met bod, verzending, borg en totaal');
   await shot(await as('buyer'), 'Koper: hetzelfde bestelformulier op een telefoon', true);
   console.log('suggested price XBT', priceVal);
   await click(await as('buyer'), 'Send order');
@@ -238,17 +247,10 @@ try {
   const sellerAddr = await prefilledPayout(await as('seller'));
   console.log('fresh payout address', sellerAddr);
   await click(await as('seller'), '✓ Accept');
-  await waitText(await as('seller'), 'Waiting for the buyer to choose an arbiter');
-
-  step('buyer sends address, arbiter and refund address');
-  await waitText(await as('buyer'), 'A few details for the seller', 30000);
-  await (await as('buyer')).waitForFunction(() => [...document.querySelectorAll('.details-form select')].some((s) => s.textContent.includes('Alice Arbiter')), { timeout: 30000 });
-  const buyerAddr = cli('getnewaddress', 'buyer', 'bech32');
-  await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
-  await shot(await as('buyer'), 'Koper: na accepteren pas adres (vooraf ingevuld), arbiter en terugbetaaladres');
-  await click(await as('buyer'), 'Send details');
-  await waitText(await as('buyer'), 'Total needed', 30000);
+  // The escrow exists at once: no details step.
   await waitText(await as('seller'), 'Total needed', 30000);
+  await waitText(await as('buyer'), 'Total needed', 30000);
+  if ((await text(await as('buyer'))).includes('A few details for the seller')) throw new Error('the buyer is still asked for details');
 
   step('both fund the escrow');
   await waitText(await as('buyer'), 'Total needed');
@@ -343,6 +345,8 @@ try {
   const tid2 = await tradeId(await as('buyer'));
   await choose(await as('buyer'), '🛡 Escrow');
   await choose(await as('buyer'), '🤝 Pick up');
+  if ((await text(await as('buyer'))).includes('Ship to')) throw new Error('pick-up must not show a delivery address');
+  await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
   await click(await as('buyer'), 'Send order');
   await waitText(await as('buyer'), 'Waiting for the seller to accept');
   await go(await as('seller'), `#/trade/${tid2}`);
@@ -350,12 +354,6 @@ try {
   const sellerAddr2 = await prefilledPayout(await as('seller'));
   if (sellerAddr2 === sellerAddr) throw new Error('the second trade got the same payout address');
   await click(await as('seller'), '✓ Accept');
-  await waitText(await as('seller'), 'Waiting for the buyer to choose an arbiter', 30000);
-  await waitText(await as('buyer'), 'A few details for the seller', 30000);
-  await (await as('buyer')).waitForFunction(() => [...document.querySelectorAll('.details-form select')].some((s) => s.textContent.includes('Alice Arbiter')), { timeout: 30000 });
-  if ((await text(await as('buyer'))).includes('Delivery address')) throw new Error('pick-up must not ask for an address');
-  await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
-  await click(await as('buyer'), 'Send details');
   await waitText(await as('buyer'), 'Total needed', 30000);
   // The seller's app forwards its accept to the arbiter, who joined after it.
   await waitText(await as('seller'), 'Total needed', 30000);
@@ -414,18 +412,14 @@ try {
     const id = await tradeId(await as('buyer'));
     await choose(await as('buyer'), '🛡 Escrow');
     await choose(await as('buyer'), 'PostNL');
+    await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
     await click(await as('buyer'), 'Send order');
     await waitText(await as('buyer'), 'Waiting for the seller to accept');
     await go(await as('seller'), `#/trade/${id}`);
     await waitText(await as('seller'), 'Order from', 30000);
     const payoutTo = await prefilledPayout(await as('seller'));
     await click(await as('seller'), '✓ Accept');
-    await waitText(await as('seller'), 'Waiting for the buyer to choose an arbiter', 30000);
     await go(await as('buyer'), `#/trade/${id}`);
-    await waitText(await as('buyer'), 'A few details for the seller', 30000);
-    await (await as('buyer')).waitForFunction(() => [...document.querySelectorAll('.details-form select')].some((s) => s.textContent.includes('Alice Arbiter')), { timeout: 30000 });
-    await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
-    await click(await as('buyer'), 'Send details');
     await waitText(await as('buyer'), 'Total needed', 30000);
     await waitText(await as('seller'), 'Total needed', 30000);
     await sleep(3000);

@@ -30,12 +30,40 @@ async function addAllPhotos(items) {
   await Promise.all([work(), work(), work(), work()]);
 }
 
+// The listings in the address of XBT Market's import page, compressed where
+// the browser can (phones limit how long an address may be).
+async function packed(payload) {
+  const json = JSON.stringify(payload);
+  if (typeof CompressionStream !== 'function') return 'data=' + encodeURIComponent(json);
+  const stream = new Blob([json]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return 'z=' + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// A note on the shop page while the listings are read (that can take a while).
+function note(text) {
+  let el = document.getElementById('xbt-import-note');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'xbt-import-note';
+    el.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483647;padding:14px 16px;border-radius:12px;background:#1d1a14;color:#f4d27a;font:16px/1.4 system-ui,sans-serif;box-shadow:0 4px 20px rgba(0,0,0,.4)';
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+}
+
 (async () => {
   const APP = '__XBT_APP__';
   const host = location.hostname;
   const here = location.href;
+  // Phones block or bury pop-ups: there XBT Market opens in this same tab.
+  const phone = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const goHere = async (payload) => { location.href = APP + '#/import?from=bookmarklet&' + await packed(payload); };
+  note('XBT Market: reading your listings…');
 
-  const win = window.open(APP + '#/import?from=bookmarklet', 'xbtmarket');
+  const win = phone ? null : window.open(APP + '#/import?from=bookmarklet', 'xbtmarket');
   let ready = false;
   let payload = null;
   const send = () => { if (ready && payload && win) win.postMessage({ type: 'xbt-import', payload }, new URL(APP).origin); };
@@ -139,22 +167,24 @@ async function addAllPhotos(items) {
   const clean = dedupeItems(items);
   if (!clean.length) {
     win?.close();
+    document.getElementById('xbt-import-note')?.remove();
     alert('XBT Market: no listings found on this page. Open your public Marktplaats profile (marktplaats.nl/u/…), your Vinted profile (vinted.xx/member/…) or one ad, and tap the bookmark again. Or copy the link and paste it on the XBT Market import page.');
     return;
   }
   payload = { v: BOOKMARKLET_VERSION, source: host, platform: platform || host.replace(/^www\./, ''), complete, page: here, at: Date.now(), items: clean };
-  // Pop-up blocked (common on phones): open XBT Market in this tab instead,
-  // with the listings in the address, so no pop-up permission is needed.
+  note(`XBT Market: ${clean.length} listings found, opening XBT Market…`);
+  // No pop-up (a phone, or one that was blocked): XBT Market opens in this
+  // tab, with the listings in the address.
   if (!win || win.closed) {
-    location.href = APP + '#/import?from=bookmarklet&data=' + encodeURIComponent(JSON.stringify(payload));
+    await goHere(payload);
     return;
   }
   send();
   try { await navigator.clipboard.writeText(JSON.stringify(payload)); } catch { /* not allowed without focus */ }
   // No answer from the XBT Market tab (blocked or not opened): go there in this tab.
   setTimeout(() => {
-    if (ready) return;
+    if (ready) { document.getElementById('xbt-import-note')?.remove(); return; }
     try { win?.close(); } catch { /* ignore */ }
-    location.href = APP + '#/import?from=bookmarklet&data=' + encodeURIComponent(JSON.stringify(payload));
+    goHere(payload);
   }, 6000);
 })();

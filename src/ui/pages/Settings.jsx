@@ -8,19 +8,18 @@ import { useProfile } from '../../lib/nostr/profiles.js';
 import { useUsername } from '../../lib/nostr/names.js';
 import { isValidAddress } from '../../lib/btc/address.js';
 import { CURRENCIES } from '../../lib/countries.js';
-import { DEFAULTS, ESPLORA_PRESETS } from '../../config.js';
+import { DEFAULTS, ESPLORA_PRESETS, DEFAULT_ARBITERS } from '../../config.js';
 import { Esplora, normalizeNodeUrl } from '../../lib/btc/esplora.js';
 import { secretNames } from '../../lib/secrets.js';
 import { connectWallet, disconnectWallet, walletConnected, walletBalance, walletLud16 } from '../../lib/ln/wallet.js';
 import { aiConfigured, saveAiKey } from '../../lib/ai/listing.js';
 import { T, LANGS } from '../i18n.js';
-import { Action, Field, Copy, Avatar, Name, AddressForm, toast, toastError } from '../components.jsx';
+import { Action, Field, Copy, Avatar, Name, AddressForm, addressComplete, toast, toastError } from '../components.jsx';
 import { InstallGuide } from '../install.jsx';
 import { ProfileForm } from './EditProfile.jsx';
 import { blocks, unblock } from '../../lib/nostr/moderation.js';
 import { BugReport } from '../report.jsx';
-import { saveWalletKey, walletKeyConfigured, loadWallet } from '../../lib/payout.js';
-import { deriveAddress } from '../../lib/btc/xpub.js';
+import { saveWalletKey, walletKeyConfigured, unusedOnChain } from '../../lib/payout.js';
 import { usePayoutPick } from '../payout.jsx';
 
 function AccountHead() {
@@ -226,20 +225,22 @@ function WalletKey() {
   const [saved, setSaved] = useState(null); // { first, assumed }
   const on = walletKeyConfigured();
   const pick = usePayoutPick(on);
-  const wallet = on ? loadWallet() : null;
-  const first = wallet ? deriveAddress(wallet, 0, network) : '';
+  // What the user's own wallet app should show as its next receiving addresses.
+  const [unused, setUnused] = useState(null);
+  useEffect(() => { setUnused(null); if (on) unusedOnChain(2).then(setUnused).catch(() => setUnused([])); }, [on, network]);
   return (
     <Field group label={T('Your XBT wallet', 'Tu cartera XBT')}>
       <p class="hint">{T('Paste your wallet\'s public key. XBT Market then uses a new address from your wallet for every trade, so nobody can link your payments.', 'Pega la clave pública de tu cartera. XBT Market usará entonces una dirección nueva de tu cartera en cada compra, para que nadie pueda relacionar tus pagos.')}</p>
       {on ? (
         <>
           <p class="small ok-text">✓ {T('Wallet linked.', 'Cartera vinculada.')}</p>
-          <p class="small">{T('Check: this must be the first receiving address in your wallet', 'Comprueba: esta debe ser la primera dirección de recepción de tu cartera')}:<br /><code class="break">{first}</code></p>
-          {saved?.assumed && <p class="notice warn small">{T('Your key does not say which address type your wallet uses, so bc1q… addresses are assumed. Is the address above not in your wallet? Paste the "output descriptor" from your wallet instead.', 'Tu clave no dice qué tipo de dirección usa tu cartera, así que se suponen direcciones bc1q…. ¿La dirección de arriba no está en tu cartera? Pega en su lugar el «output descriptor» de tu cartera.')}</p>}
-          <p class="small">{T('Your next trade gets', 'Tu próxima compra recibe')}: {pick?.address ? <code class="break">{pick.address}</code> : '…'}</p>
-          {pick && !pick.fixed && <p class="hint">{pick.index === 0
-            ? T('That is the same first address: it has never been used, so it comes first.', 'Es la misma primera dirección: nunca se ha usado, así que va primero.')
-            : T(`Your first ${pick.index} addresses are used already, so this is address ${pick.index + 1}.`, `Tus primeras ${pick.index} direcciones ya se usaron, así que esta es la dirección ${pick.index + 1}.`)}</p>}
+          <p class="small">{T('We advise you to check this in your wallet app:', 'Te aconsejamos comprobar esto en tu app de cartera:')}</p>
+          <table class="amounts small wallet-check"><tbody>
+            <tr><td>{T('First unused receiving address', 'Primera dirección de recepción sin usar')}</td><td><code class="break">{unused?.[0]?.address || '…'}</code></td></tr>
+            <tr><td>{T('Second unused receiving address', 'Segunda dirección de recepción sin usar')}</td><td><code class="break">{unused?.[1]?.address || '…'}</code></td></tr>
+          </tbody></table>
+          {saved?.assumed && <p class="notice warn small">{T('Your key does not say which address type your wallet uses, so bc1q… addresses are assumed. Do these not match your wallet? Paste the "output descriptor" from your wallet instead.', 'Tu clave no dice qué tipo de dirección usa tu cartera, así que se suponen direcciones bc1q…. ¿No coinciden con tu cartera? Pega en su lugar el «output descriptor» de tu cartera.')}</p>}
+          {pick && !pick.fixed && unused?.[0] && pick.address !== unused[0].address && <p class="hint">{T(`Your next trade gets ${pick.address}: the earlier unused ones are waiting in open trades.`, `Tu próxima compra recibe ${pick.address}: las anteriores sin usar esperan en compras abiertas.`)}</p>}
           <Action class="small ghost" confirm={T('Unlink your wallet from XBT Market in this browser? Your wallet and its coins are not touched.', '¿Desvincular tu cartera de XBT Market en este navegador? Tu cartera y sus monedas no se tocan.')} onClick={async () => { saveWalletKey(''); setSaved(null); }}>{T('Unlink wallet', 'Desvincular cartera')}</Action>
         </>
       ) : (
@@ -398,11 +399,13 @@ export function Settings({ query }) {
       <h2 class="section-title">{T('Full setup (optional)', 'Configuración completa (opcional)')}</h2>
       <p class="hint">{T('You can buy and sell without any of this. Open a section when you need it. Changes are saved as you make them, except where a Save button is shown.', 'Puedes comprar y vender sin nada de esto. Abre una sección cuando la necesites. Los cambios se guardan al hacerlos, salvo donde hay un botón de guardar.')}</p>
 
-      <Section icon="🤝" title={T('Trading', 'Compraventa')} summary={walletKeyConfigured() ? T('✓ wallet linked · your address', '✓ cartera vinculada · tu dirección') : T('your wallet, your address', 'tu cartera, tu dirección')} open={openSet.has('trading')}>
+      <Section icon="💰" title={T('Getting paid', 'Cobrar')} summary={walletKeyConfigured() ? T('✓ wallet linked', '✓ cartera vinculada') : T('link your XBT wallet', 'vincula tu cartera XBT')} open={openSet.has('trading')}>
         <WalletKey />
         <FixedAddress />
-        <h4>{T('Your address', 'Tu dirección')}</h4>
-        <p class="hint">{T('Used as sender on shipping labels and pre-filled as delivery address when you buy. Only shared, encrypted, with the other party of a trade.', 'Se usa como remitente en las etiquetas de envío y se rellena como dirección de entrega al comprar. Solo se comparte, cifrada, con la otra parte de una compra.')}</p>
+      </Section>
+
+      <Section icon="📦" title={T('Shipping address', 'Dirección de envío')} summary={addressComplete(s.address) ? T('✓ filled in', '✓ rellenada') : T('needed to have things shipped', 'necesaria para recibir envíos')} open={openSet.has('address')}>
+        <p class="hint">{T('Where sellers ship your orders, and the sender address on your own shipping labels. It goes, encrypted, only to the other side of a trade.', 'Donde los vendedores envían tus pedidos, y el remitente de tus propias etiquetas. Solo va, cifrada, a la otra parte de una compra.')}</p>
         <AddressForm value={s.address} onChange={(address) => updateSettings({ address })} />
       </Section>
 
@@ -416,7 +419,8 @@ export function Settings({ query }) {
 
       <Section icon="🛡" title={T('Trusted arbiters', 'Árbitros de confianza')} summary={T('in addition to the community list', 'además de la lista de la comunidad')} open={openSet.has('arbiters')}>
         <p class="hint">{T('In addition to the community list. Only add people you know.', 'Además de la lista de la comunidad. Añade solo a personas que conozcas.')}</p>
-        {(s.trustedArbiters || []).map((pk) => <div class="row" key={pk}><code class="small">{npub(pk).slice(0, 24)}…</code><button class="btn small ghost" onClick={() => { updateSettings({ trustedArbiters: s.trustedArbiters.filter((x) => x !== pk) }); loadDirectory(); }}>×</button></div>)}
+        {DEFAULT_ARBITERS.map((pk) => <div class="row" key={pk}><Name pk={pk} avatar={false} /> <span class="badge">{T('default', 'por defecto')}</span></div>)}
+        {(s.trustedArbiters || []).filter((pk) => !DEFAULT_ARBITERS.includes(pk)).map((pk) => <div class="row" key={pk}><code class="small">{npub(pk).slice(0, 24)}…</code><button class="btn small ghost" onClick={() => { updateSettings({ trustedArbiters: s.trustedArbiters.filter((x) => x !== pk) }); loadDirectory(); }}>×</button></div>)}
         <div class="row">
           <input value={arb} onInput={(e) => setArb(e.target.value)} placeholder="npub1…" />
           <button class="btn" onClick={() => { try { const pk = toPubkey(arb); updateSettings({ trustedArbiters: [...new Set([...(s.trustedArbiters || []), pk])] }); setArb(''); loadDirectory(); } catch (e) { toastError(e); } }}>{T('Add', 'Añadir')}</button>

@@ -8,14 +8,16 @@ import { listingTemplate, parseListing, newListingId, CONDITIONS, PAYMENT_METHOD
 import { SHIP_CARRIERS, DEFAULT_CARRIERS, optionsFor } from '../../lib/shipping.js';
 import { isService, normalizeCategory, PRICE_UNITS, DEFAULT_CATEGORY, loadCategoryTree } from '../../lib/categories.js';
 import { CURRENCIES } from '../../lib/countries.js';
+import { DEPOSIT_PCT } from '../../config.js';
 import { aiConfigured, draftListing } from '../../lib/ai/listing.js';
 import { secretNames } from '../../lib/secrets.js';
 import { payLabel } from './Listing.jsx';
 import { uploadImage } from '../../lib/nostr/blossom.js';
 import { settings } from '../../lib/settings.js';
+import { directory, refreshDirectory, arbiterFeeLabel } from '../../lib/nostr/directory.js';
 import { navigate } from '../router.js';
 import { T, CONDITION_LABELS, PRICE_UNIT_LABELS, label } from '../i18n.js';
-import { Action, Field, Img, Empty, toast, toastError, Spinner } from '../components.jsx';
+import { Action, Field, Img, Empty, toast, toastError, Spinner, Name } from '../components.jsx';
 import { CountrySelect, ShipsToPicker } from '../countries.jsx';
 import { CategoryPicker, useCategoryTree, modelsFor } from '../categories.jsx';
 import { ListingCard } from './Browse.jsx';
@@ -101,6 +103,8 @@ const SIZE_LABEL = {
 export function EditListing({ d }) {
   const { listings } = useStore(market);
   const me = useStore(account, (a) => a.pubkey);
+  const dir = useStore(directory);
+  useEffect(() => { refreshDirectory().catch(() => {}); }, []);
   const profile = useProfile(me);
   const existing = d ? [...listings.values()].find((l) => l.pubkey === me && l.d === d) : null;
   const s = settings.get();
@@ -112,7 +116,7 @@ export function EditListing({ d }) {
     packageSize: existing.packageSize || 'M',
   } : {
     d: newListingId(), title: '', content: '', price: '', currency: s.currency, category: DEFAULT_CATEGORY, subcategory: '', model: '', condition: 'good', priceUnit: '',
-    country: myCountry, city: '', shipsTo: myCountry ? [myCountry] : [], sellerDepositPct: s.sellerDepositPct, images: [], status: 'active',
+    country: myCountry, city: '', shipsTo: myCountry ? [myCountry] : [], images: [], status: 'active',
     carriers: [...DEFAULT_CARRIERS], pickup: true, packageSize: 'M', payments: [...DEFAULT_PAYMENTS],
   });
   const tree = useCategoryTree();
@@ -137,6 +141,9 @@ export function EditListing({ d }) {
 
   const service = isService(f.category);
   const escrow = f.payments?.includes('escrow');
+  // Escrow: the arbiters this seller accepts. Until chosen, all the seller trusts.
+  const trusted = [...dir.arbiters.keys()].filter((pk) => pk !== me);
+  const chosenArbiters = (f.arbiters?.length ? f.arbiters : trusted).filter((pk) => trusted.includes(pk));
   const subs = tree?.get(f.category) || [];
   const models = modelsFor(tree, f.category, f.subcategory);
 
@@ -150,10 +157,11 @@ export function EditListing({ d }) {
     if (!f.country) throw new Error(T('Choose the country the item is in', 'Elige el país donde está el artículo'));
     if (!f.payments?.length) throw new Error(T('Choose at least one payment method', 'Elige al menos un método de pago'));
     if (!service && !f.pickup && !f.carriers.length) throw new Error(T('Offer pick-up or at least one carrier', 'Ofrece recogida o al menos un transportista'));
+    if (escrow && !chosenArbiters.length) throw new Error(T('Escrow needs at least one arbiter you trust', 'El escrow necesita al menos un árbitro de tu confianza'));
     const shippingOptions = service ? [] : [...(f.pickup ? [{ id: 'pickup', price: 0 }] : []), ...f.carriers.map((id) => ({ id }))];
     await publishListing({
       ...f, title: f.title.trim(), price, shippingOptions, shippingCost: null, location: '', status,
-      sellerDepositPct: escrow ? Number(f.sellerDepositPct) || 0 : null,
+      arbiters: escrow ? chosenArbiters : [],
       // A service has no condition or delivery; goods have no price per hour.
       condition: service ? '' : f.condition, shipsTo: service || !f.carriers.length ? [] : f.shipsTo, packageSize: service || !f.carriers.length ? '' : f.packageSize,
       priceUnit: service ? f.priceUnit || '' : '',
@@ -253,8 +261,18 @@ export function EditListing({ d }) {
         </div>
       </Field>
       {escrow && (
-        <Field label={T('Your escrow deposit (%)', 'Tu depósito de escrow (%)')} hint={T('Shows buyers you have skin in the game; returned when the trade completes.', 'Muestra a los compradores que tú también arriesgas algo; se devuelve al terminar la compra.')}>
-          <input type="number" min="0" max="100" value={f.sellerDepositPct ?? s.sellerDepositPct} onInput={set('sellerDepositPct')} />
+        <Field group label={T('Arbiters you accept for escrow', 'Árbitros que aceptas para el escrow')} hint={T('If something goes wrong, one of them decides. The buyer picks one from this list when ordering.', 'Si algo sale mal, uno de ellos decide. El comprador elige uno de esta lista al pedir.')}>
+          {!dir.loaded ? <Spinner /> : !trusted.length ? <p class="notice warn small">{T('You trust no arbiters yet. Add one under Account → Trusted arbiters.', 'Aún no confías en ningún árbitro. Añade uno en Cuenta → Árbitros de confianza.')}</p> : (
+            <div class="choices">
+              {trusted.map((pk) => (
+                <label key={pk} class={`choice ${chosenArbiters.includes(pk) ? 'on' : ''}`}>
+                  <input type="checkbox" checked={chosenArbiters.includes(pk)} onChange={() => setF((cur) => { const now = cur.arbiters?.length ? cur.arbiters : trusted; return { ...cur, arbiters: now.includes(pk) ? now.filter((x) => x !== pk) : [...now, pk] }; })} />
+                  <span><Name pk={pk} link={false} avatar={false} /> <span class="muted small">{arbiterFeeLabel(dir.announcements.get(pk))}</span></span>
+                </label>
+              ))}
+            </div>
+          )}
+          <p class="hint">{T(`Both you and the buyer put a ${DEPOSIT_PCT}% deposit into the escrow; both get it back when the trade completes.`, `Tú y el comprador ponéis un depósito del ${DEPOSIT_PCT}% en el escrow; ambos lo recuperáis al terminar la compra.`)}</p>
         </Field>
       )}
       <div class="row">

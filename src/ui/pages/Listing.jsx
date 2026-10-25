@@ -4,7 +4,7 @@ import { market, upsertLocal } from '../../lib/market.js';
 import { decodeListingRef, parseListing, LISTING_KIND } from '../../lib/nostr/listings.js';
 import { query, latestBy } from '../../lib/nostr/pool.js';
 import { account } from '../../lib/nostr/account.js';
-import { directory } from '../../lib/nostr/directory.js';
+import { directory, sharedArbiters } from '../../lib/nostr/directory.js';
 import { blocks, blockCounts, loadBlockCounts, suspension, isBlockedBy } from '../../lib/nostr/moderation.js';
 import { reviewsAbout } from '../../lib/nostr/reviews.js';
 import { settings } from '../../lib/settings.js';
@@ -39,6 +39,21 @@ const PAY_LABEL = {
 export const payLabel = (p) => T(...(PAY_LABEL[p] || [p, p]));
 const PAY_SHORT = { lightning: 'Lightning', onchain: 'On-chain', escrow: 'Escrow' };
 export const payShort = (p) => PAY_SHORT[p] || p;
+
+// The arbiters a seller accepts for escrow, marking the ones this user trusts too.
+function ArbitersLine({ listing }) {
+  const dir = useStore(directory);
+  const me = useStore(account, (a) => a.pubkey);
+  if (listing.pubkey === me || !dir.loaded) return null;
+  const shared = sharedArbiters(listing, dir, me);
+  return (
+    <div class={`small arbiters-line ${shared.length ? 'ok-text' : 'error'}`}>
+      🛡 {shared.length
+        ? <>{T('Escrow possible: you both trust', 'Escrow posible: ambos confiáis en')} {shared.map((pk, i) => <span key={pk}>{i ? ', ' : ''}<Name pk={pk} avatar={false} /></span>)} ✓</>
+        : T('Escrow not possible for you: you trust none of the arbiters this seller accepts.', 'Escrow no posible para ti: no confías en ninguno de los árbitros que acepta este vendedor.')}
+    </div>
+  );
+}
 
 // A listing by its coordinate, from the feed or straight from the relays.
 export function useListing(coord) {
@@ -134,6 +149,7 @@ export function ListingPage({ naddr }) {
           </div>
         )}
         <div class="muted small">{T('Payment', 'Pago')}: {listing.payments.map(payShort).join(' · ')}</div>
+        {listing.payments.includes('escrow') && <ArbitersLine listing={listing} />}
         <div class="seller"><Name pk={listing.pubkey} /> <Reputation pk={listing.pubkey} /> <FollowButton pk={listing.pubkey} /></div>
         <p class="description">{listing.content}</p>
         {listing.source && <p class="muted small">{T('Also listed at', 'También anunciado en')} <a href={listing.source} target="_blank" rel="noopener noreferrer">{listing.importedFrom || new URL(listing.source).hostname}</a></p>}

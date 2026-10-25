@@ -49,7 +49,7 @@ export function PayoutInput({ pick, value, onChange, network, label, hint }) {
       <input value={value} onInput={(e) => onChange(e.target.value)} placeholder="bc1q…" class={value && !ok ? 'invalid' : ''} />
       {fresh && <span class="small ok-text">✓ {T(`A new address from your wallet (#${pick.index}), used nowhere else.`, `Una dirección nueva de tu cartera (#${pick.index}), sin usar en ningún otro sitio.`)}</span>}
       {seen && <span class="small error">⚠ {T('This address has been used before. Others can then link your payments: use a new one from your wallet.', 'Esta dirección ya se ha usado. Así otros pueden relacionar tus pagos: usa una nueva de tu cartera.')}</span>}
-      {!seen && pick?.fixed && value?.trim() === pick.address && <span class="small muted">{T('Your fixed address: every trade shows the same one. For a new address each time, add your wallet key under Account → Trading.', 'Tu dirección fija: cada compra muestra la misma. Para una nueva cada vez, añade la clave de tu cartera en Cuenta → Compraventa.')} <a href="#/settings?open=trading">→</a></span>}
+      {!seen && pick?.fixed && value?.trim() === pick.address && <span class="small muted">{T('Your fixed address: every trade shows the same one. For a new address each time, add your wallet key under Account → Getting paid.', 'Tu dirección fija: cada compra muestra la misma. Para una nueva cada vez, añade la clave de tu cartera en Cuenta → Cobrar.')} <a href="#/settings?open=trading">→</a></span>}
     </Field>
   );
 }

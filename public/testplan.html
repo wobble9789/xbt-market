@@ -71,42 +71,44 @@
 </main>
 <script>
 const PLAN = [
-  ['Echte sites: importeren (hertest)', 'Seller (met je eigen Marktplaats/eBay)', [
-    ['IMP-8', 'Alle foto\'s vanaf je profiel', ['Vervang je bladwijzer door de nieuwe (v7): verwijder de oude en sleep de nieuwe naar je balk.', 'Importeer je Marktplaats-profiel (bijv. marktplaats.nl/u/william-jansen/44979649/). Achter elke advertentie staat nu "📷" met het aantal foto\'s.'], 'Het aantal foto\'s klopt met Marktplaats, ook bij de coaxkabel (m2456656978). Klopt het ergens niet: noteer welke advertentie (link).'],
-    ['IMP-11', 'Uitleg op de telefoon (hertest)', ['Telefoon: Sell → Import → "On a phone". Volg de 6 stappen precies zoals ze er staan (zo zet je meteen de nieuwe bladwijzer v7 neer).'], 'Elke stap is in één keer duidelijk: wat je doet en wanneer.'],
+  ['Telefoon: bladwijzer (hertest)', '[Seller] op je telefoon', [
+    ['IMP-11', 'Bladwijzer in Chrome op de telefoon', [
+      'Telefoon, Chrome: open XBT Market en log in als Seller. Sell → Import → "On a phone" → volg de 6 stappen (dit zet de nieuwe bladwijzer v8 neer; verwijder eerst de oude).',
+      'Open je Marktplaats-profiel in Chrome en tik de bladwijzer aan zoals stap 5 zegt.',
+    ], 'Onderin verschijnt "XBT Market: reading your listings…", daarna opent XBT Market in hetzelfde tabblad met je advertenties. Er komt geen pop-up meer.'],
   ]],
-  ['Echt geld: on-chain met Shrike', 'Drie browsers: [Buyer], [Seller] en [Arbiter]. In Shrike: account #0 = buyer, #1 = seller, #2 = arbiter. Alles hieronder is ook automatisch getest op een testnode; jij controleert de echte keten, je eigen wallet en of alles duidelijk is. Bij een fout: maak een screenshot en zet de txid in je notitie.', [
+  ['Echt geld: on-chain met Shrike', 'Drie browsers: [Buyer], [Seller] en [Arbiter] (= je eigen arbiter-account, dat elk account nu standaard vertrouwt). Shrike: account #0 = buyer, #1 = seller, #2 = arbiter. Ververs eerst alle drie met Ctrl+Shift+R. Alles hieronder is ook automatisch getest; jij controleert de echte keten en of alles duidelijk is. Bij een fout: screenshot + de txid in je notitie.', [
     ['WAL-5', 'Wallet koppelen (3×)', [
-      'Shrike: open account #0 → klik links op Settings → kopieer de lange code bij "xpub" (onder Keystores).',
-      '[Buyer] XBT Market → Account → klik "🤝 Trading" open → plak de code in het vak onder "Your XBT wallet" → klik "Save wallet key".',
-      'Vergelijk het adres onder "Check: this must be the first receiving address…" met Shrike → Addresses → het bovenste adres.',
-      'Doe hetzelfde met account #1 in [Seller] en account #2 in [Arbiter].',
-      'Lees ook de tekst bij "How XBT Market picks addresses" en klik op "No wallet key? Use one fixed address instead" om de waarschuwing te zien (niets invullen).',
-    ], 'Het adres klopt bij alle drie. De uitleg is duidelijk voor iemand die XBT Market voor het eerst gebruikt.'],
+      '[Buyer] Account → "💰 Getting paid": staat de wallet nog gekoppeld, dan zie je meteen het controleblok. Anders: Shrike account #0 → Settings (links) → kopieer "xpub" → plak → "Save wallet key".',
+      'Vergelijk "First unused receiving address" en "Second unused receiving address" met Shrike #0 → Receive (het adres dat Shrike voorstelt) en het adres daarna onder Addresses.',
+      'Doe hetzelfde in [Seller] met account #1 en in [Arbiter] met account #2.',
+    ], 'Beide adressen kloppen met Shrike. "💰 Getting paid" en "📦 Shipping address" zijn twee aparte, overzichtelijke secties.'],
+    ['ARB-8', 'Arbiters bij de advertentie', [
+      '[Seller] Account → "🛡 Trusted arbiters": je arbiter-account staat erbij met "default".',
+      '[Seller] Sell → "+ New listing": titel "Test escrow", prijs 10, bij "Payment methods you accept" alleen "🛡 Escrow", PostNL aan. Onder "Arbiters you accept for escrow" staat je arbiter aangevinkt → "Publish".',
+      '[Buyer] open "Test escrow": onder de betaalmethodes staat "🛡 Escrow possible: you both trust … ✓".',
+      '[Buyer] Browse → ⚙ Filters → vink "Only escrow with an arbiter I trust" aan.',
+    ], 'Duidelijk wie de arbiters zijn, of jij ze ook vertrouwt, en het filter laat alleen zulke advertenties zien.'],
     ['REAL-1', 'Escrow-aankoop met echte XBT', [
-      '[Seller] Sell → "+ New listing": titel "Test escrow", prijs 10, bij "Payment methods you accept" alleen "🛡 Escrow" aan, bij de vervoerders PostNL aan → "Publish".',
-      '[Buyer] Browse → open "Test escrow" → "🛒 Order now" → kies "🛡 Escrow", land Netherlands, vervoerder PostNL. Kijk naar het overzicht: "Your offer for the item", "Shipping (PostNL)" (= €6,95 in XBT), "Your deposit (15%)" en "You pay into escrow" → klik "Send order".',
-      '[Seller] Messages → open het gesprek "Test escrow". Bij "Your XBT payout address" staat al een adres met "✓ A new address from your wallet" → klik "✓ Accept".',
-      '[Buyer] in hetzelfde gesprek: kies bij Arbiter je Arbiter-account; het terugbetaaladres staat er al → klik "Send details".',
-      'Onder "Escrow" staan nu het escrowadres en de bedragen. [Buyer] Shrike #0 → Send: plak het escrowadres en kopieer het bedrag van "Buyer pays (price + deposit)". [Seller] Shrike #1 → Send: escrowadres en het bedrag van "Seller pays (deposit)". Laat replay-bescherming aan.',
-      'Wacht tot er bovenaan de trade "Fully paid" staat (3 bevestigingen, ongeveer 30 minuten). Ververs de pagina gerust.',
-      '[Seller] vul bij "Tracking code" iets verzonnens in → "Mark as shipped" → daarna "📬 Delivered, per the tracking".',
-      '[Buyer] klik "Everything OK: release payment" en bevestig. [Seller] klik bij het voorstel "Agree and sign".',
-    ], 'Na 1 bevestiging in Shrike: #1 (seller) ontvangt ongeveer prijs + verzending + borg, #0 (buyer) zijn borg terug, allebei min een klein deel netwerkkosten. In Shrike → Addresses is elk ontvangend adres nieuw en maar één keer gebruikt.'],
+      '[Buyer] Account → "📦 Shipping address": vul je adres in (wordt meteen opgeslagen).',
+      '[Buyer] open "Test escrow" → "🛒 Order now" → "🛡 Escrow", land Netherlands, PostNL. Je ziet: je adres onder "Ship to", de arbiter al gekozen, je terugbetaaladres al ingevuld (✓ nieuw adres), en het overzicht: bod, "Shipping (PostNL)", "Your deposit (15%), paid back when the trade completes", "The seller puts in the same deposit (15%)" en het totaal → "Send order".',
+      '[Seller] Messages → open de bestelling: "Arbiter: … ✓ you trust this arbiter"; uitbetaaladres al ingevuld → "✓ Accept". Het escrowadres verschijnt meteen bij beiden: er zijn geen extra stappen meer.',
+      'Onder "Escrow": [Buyer] stuurt vanuit Shrike #0 exact "Buyer pays (price + deposit)" naar het escrowadres; [Seller] vanuit #1 exact "Seller pays (deposit)" (kopiëren, niet overtypen; replay-bescherming aan).',
+      'Wacht op "Fully paid" (3 bevestigingen, ±30 min). [Seller] vult een verzonnen trackingcode in → "Mark as shipped" → "📬 Delivered, per the tracking". [Buyer] "Everything OK: release payment". [Seller] "Agree and sign".',
+    ], 'Shrike na 1 bevestiging: #1 ontvangt ongeveer prijs + verzending + borg, #0 zijn borg terug (min een klein deel netwerkkosten), elk op een nieuw adres. Het bestellen voelde logisch en zonder overbodige stappen.'],
     ['TRD-7', 'Termijnen (tijdens REAL-1)', [
-      'Na "Fully paid": [Seller] ziet "⏰ Paid. Ship by …", [Buyer] ziet "⏰ Fully paid. The seller ships by …".',
+      'Na "Fully paid": [Seller] ziet "⏰ Paid. Ship by …", [Buyer] "⏰ Fully paid. The seller ships by …".',
       'Na "📬 Delivered": [Buyer] ziet "Check it and confirm below, or open a dispute, before …".',
-    ], 'De teksten zijn duidelijk. De datums kloppen: 5 dagen na de betaling verzenden; 2 dagen na levering bevestigen of klagen.'],
+    ], 'Duidelijk; de data kloppen (5 dagen na betaling verzenden; 2 dagen na levering bevestigen of klagen).'],
     ['REAL-2', 'Directe on-chain betaling', [
-      '[Seller] "+ New listing": titel "Test direct", prijs 5, bij "Payment methods you accept" alleen "On-chain" aan, alleen "🤝 Pick-up" aan → "Publish".',
+      '[Seller] "+ New listing": titel "Test direct", prijs 5, alleen "On-chain", alleen "🤝 Pick-up" → "Publish".',
       '[Buyer] open "Test direct" → "🛒 Order now" → "On-chain" en "🤝 Pick up" → "Send order".',
-      '[Seller] in het gesprek: "✓ Accept". Onder "Send a payment request" staat je adres al ingevuld (✓ nieuw) → klik "Request …".',
-      '[Buyer] in het gesprek staat het betaalverzoek. Shrike #0 → Send naar dat adres, precies dat bedrag. Kopieer daarna in Shrike → Transactions de txid, plak die bij "Payment txid" → "I paid".',
+      '[Seller] "✓ Accept" → onder "Send a payment request" staat je adres al (✓ nieuw) → "Request …".',
+      '[Buyer] betaal vanuit Shrike #0 naar dat adres, precies dat bedrag. Kopieer in Shrike → Transactions de txid, plak bij "Payment txid" → "I paid".',
     ], '[Seller] ziet "✓ …, N confirmations"; het geld staat in Shrike #1 op weer een nieuw adres.'],
     ['NODE-2', 'Eigen node (uitleg)', [
-      'Account → "🌐 Network" → lees de stappen onder "Blockchain server".',
-      'Plak je Mempool-adres (zonder /api) → "Use" → "Test connection". Typ daarna een fout adres → "Use" → lees de foutmelding. Zet het goede adres terug.',
-    ], 'Je ziet "✓ block …", gelijk aan mempool.guide. De foutmelding legt in gewone taal uit wat er mis is.'],
+      'Account → "🌐 Network" → lees de stappen onder "Blockchain server". Plak je Mempool-adres (zonder /api) → "Use" → "Test connection". Typ daarna een fout adres → "Use" → lees de melding. Zet het goede adres terug.',
+    ], '"✓ block …" gelijk aan mempool.guide; de foutmelding legt in gewone taal uit wat er mis is.'],
   ]],
   ['Later: met de dienst', 'Admin', [
     ['SVC-1', 'XBT Market-dienst staat live', ['Cloudflare: gratis account → API-token (sjabloon "Edit Cloudflare Workers") + Account ID. GitHub → Settings → Secrets and variables → Actions: CLOUDFLARE_API_TOKEN en CLOUDFLARE_ACCOUNT_ID. Actions → laatste run → Re-run all jobs.', 'Open de workers.dev-link uit de deploy-log.'], 'Je ziet {"service":"xbt-market","usernames":true,…}.'],
@@ -131,7 +133,7 @@ const PLAN = [
   ], 'Nodig: een API-sleutel van Anthropic. Overslaan als je die (nog) niet wilt.'],
 ];
 
-const KEY = 'xbt-testplan-v9';
+const KEY = 'xbt-testplan-v10';
 let state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { state = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} render(); };

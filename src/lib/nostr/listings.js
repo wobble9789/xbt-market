@@ -47,7 +47,8 @@ export function listingTemplate(l) {
   for (const o of l.shippingOptions || []) t.push(['shipping_option', o.id, ...(o.price != null && o.price !== '' ? [String(o.price), o.currency || l.currency] : [])]);
   if (l.packageSize) t.push(['package_size', l.packageSize]);
   for (const p of l.payments || []) if (PAYMENT_METHODS.includes(p)) t.push(['payment', p]);
-  if (l.sellerDepositPct != null) t.push(['seller_deposit_pct', String(l.sellerDepositPct)]);
+  // The arbiters this seller accepts for escrow; the buyer picks one of them.
+  for (const a of l.arbiters || []) if (/^[0-9a-f]{64}$/.test(a)) t.push(['arbiter', a]);
   for (const img of l.images || []) if (img) t.push(['image', img]);
   if (l.source) t.push(['r', l.source]);
   if (l.importedFrom) t.push(['imported_from', l.importedFrom]);
@@ -87,7 +88,7 @@ export function parseListing(e) {
     packageSize: PACKAGE_SIZES.includes(tag(e, 'package_size')) ? tag(e, 'package_size') : '',
     shippingOptions: parseShippingOptions(e.tags, (priceTag[2] || 'EUR').toUpperCase()),
     payments: (() => { const p = tags(e, 'payment').filter((x) => PAYMENT_METHODS.includes(x)); return p.length ? PAYMENT_METHODS.filter((x) => p.includes(x)) : ['escrow']; })(),
-    sellerDepositPct: tag(e, 'seller_deposit_pct') != null ? Number(tag(e, 'seller_deposit_pct')) : null,
+    arbiters: [...new Set(tags(e, 'arbiter').filter((x) => /^[0-9a-f]{64}$/.test(x)))],
     status: STATUSES.includes(tag(e, 'status')) ? tag(e, 'status') : 'active',
     source: httpUrl(tag(e, 'r')),
     importedFrom: tag(e, 'imported_from') || '',

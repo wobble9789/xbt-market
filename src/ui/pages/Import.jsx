@@ -38,6 +38,14 @@ function StatusBadge({ it }) {
   return <span class="badge">{it.match.status === 'sold' ? T('Already here (sold)', 'Ya está aquí (vendido)') : T('Already on your profile', 'Ya está en tu perfil')}</span>;
 }
 
+// The listings a phone bookmark put in the address: compressed, base64url.
+async function unpack(z) {
+  const bin = atob(z.replace(/-/g, '+').replace(/_/g, '/'));
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return JSON.parse(await new Response(stream).text());
+}
+
 export function ImportPage({ query: q }) {
   const me = useStore(account, (a) => a.pubkey);
   const [raw, setRaw] = useState(null); // { items, complete }
@@ -79,9 +87,11 @@ export function ImportPage({ query: q }) {
     addEventListener('message', onMsg);
     // Without a pop-up the bookmark opens this page in its own tab, with the
     // listings in the address.
-    if (q.data) {
-      try { load(fromPayload(JSON.parse(q.data))); } catch (e) { toastError(e); }
-      history.replaceState(null, '', '#/import');
+    if (q.data || q.z) {
+      (q.z ? unpack(q.z) : Promise.resolve(JSON.parse(q.data)))
+        .then((p) => load(fromPayload(p)))
+        .catch(toastError)
+        .finally(() => history.replaceState(null, '', '#/import'));
     }
     if (q.from === 'bookmarklet' && window.opener) {
       const ping = () => window.opener?.postMessage('xbt-import-ready', '*');
@@ -153,7 +163,6 @@ export function ImportPage({ query: q }) {
       <h2>{T('Import your listings from Marktplaats, Vinted, eBay…', 'Importa tus anuncios de Marktplaats, Vinted, eBay…')}</h2>
       {!raw && (
         <>
-          {!apiEnabled() && <p class="notice small">🔗 {T('"Paste a link" (the easiest way, also on a phone) appears once the XBT Market service is set up.', '«Pega un enlace» (lo más fácil, también en el móvil) aparece cuando el servicio de XBT Market esté configurado.')}</p>}
           {apiEnabled() && (
             <div class="card">
               <h3>🔗 {T('Paste a link', 'Pega un enlace')} <span class="badge ok">{T('easiest, also on your phone', 'lo más fácil, también en el móvil')}</span></h3>

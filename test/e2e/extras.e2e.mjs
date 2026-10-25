@@ -5,7 +5,9 @@
 // npm run build && npm run preview. Browser as in the other e2e tests.
 import puppeteer from 'puppeteer-core';
 import { mkdirSync, rmSync } from 'node:fs';
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
+import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure';
+import { Relay } from 'nostr-tools/relay';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { proof, setupPage, settle, fakeAnthropic } from './proof.mjs';
 
@@ -125,6 +127,12 @@ try {
   await shot(page, 'Verkoper: na "Schrijf advertentie op basis van foto\'s" zijn titel, beschrijving, categorie, staat en prijs ingevuld, met een tip (AI-antwoord van een nep-server; de echte API is niet aangeroepen)');
 
   step('escrow advice above €50');
+  // Escrow needs an arbiter the seller trusts: one announces itself on the relay.
+  const arbSk = generateSecretKey();
+  const relay = await Relay.connect(RELAY);
+  await relay.publish(finalizeEvent({ kind: 30078, created_at: Math.floor(Date.now() / 1000), tags: [['d', 'xbt-market/arbiter'], ['t', 'xbt-market']], content: JSON.stringify({ escrowBase: hex(secp256k1.getPublicKey(generateSecretKey(), true)), name: 'Extra Arbiter', feePct: 0, active: true, v: 2 }) }, arbSk));
+  relay.close();
+  await page.evaluate((pk) => { const s = JSON.parse(localStorage.getItem('xbt:settings') || '{}'); s.trustedArbiters = [pk]; localStorage.setItem('xbt:settings', JSON.stringify(s)); }, getPublicKey(arbSk));
   await page.reload({ waitUntil: 'load' });
   await page.evaluate(() => { location.hash = '#/sell/new'; });
   await fill('Title', 'Ledger Nano X');
