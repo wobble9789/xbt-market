@@ -177,6 +177,9 @@ try {
   await waitText(await as('seller'), 'Wallet key saved (encrypted)');
   await waitText(await as('seller'), firstAddr);
   await waitText(await as('seller'), 'Next trade gets');
+  // Why this address: either #0 itself (never used) or the first after the used ones.
+  await (await as('seller')).waitForFunction(() => /it has never been used, so it comes first|were used already \(on chain or in a trade\), so the next one is #\d+/.test(document.querySelector('main').innerText), { timeout: 30000 });
+  await waitText(await as('seller'), 'Unlink wallet key');
   await shot(await as('seller'), 'Verkoper: wallet-sleutel ingesteld; eerste adres ter controle en het adres voor de volgende trade');
 
   step('seller lists an item (escrow on, carriers without a price)');

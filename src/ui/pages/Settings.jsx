@@ -241,7 +241,10 @@ function WalletKey() {
           <p class="small">{T('First address (#0)', 'Primera dirección (#0)')}: <code class="break">{first}</code></p>
           {saved?.assumed && <p class="notice warn small">{T('A plain xpub does not say which address type your wallet uses; native segwit (bc1q…) is assumed. If the first address does not match your wallet, paste the output descriptor instead.', 'Un xpub simple no dice qué tipo de dirección usa tu cartera; se supone segwit nativo (bc1q…). Si la primera dirección no coincide, pega el output descriptor.')}</p>}
           <p class="small">{T('Next trade gets', 'La próxima compra recibe')}: {pick?.address ? <code class="break">{pick.address}</code> : '…'} {pick && !pick.fixed && <span class="muted">(#{pick.index})</span>}</p>
-          <Action class="small ghost" confirm={T('Remove the wallet key from this browser?', '¿Quitar la clave de cartera de este navegador?')} onClick={async () => { saveWalletKey(''); setSaved(null); }}>{T('Remove', 'Quitar')}</Action>
+          {pick && !pick.fixed && <p class="hint">{pick.index === 0
+            ? T('That is address #0 itself: it has never been used, so it comes first. After a payment to it, the next trade gets #1, and so on.', 'Es la propia dirección #0: nunca se ha usado, así que va primero. Tras un pago a ella, la siguiente compra recibe la #1, y así sucesivamente.')
+            : T(`Addresses #0 to #${pick.index - 1} were used already (on chain or in a trade), so the next one is #${pick.index}.`, `Las direcciones #0 a #${pick.index - 1} ya se usaron (en la cadena o en una compra), así que la siguiente es la #${pick.index}.`)}</p>}
+          <Action class="small ghost" confirm={T('Unlink the wallet key from XBT Market in this browser? Your wallet and its coins are not touched. Trades then use the fixed address below, if any.', '¿Desvincular la clave de cartera de XBT Market en este navegador? Tu cartera y sus monedas no se tocan. Las compras usarán entonces la dirección fija de abajo, si la hay.')} onClick={async () => { saveWalletKey(''); setSaved(null); }}>{T('Unlink wallet key', 'Desvincular clave de cartera')}</Action>
         </>
       ) : (
         <>

@@ -1,6 +1,8 @@
-# On every push: unit tests, then the full end-to-end suite against a real
-# Bitcoin Knots (BLAKE2b) regtest node in headless Firefox, and only if all of
-# that passes, build and publish on GitHub Pages.
+# Pull requests: unit tests and the full end-to-end suite against a real
+# Bitcoin Knots (BLAKE2b) regtest node, in three browsers, split in parallel
+# shards. A main push whose exact source tree already passed all of that in a
+# pull request goes straight to build and deploy; any other push runs the
+# full suite first.
 #
 # Set the repository variable VITE_ADMIN_NPUB (Settings → Secrets and variables
 # → Actions → Variables) to the npub that approves arbiters.
@@ -14,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -25,7 +28,31 @@ env:
   KNOTS_VERSION: 29.4.2.knots20260508
 
 jobs:
+  # Was this exact source tree already tested by a passing pull request run?
+  tested:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+      tree: ${{ steps.check.outputs.tree }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tree=$(git rev-parse HEAD^{tree})
+          echo "tree=$tree" >> $GITHUB_OUTPUT
+          skip=false
+          if [ "${{ github.event_name }}" = push ]; then
+            n=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=tested-$tree" --jq '[.artifacts[]|select(.expired|not)]|length')
+            [ "$n" -gt 0 ] && skip=true
+          fi
+          echo "skip=$skip" >> $GITHUB_OUTPUT
+          echo "tree $tree already tested: $skip"
+
   unit:
+    needs: tested
+    if: needs.tested.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,19 +65,24 @@ jobs:
 
   e2e:
     # Every browser test runs three times: Firefox on a desktop screen, Firefox
-    # on a phone-sized screen, and Chrome emulating an Android phone.
-    name: e2e (${{ matrix.browser }}, ${{ matrix.device }})
+    # on a phone-sized screen, and Chrome emulating an Android phone. Each of
+    # those is split in three shards that run at the same time.
+    needs: tested
+    if: needs.tested.outputs.skip != 'true'
+    name: e2e (${{ matrix.browser }}, ${{ matrix.device }}, ${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { browser: firefox, device: desktop }
-          - { browser: firefox, device: phone }
-          - { browser: chrome, device: phone }
+        browser: [firefox, chrome]
+        device: [desktop, phone]
+        shard: [escrow, plan, other]
+        exclude:
+          - { browser: chrome, device: desktop }
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 45
     env:
       MOBILE: ${{ matrix.device == 'phone' && '1' || '' }}
+      KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ github.workspace }}/../regtest -rpcuser=u -rpcpassword=p
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -66,7 +98,15 @@ jobs:
           mkdir -p "$RUNNER_TEMP/shots"
           if [ "${{ matrix.browser }}" = chrome ]; then echo "CHROME=$(which google-chrome)" >> $GITHUB_ENV; else echo "FIREFOX=$(which firefox)" >> $GITHUB_ENV; fi
 
+      - name: Cache Bitcoin Knots
+        id: knots
+        uses: actions/cache@v4
+        with:
+          path: bitcoin-${{ env.KNOTS_VERSION }}
+          key: knots-${{ env.KNOTS_VERSION }}
+
       - name: Install Bitcoin Knots (checksum verified)
+        if: steps.knots.outputs.cache-hit != 'true'
         run: |
           base=https://github.com/bitcoinknots/bitcoin/releases/download/v$KNOTS_VERSION
           file=bitcoin-$KNOTS_VERSION-x86_64-linux-gnu.tar.gz
@@ -74,14 +114,19 @@ jobs:
           curl -sSfLO $base/SHA256SUMS
           grep " $file\$" SHA256SUMS | sha256sum -c -
           tar xzf $file
-          echo "$PWD/bitcoin-$KNOTS_VERSION/bin" >> $GITHUB_PATH
 
       - name: Start regtest node with BLAKE2b active from block 1
         run: |
-          mkdir -p $RUNNER_TEMP/regtest
-          bitcoind -regtest -datadir=$RUNNER_TEMP/regtest -testactivationheight=blake2b@1 \
+          echo "$PWD/bitcoin-$KNOTS_VERSION/bin" >> $GITHUB_PATH
+          export PATH="$PWD/bitcoin-$KNOTS_VERSION/bin:$PATH"
+          mkdir -p ../regtest
+          bitcoind -regtest -datadir=$PWD/../regtest -testactivationheight=blake2b@1 \
             -rpcuser=u -rpcpassword=p -fallbackfee=0.0001 -txindex=1 -daemon
-          for i in $(seq 30); do bitcoin-cli -regtest -datadir=$RUNNER_TEMP/regtest -rpcuser=u -rpcpassword=p getblockcount && break; sleep 1; done
+          for i in $(seq 30); do bitcoin-cli -regtest -datadir=$PWD/../regtest -rpcuser=u -rpcpassword=p getblockcount && break; sleep 1; done
+          # Every shard starts with its own wallet and spendable coins.
+          cli="bitcoin-cli -regtest -datadir=$PWD/../regtest -rpcuser=u -rpcpassword=p"
+          $cli createwallet w > /dev/null
+          $cli generatetoaddress 101 $($cli getnewaddress) > /dev/null
 
       - name: Build app and start relay, Esplora shim, shop fixtures, service, preview
         run: |
@@ -98,35 +143,33 @@ jobs:
             for i in $(seq 30); do curl -sf $url > /dev/null && break; sleep 1; done
           done
 
+      # Shard "escrow": the escrow against the node and the full trades through the UI.
       - name: Escrow against the real node
-        env:
-          KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
+        if: matrix.shard == 'escrow'
         run: npm run test:regtest
-
-      - name: Full trade and dispute through the UI
-        env:
-          KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
+      - name: Full trade, dispute and deadlines through the UI
+        if: matrix.shard == 'escrow'
         run: npm run test:e2e
 
+      # Shard "other": import, Lightning, direct purchases, settings.
       - name: Import button and pasted links against Marktplaats / Vinted / eBay fixtures
+        if: matrix.shard == 'other'
         env:
           API: '1'
         run: npm run test:import
-
       - name: Lightning wallet link (mock NWC wallets)
+        if: matrix.shard == 'other'
         run: npm run test:lightning
-
       - name: Direct Lightning purchase with a prepaid label through the UI
-        env:
-          KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
+        if: matrix.shard == 'other'
         run: npm run test:direct
-
       - name: Settings, node picker, AI assistant, escrow advice through the UI
+        if: matrix.shard == 'other'
         run: npm run test:extras
 
+      # Shard "plan": the manual test plan, walked through automatically.
       - name: The manual test plan, walked through automatically
-        env:
-          KNOTS_CLI: bitcoin-cli -regtest -datadir=${{ runner.temp }}/regtest -rpcuser=u -rpcpassword=p
+        if: matrix.shard == 'plan'
         run: |
           VITE_API_URL=http://127.0.0.1:8787 VITE_ADMIN_NPUB=$(node test/e2e/testplan.e2e.mjs --admin-npub) npx vite build --outDir dist-plan
           nohup npx vite preview --outDir dist-plan --port 4174 --strictPort > preview-plan.log 2>&1 &
@@ -141,15 +184,30 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-output-${{ matrix.browser }}-${{ matrix.device }}
+          name: e2e-output-${{ matrix.browser }}-${{ matrix.device }}-${{ matrix.shard }}
           path: |
             ${{ runner.temp }}/shots
             *.log
 
+  # Marks this source tree as fully tested, so its merge to main can deploy at once.
+  mark-tested:
+    needs: [tested, unit, e2e]
+    if: needs.tested.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ needs.tested.outputs.tree }}" > tree.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-${{ needs.tested.outputs.tree }}
+          path: tree.txt
+          retention-days: 30
+
   build:
-    needs: [unit, e2e]
-    # Only main is published; manual runs on other branches just test.
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [tested, unit, e2e]
+    # Only main is published, once its tree passed everything (here or in its pull request).
+    if: >-
+      always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' &&
+      (needs.tested.outputs.skip == 'true' || (needs.unit.result == 'success' && needs.e2e.result == 'success'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
