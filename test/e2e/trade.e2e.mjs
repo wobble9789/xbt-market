@@ -89,6 +89,15 @@ async function open(who) {
   return page;
 }
 const kept = {};
+// Until the page shows coins in the escrow (the arbiter's page loads it once on open).
+async function escrowShown(page) {
+  for (let i = 0; i < 10; i++) {
+    if (/In escrow now\s+0\.\d*[1-9]/.test(await text(page))) return;
+    await click(page, 'Refresh');
+    await sleep(2000);
+  }
+  throw new Error('the escrow balance did not show');
+}
 // The payout address the app filled in for the seller: a fresh one from the wallet key.
 async function prefilledPayout(page) {
   await page.waitForFunction(() => /^bcrt1/.test(document.querySelector('input[placeholder="bc1q…"]')?.value || ''), { timeout: 30000 });
@@ -444,6 +453,7 @@ try {
   await shiftClock('arbiter', 10);
   await go(await as('arbiter'), `#/trade/${late.id}`);
   await waitText(await as('arbiter'), 'The seller did not answer within 3 days. You may rule for the buyer.', 40000);
+  await escrowShown(await as('arbiter'));
   await click(await as('arbiter'), 'Propose a ruling');
   await click(await as('arbiter'), 'Seller at fault: everything to the buyer');
   const sellerGets = await (await as('arbiter')).$eval('::-p-xpath(//label[span[normalize-space(.)="Seller receives (XBT)"]]//input)', (i) => i.value);
@@ -484,6 +494,7 @@ try {
   await shiftClock('arbiter', 7);
   await go(await as('arbiter'), `#/trade/${quiet.id}`);
   await waitText(await as('arbiter'), 'The buyer did not answer within 3 days. You may rule for the seller.', 40000);
+  await escrowShown(await as('arbiter'));
   const sellerBefore = received(quiet.payoutTo);
   await click(await as('arbiter'), 'Agree and sign');
   await waitText(await as('arbiter'), 'Broadcast:', 40000);

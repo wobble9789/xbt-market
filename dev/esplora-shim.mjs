@@ -18,9 +18,25 @@ async function rpc(method, params = []) {
 
 const sats = (btc) => Math.round(btc * 1e8);
 
+// The node runs one UTXO scan at a time; overlapping requests wait their turn
+// (and retry if another client's scan is still running).
+let scanning = Promise.resolve();
+function scanOne(address) {
+  const run = scanning.then(async () => {
+    for (let i = 0; ; i++) {
+      try { return await rpc('scantxoutset', ['start', [`addr(${address})`]]); } catch (e) {
+        if (e.code !== -8 || i >= 20) throw e;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+  });
+  scanning = run.catch(() => {});
+  return run;
+}
+
 async function utxos(address) {
   const tip = await rpc('getblockcount');
-  const scan = await rpc('scantxoutset', ['start', [`addr(${address})`]]);
+  const scan = await scanOne(address);
   const times = new Map();
   for (const h of new Set(scan.unspents.map((u) => u.height))) times.set(h, (await rpc('getblockheader', [await rpc('getblockhash', [h])])).time);
   const confirmed = scan.unspents.map((u) => ({ txid: u.txid, vout: u.vout, value: sats(u.amount), status: { confirmed: true, block_height: u.height, block_time: times.get(u.height) } }));
