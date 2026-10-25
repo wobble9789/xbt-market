@@ -113,3 +113,12 @@ test('payout drops dust outputs into the fee', () => {
   assert.ok(plan.outputs.every((o) => o.sats >= DUST_LIMIT));
   assert.equal(plan.outputs[0].sats + plan.fee, 150_000);
 });
+
+test('a pasted node address becomes its API address', async () => {
+  const { normalizeNodeUrl } = await import('../src/lib/btc/esplora.js');
+  assert.equal(normalizeNodeUrl(' https://mempool-abc.local/ '), 'https://mempool-abc.local/api');
+  assert.equal(normalizeNodeUrl('https://mempool-abc.local'), 'https://mempool-abc.local/api');
+  assert.equal(normalizeNodeUrl('https://mempool-abc.local/api/'), 'https://mempool-abc.local/api');
+  assert.equal(normalizeNodeUrl('http://abc.onion/api'), 'http://abc.onion/api');
+  assert.equal(normalizeNodeUrl('https://mempool.guide/testnet4/api'), 'https://mempool.guide/testnet4/api');
+});

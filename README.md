@@ -105,7 +105,7 @@ Locally: `npm run sendcloud` (a Sendcloud mock), `npm run wallets` (includes the
 
 ## Configuration
 
-`src/config.js` holds the defaults: relays, Esplora API (`https://mempool.guide/api`), the list of known servers per chain (`ESPLORA_PRESETS`), Blossom photo server, deposits, confirmations, trade limits, the escrow advice threshold and the AI model. Users can override most of these under *Account*. Like Sparrow, they pick a known server or enter their own node (any Esplora/mempool REST API that follows the BLAKE2b chain, e.g. mempool or electrs on Umbrel or Start9) and test the connection. Browsers cannot talk to Electrum servers directly, so an Electrum-only node needs an Esplora/mempool front end.
+`src/config.js` holds the defaults: relays, Esplora API (`https://mempool.guide/api`), the list of known servers per chain (`ESPLORA_PRESETS`), Blossom photo server, deposits, confirmations, trade limits, the escrow advice threshold and the AI model. Users can override most of these under *Account*. Like Sparrow, they pick a known server or enter their own node (any Esplora/mempool REST API that follows the BLAKE2b chain, e.g. mempool or electrs on Umbrel or Start9) and test the connection. Browsers cannot talk to Electrum servers directly, so an Electrum-only node needs an Esplora/mempool front end (on Start9 with a BLAKE2b node: Mempool Pruned). A pasted address without a path gets `/api` added, and a failed test says why: untrusted certificate, wrong address, server still starting, or CORS.
 
 Build-time variables:
 

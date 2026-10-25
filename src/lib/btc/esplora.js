@@ -1,6 +1,19 @@
 // Minimal Esplora client (mempool.guide serves the BLAKE2b chain with a full
 // Esplora API). Every call goes straight from the browser; nothing is proxied.
 
+// A node address as people paste it ("https://mempool-x.local/") becomes the
+// API address the app calls ("https://mempool-x.local/api"): mempool and
+// Esplora both serve their REST API under /api.
+export function normalizeNodeUrl(input) {
+  const s = String(input || '').trim().replace(/\/+$/, '');
+  try {
+    const u = new URL(s);
+    return u.pathname === '/' || u.pathname === '' ? `${u.origin}/api` : s;
+  } catch {
+    return s;
+  }
+}
+
 export class Esplora {
   constructor(base) { this.base = base.replace(/\/+$/, ''); }
 
@@ -10,7 +23,13 @@ export class Esplora {
     return type === 'json' ? r.json() : r.text();
   }
 
-  tipHeight() { return this.get('/blocks/tip/height', 'text').then(Number); }
+  async tipHeight() {
+    const t = await this.get('/blocks/tip/height', 'text');
+    const h = Number(t);
+    // A web page instead of a number: this address is the site, not its API.
+    if (!Number.isSafeInteger(h) || h <= 0) throw Object.assign(new Error('not an API'), { notApi: true });
+    return h;
+  }
 
   // [{ txid, vout, value, status: { confirmed, block_height } }]
   utxos(address) { return this.get(`/address/${address}/utxo`); }

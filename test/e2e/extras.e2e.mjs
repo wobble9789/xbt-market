@@ -83,9 +83,9 @@ try {
   await waitText('✓ block');
   await scrollTo('Network');
   await shot(page, 'Instellingen: blockchain-server gekozen uit de lijst; "Verbinding testen" haalt de blokhoogte op bij de node', { fullPage: false });
-  await fillPh('https://umbrel.local:3006/api', 'http://127.0.0.1:9/api');
+  await fillPh('https://mempool-xxxx.local', 'http://127.0.0.1:9');
   await click('Use');
-  await waitText('✗');
+  await waitText('✗ Could not reach it. Open http://127.0.0.1:9/api/blocks/tip/height in this browser');
   await scrollTo('Network');
   await shot(page, 'Instellingen: een eigen node die niet bereikbaar is geeft een duidelijke fout', { fullPage: false });
   await choose('Local (npm run shim)');
