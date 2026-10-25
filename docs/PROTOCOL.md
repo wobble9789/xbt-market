@@ -69,7 +69,7 @@ The fee (`ceil(vsize × feeRate)`, where vsize is estimated with 73-byte signatu
 | `shipping_cost` | `["shipping_cost", "<amount>", "<currency>"]`: the cheapest paid delivery option, for older clients |
 | `shipping_option` | one per delivery option: `["shipping_option", "<carrier id>", "<price>", "<currency>"]`. Carrier ids are in `src/lib/shipping.js` (`pickup`, `postnl`, `dhl`, …) |
 | `payment` | one per accepted payment method: `escrow`, `onchain` or `lightning`. No `payment` tag means escrow only |
-| `seller_deposit_pct` | number |
+| `arbiter` | hex pubkey, repeatable: the arbiters this seller accepts for escrow (older listings may carry `seller_deposit_pct`; clients ignore it: both deposits are 15%) |
 | `r` | source URL, if the listing was imported |
 | `imported_from` | host of the source |
 
@@ -148,7 +148,7 @@ Version 2 adds a conversation before the order and moves everything not needed f
 | type | from | body |
 |---|---|---|
 | `open` | buyer | `{ v:2, network, listing:{coord, sellerPubkey, title, image, price, currency, payments, country, kind?, priceUnit?}, prev? }`: starts the conversation (wrapped to the seller); `prev` links an earlier trade about the same listing |
-| `offer` | buyer (the one who opened) | `{ v:2, tradeId, network, listing, payment:"escrow"\|"direct", method? , priceSats, buyerDepositSats?, sellerDepositSats?, buyer:{escrowPubkey}, shipping:{carrier, country, price, currency, size, servicePoint?, estimate?} \| {carrier:"pickup"} \| null, note, shipDays, confirmDays }` |
+| `offer` | buyer (the one who opened) | `{ v:2, tradeId, network, listing, payment:"escrow"\|"direct", method? , priceSats, buyerDepositSats?, sellerDepositSats?, buyer:{escrowPubkey, payoutAddress?}, arbiter?:{pubkey, escrowBase}, shipTo?:{name, street, number, postalCode, city, country, phone?, email?}, shipping:{carrier, country, price, currency, size, servicePoint?, estimate?, sats?} \| {carrier:"pickup"} \| null, note, shipDays, confirmDays }`. Clients send the arbiter (one of the listing's), the refund address and the delivery address with the order, so the escrow exists at the accept and no `details` are needed |
 | `accept` | seller | `{ seller:{ escrowPubkey, payoutAddress? } }`: the escrow key is always included, so a direct trade can still switch to escrow |
 | `details` | buyer | `{ shipTo?:{name, street, number, postalCode, city, country, phone?, email?}, servicePointId?, payoutAddress?, arbiter?:{pubkey, escrowBase} }` |
 | `details` | seller | `{ payoutAddress }` |
@@ -179,7 +179,8 @@ The state is a pure function of the set of rumors. Sort by `created_at`, then `i
 
 8. **Version 2.**
    - Without an `offer`, a valid `open` makes a conversation (status `chat`) between its sender (buyer) and `listing.sellerPubkey`; only chat is accepted. The offer must come from the sender of the `open`.
-   - `details` count only after the accept. The first buyer `details` with an `arbiter` while the payment is escrow fixes the arbiter (later ones are ignored); the arbiter must differ from buyer and seller, and the three escrow keys must be distinct. The escrow address exists from then on.
+   - An `arbiter` in a version 2 offer fixes the arbiter (it must differ from buyer and seller); the escrow address exists from the accept, and an arbiter in later `details` is ignored. `buyer.payoutAddress` and `shipTo` in the offer count like the same fields in `details`. A seller's client accepts only an arbiter it trusts and that the listing names, and only deposits of 15% each.
+   - `details` count only after the accept. The first buyer `details` with an `arbiter` while the payment is escrow (and no arbiter yet) fixes the arbiter (later ones are ignored); the arbiter must differ from buyer and seller, and the three escrow keys must be distinct. The escrow address exists from then on.
    - Payout addresses from `details` (buyer: refund, seller: payout) apply until the first payout proposal.
    - A `change` is valid until anything is paid (direct: no `paid`/`confirm_paid`; escrow: no escrow address yet), for a method the listing accepts. A `change_ok` from the other side applies it: the payment type, method and deposits change, and a payment request for the old method no longer counts. A side's newer `change` replaces its open one.
    - A `label` comes from the seller after the accept; its links must be http(s).

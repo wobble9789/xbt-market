@@ -26,7 +26,7 @@ A peer-to-peer marketplace paid in **Bitcoin BLAKE2b** (XBT / BTCB2), the chain 
 
 1. **Message and order.** The buyer starts a conversation about a listing, and orders from the chat: an XBT amount (suggested from the SafeTrade XBT/USDT rate, item + shipping), the payment method and the delivery. Everything is NIP-17 encrypted.
 2. **Accept, then details.** The seller accepts. The buyer then sends the delivery address and, with escrow, picks an approved arbiter and a refund address. The arbiter receives the trade so far, and all three derive the same escrow address. The seller's app warns not to pay into an escrow whose arbiter is not approved.
-3. **Fund.** The buyer pays price + deposit (default 15%); the seller pays a deposit (default 15%, set per listing). The app waits for the configured number of confirmations.
+3. **Fund.** The buyer pays price + a 15% deposit; the seller pays the same 15% deposit. The app waits for the configured number of confirmations.
 4. **Ship.** The seller ships and adds the carrier and tracking code.
 5. **Release.** The buyer signs a payout (seller: price + deposit, buyer: deposit back). The seller co-signs and broadcasts. The network fee is shared in proportion.
 6. **Dispute.** Either side opens a dispute. The arbiter reads the chat and proposes a split, and one party co-signs it. Buyer and seller can also agree on any split themselves at any time.
@@ -51,7 +51,7 @@ Silent payments (BIP352) cannot be used here: escrow payouts spend a P2WSH multi
 
 ### Trust model and safeguards
 
-- **The arbiter list is the trust root.** The community admin (`VITE_ADMIN_NPUB`) publishes which arbiters are approved. A seller's app refuses to accept an offer whose arbiter, or arbiter escrow key, is not on that list. Otherwise a buyer could slip in a key they control. Users can add extra arbiters they trust under *Account*.
+- **The arbiter list is the trust root.** The community admin (`VITE_ADMIN_NPUB`) publishes which arbiters are approved. A seller's app refuses to accept an offer whose arbiter, or arbiter escrow key, is not on that list. Otherwise a buyer could slip in a key they control. Users can add extra arbiters they trust under *Account*; every account also trusts the project's own arbiter (`DEFAULT_ARBITERS` in `src/config.js`) until enough others are approved. A seller names the arbiters they accept on each escrow listing; a buyer picks one of those they trust too (the listing shows the match, and Browse can filter on it), and it goes with the order together with the refund and delivery address.
 - **An arbiter colluding with one side can take the escrow.** That is inherent to 2-of-3, as in Bisq. Approve only well-known people.
 - **The protocol log is authenticated.** Every message is a NIP-17 rumor inside a seal signed by its sender, and the trade state is a pure function of that log (`src/lib/trade/protocol.js`). Messages from non-participants are ignored. Proposal and co-sign signatures are verified against the escrow keys, and an accept can never be undone by a backdated cancel or reject.
 - **Price risk.** The market is thin, so the XBT amount is fixed when the offer is made. Prices in EUR are only a reference.
