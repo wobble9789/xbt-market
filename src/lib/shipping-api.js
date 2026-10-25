@@ -14,8 +14,7 @@ export async function shippingQuotes(listing, toCountry, toPostalCode = '') {
     const res = await api('/api/shipping/quote', { method: 'POST', body: { from: { country: listing.country }, to: { country: toCountry, ...(toPostalCode ? { postalCode: toPostalCode } : {}) }, size, carriers: opts.map((o) => o.id) } });
     return res.options.map((o) => ({ carrier: o.carrier, price: o.price, currency: o.currency, quoteId: o.id, service: o.name, servicePoint: o.servicePoint, labelless: o.labelless }));
   }
-  const price = estimatePrice(size, listing.country, toCountry);
-  return opts.map((o) => ({ carrier: o.id, price, currency: 'EUR', estimate: true }));
+  return opts.map((o) => ({ carrier: o.id, price: estimatePrice(size, listing.country, toCountry, o.id), currency: 'EUR', estimate: true }));
 }
 
 export const labelsEnabled = apiEnabled;

@@ -172,14 +172,14 @@ try {
   const sellerDesc = JSON.parse(cli('listdescriptors')).descriptors.find((d) => !d.internal && d.desc.startsWith('tr(')).desc;
   const firstAddr = JSON.parse(cli('deriveaddresses', sellerDesc, '[0,0]'))[0];
   await go(await as('seller'), '#/settings?open=trading');
-  await fillPh(await as('seller'), 'zpub… / xpub… / wpkh([…]xpub…/0/*)', sellerDesc);
+  await fillPh(await as('seller'), 'xpub… / ypub… / zpub…', sellerDesc);
   await click(await as('seller'), 'Save wallet key');
-  await waitText(await as('seller'), 'Wallet key saved (encrypted)');
+  await waitText(await as('seller'), 'Wallet linked.');
   await waitText(await as('seller'), firstAddr);
-  await waitText(await as('seller'), 'Next trade gets');
+  await waitText(await as('seller'), 'Your next trade gets');
   // Why this address: either #0 itself (never used) or the first after the used ones.
-  await (await as('seller')).waitForFunction(() => /it has never been used, so it comes first|were used already \(on chain or in a trade\), so the next one is #\d+/.test(document.querySelector('main').innerText), { timeout: 30000 });
-  await waitText(await as('seller'), 'Unlink wallet key');
+  await (await as('seller')).waitForFunction(() => /it has never been used, so it comes first|addresses are used already, so this is address \d+/.test(document.querySelector('main').innerText), { timeout: 30000 });
+  await waitText(await as('seller'), 'Unlink wallet');
   await shot(await as('seller'), 'Verkoper: wallet-sleutel ingesteld; eerste adres ter controle en het adres voor de volgende trade');
 
   step('seller lists an item (escrow on, carriers without a price)');
@@ -246,7 +246,7 @@ try {
   const buyerAddr = cli('getnewaddress', 'buyer', 'bech32');
   await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
   await shot(await as('buyer'), 'Koper: na accepteren pas adres (vooraf ingevuld), arbiter en terugbetaaladres');
-  await click(await as('buyer'), 'Send');
+  await click(await as('buyer'), 'Send details');
   await waitText(await as('buyer'), 'Total needed', 30000);
   await waitText(await as('seller'), 'Total needed', 30000);
 
@@ -355,7 +355,7 @@ try {
   await (await as('buyer')).waitForFunction(() => [...document.querySelectorAll('.details-form select')].some((s) => s.textContent.includes('Alice Arbiter')), { timeout: 30000 });
   if ((await text(await as('buyer'))).includes('Delivery address')) throw new Error('pick-up must not ask for an address');
   await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
-  await click(await as('buyer'), 'Send');
+  await click(await as('buyer'), 'Send details');
   await waitText(await as('buyer'), 'Total needed', 30000);
   // The seller's app forwards its accept to the arbiter, who joined after it.
   await waitText(await as('seller'), 'Total needed', 30000);
@@ -425,7 +425,7 @@ try {
     await waitText(await as('buyer'), 'A few details for the seller', 30000);
     await (await as('buyer')).waitForFunction(() => [...document.querySelectorAll('.details-form select')].some((s) => s.textContent.includes('Alice Arbiter')), { timeout: 30000 });
     await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
-    await click(await as('buyer'), 'Send');
+    await click(await as('buyer'), 'Send details');
     await waitText(await as('buyer'), 'Total needed', 30000);
     await waitText(await as('seller'), 'Total needed', 30000);
     await sleep(3000);

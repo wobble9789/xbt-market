@@ -1,5 +1,5 @@
 // XBT price: SafeTrade XBT/USDT last trade, converted with Coinbase's USDT
-// rates. Both send CORS headers. A manual rate in Settings overrides it.
+// rates. Both send CORS headers. A fixed rate (manualRate, only settable in stored settings, used by the tests) overrides it; users have no field for it.
 // The market is thin, so the app always agrees the coin amount at offer time.
 
 import { settings } from './settings.js';
