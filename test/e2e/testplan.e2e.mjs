@@ -1146,7 +1146,7 @@ try {
     await waitText(c, 'A few details for the seller', 30000);
     await fillPh(c, 'bc1q…', 'tb1qinvalidaddress');
     await c.waitForSelector('.details-form input.invalid');
-    if (!(await (await el(c, '//*[contains(@class,"details-form")]//button[normalize-space(.)="Send"]')).evaluate((b) => b.disabled))) throw new Error('Send enabled');
+    if (!(await (await el(c, '//*[contains(@class,"details-form")]//button[normalize-space(.)="Send details"]')).evaluate((b) => b.disabled))) throw new Error('Send enabled');
     people.C.edgTrade = id;
     return 'field red, Send disabled';
   });
