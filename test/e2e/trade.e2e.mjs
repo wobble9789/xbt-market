@@ -77,9 +77,27 @@ async function open(who) {
       address: { name: `${p.name} Tester`, street: 'Kerkstraat', number: '1', postalCode: '1234AB', city: p.city, country: 'NL', email: 'test@example.com' },
     }));
   }, people[who], people.arbiter.pk);
+  // The wallet key (encrypted secrets) and the address counter outlive a context.
+  if (kept[who]) await page.evaluate((k) => { for (const [n, v] of Object.entries(k)) localStorage.setItem(n, v); }, kept[who]);
   await page.reload({ waitUntil: 'load' });
   page.who = who;
+  const close = page.browserContext().close.bind(page.browserContext());
+  page.browserContext().close = async () => {
+    kept[who] = await page.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([k]) => /^xbt:(secrets|payout-index):/.test(k)))).catch(() => kept[who]);
+    return close();
+  };
   return page;
+}
+const kept = {};
+// The payout address the app filled in for the seller: a fresh one from the wallet key.
+async function prefilledPayout(page) {
+  await page.waitForFunction(() => /^bcrt1/.test(document.querySelector('input[placeholder="bc1q…"]')?.value || ''), { timeout: 30000 });
+  await waitText(page, 'A new address from your wallet');
+  const a = await page.$eval('input[placeholder="bc1q…"]', (i) => i.value);
+  if (!JSON.parse(cli('getaddressinfo', a)).ismine) throw new Error(`prefilled payout address ${a} is not from the seller's wallet`);
+  const hist = JSON.parse(cli('listreceivedbyaddress', '0', 'true', 'true', a))[0];
+  if (hist?.txids?.length) throw new Error(`prefilled payout address ${a} was used before`);
+  return a;
 }
 
 const go = (page, hash) => page.evaluate((h) => { location.hash = h; }, hash);
@@ -139,6 +157,19 @@ try {
   await click(await as('arbiter'), 'Publish arbiter profile');
   await waitText(await as('arbiter'), 'Your arbiter profile');
 
+  step('seller adds the wallet key: a new payout address for every trade');
+  // The node wallet's taproot chain: the test's own getnewaddress calls use its
+  // segwit chain, so they never hand out the same addresses.
+  const sellerDesc = JSON.parse(cli('listdescriptors')).descriptors.find((d) => !d.internal && d.desc.startsWith('tr(')).desc;
+  const firstAddr = JSON.parse(cli('deriveaddresses', sellerDesc, '[0,0]'))[0];
+  await go(await as('seller'), '#/settings?open=trading');
+  await fillPh(await as('seller'), 'zpub… / xpub… / wpkh([…]xpub…/0/*)', sellerDesc);
+  await click(await as('seller'), 'Save');
+  await waitText(await as('seller'), 'Wallet key saved (encrypted)');
+  await waitText(await as('seller'), firstAddr);
+  await waitText(await as('seller'), 'Next trade gets');
+  await shot(await as('seller'), 'Verkoper: wallet-sleutel ingesteld; eerste adres ter controle en het adres voor de volgende trade');
+
   step('seller lists an item (escrow on, carriers without a price)');
   await go(await as('seller'), '#/sell/new');
   await fill(await as('seller'), 'Title', 'Trezor Model One, sealed');
@@ -192,8 +223,8 @@ try {
   await waitText(await as('seller'), 'Order from', 30000);
   await waitText(await as('seller'), 'the buyer');
   await shot(await as('seller'), 'Verkoper: "Bestelling van … (de koper)" met prijs, verzending en betaalmethode; Afwijzen-reden pas na tikken');
-  const sellerAddr = cli('getnewaddress', 'seller', 'bech32');
-  await fillPh(await as('seller'), 'bc1q…', sellerAddr);
+  const sellerAddr = await prefilledPayout(await as('seller'));
+  console.log('fresh payout address', sellerAddr);
   await click(await as('seller'), '✓ Accept');
   await waitText(await as('seller'), 'Waiting for the buyer to choose an arbiter');
 
@@ -304,7 +335,8 @@ try {
   await waitText(await as('buyer'), 'Waiting for the seller to accept');
   await go(await as('seller'), `#/trade/${tid2}`);
   await waitText(await as('seller'), 'Order from', 30000);
-  await fillPh(await as('seller'), 'bc1q…', sellerAddr);
+  const sellerAddr2 = await prefilledPayout(await as('seller'));
+  if (sellerAddr2 === sellerAddr) throw new Error('the second trade got the same payout address');
   await click(await as('seller'), '✓ Accept');
   await waitText(await as('seller'), 'Waiting for the buyer to choose an arbiter', 30000);
   await waitText(await as('buyer'), 'A few details for the seller', 30000);
@@ -374,7 +406,7 @@ try {
     await waitText(await as('buyer'), 'Waiting for the seller to accept');
     await go(await as('seller'), `#/trade/${id}`);
     await waitText(await as('seller'), 'Order from', 30000);
-    await fillPh(await as('seller'), 'bc1q…', sellerAddr);
+    const payoutTo = await prefilledPayout(await as('seller'));
     await click(await as('seller'), '✓ Accept');
     await waitText(await as('seller'), 'Waiting for the buyer to choose an arbiter', 30000);
     await go(await as('buyer'), `#/trade/${id}`);
@@ -394,7 +426,7 @@ try {
     mine(1);
     await click(await as('buyer'), 'Refresh');
     await waitText(await as('buyer'), 'The seller ships by', 40000);
-    return { id, paid };
+    return { id, paid, payoutTo };
   }
   const received = (addr) => Number(cli('getreceivedbyaddress', addr, '1'));
 
@@ -452,11 +484,11 @@ try {
   await shiftClock('arbiter', 7);
   await go(await as('arbiter'), `#/trade/${quiet.id}`);
   await waitText(await as('arbiter'), 'The buyer did not answer within 3 days. You may rule for the seller.', 40000);
-  const sellerBefore = received(sellerAddr);
+  const sellerBefore = received(quiet.payoutTo);
   await click(await as('arbiter'), 'Agree and sign');
   await waitText(await as('arbiter'), 'Broadcast:', 40000);
   mine(1);
-  const payout = received(sellerAddr) - sellerBefore;
+  const payout = received(quiet.payoutTo) - sellerBefore;
   console.log(`  seller got ${payout} XBT`);
   if (payout < 0.0001 + quiet.paid.seller - 0.00002) throw new Error('the seller should get the price and their deposit');
 

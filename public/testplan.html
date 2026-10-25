@@ -75,6 +75,13 @@ const PLAN = [
     ['IMP-8', 'Alle foto\'s vanaf je profiel', ['Vervang je bladwijzer door de nieuwe (v7): verwijder de oude en sleep de nieuwe naar je balk.', 'Importeer je Marktplaats-profiel (bijv. marktplaats.nl/u/william-jansen/44979649/). Achter elke advertentie staat nu "📷" met het aantal foto\'s.'], 'Het aantal foto\'s klopt met Marktplaats, ook bij de coaxkabel (m2456656978). Klopt het ergens niet: noteer welke advertentie (link).'],
     ['IMP-11', 'Uitleg op de telefoon (hertest)', ['Telefoon: Sell → Import → "On a phone". Volg de 6 stappen precies zoals ze er staan (zo zet je meteen de nieuwe bladwijzer v7 neer).'], 'Elke stap is in één keer duidelijk: wat je doet en wanneer.'],
   ]],
+  ['Echt geld: on-chain met Shrike', 'Seller, Buyer, Arbiter (3 browsers) + Shrike-accounts #0 buyer, #1 seller, #2 arbiter', [
+    ['WAL-5', 'Wallet-sleutel per account', ['Shrike: open account #0 → Settings (links) → Keystores → kopieer de xpub. XBT Market als Buyer → Account → Trading → plak bij "Your XBT wallet" → Save.', 'Doe hetzelfde voor Seller (#1) en Arbiter (#2).'], 'Het "First address (#0)" is het eerste adres onder Addresses van dat Shrike-account; de uitleg is duidelijk.'],
+    ['NODE-2', 'Eigen node als server (hertest uitleg)', ['Account → Network: lees de stappen, plak het Mempool-adres (Interfaces → LAN) zonder /api → Use → Test connection. Probeer ook eens een fout adres.'], '"✓ block …" gelijk aan mempool.guide; een fout geeft een begrijpelijke uitleg.'],
+    ['REAL-1', 'Escrow-aankoop', ['Seller: advertentie €10, escrow, PostNL. Buyer bestelt; Seller accepteert (uitbetaaladres staat al ingevuld met "✓ A new address from your wallet"). Buyer vult details in (terugbetaaladres ook al ingevuld).', 'Buyer en Seller betalen hun deel vanuit Shrike (Send, exact bedrag, replay-bescherming aan). Seller verzendt + 📬 Delivered, Buyer geeft vrij, Seller tekent mee.'], 'Bedragen komen aan in Shrike (Seller: prijs + borg; Buyer: borg terug), elk op een adres dat nergens anders gebruikt is (Shrike → Addresses).'],
+    ['TRD-7', 'Termijnen in een echte aankoop', ['Kijk tijdens REAL-1 naar de ⏰-regels: Seller ziet "Ship by …", Buyer "The seller ships by …". Na 📬 Delivered ziet Buyer hoe lang hij heeft om te bevestigen of te klagen.'], 'De teksten zijn duidelijk en de data kloppen (5 dagen verzenden; 2 dagen na levering).'],
+    ['REAL-2', 'Direct on-chain', ['Seller: advertentie €5 met on-chain. Buyer bestelt on-chain; Seller stuurt het verzoek (adres al ingevuld, nieuw). Buyer betaalt vanuit Shrike en plakt de txid.'], '"✓ …, N confirmations"; geld bij Seller op weer een nieuw adres.'],
+  ]],
   ['Later: met de dienst', 'Admin', [
     ['SVC-1', 'XBT Market-dienst staat live', ['Cloudflare: gratis account → API-token (sjabloon "Edit Cloudflare Workers") + Account ID. GitHub → Settings → Secrets and variables → Actions: CLOUDFLARE_API_TOKEN en CLOUDFLARE_ACCOUNT_ID. Actions → laatste run → Re-run all jobs.', 'Open de workers.dev-link uit de deploy-log.'], 'Je ziet {"service":"xbt-market","usernames":true,…}.'],
     ['SVC-2', 'Verzending aan', ['Secrets SENDCLOUD_PUBLIC_KEY, SENDCLOUD_SECRET_KEY en PLATFORM_LN_ADDRESS, opnieuw deployen.'], '"shipping":true.'],
@@ -84,14 +91,6 @@ const PLAN = [
     ['IMP-9', 'Link plakken', ['Marktplaats-app: één advertentie → Delen → Link kopiëren. Import → "Paste a link" → Read. Ook met het adres van je profiel uit de browser.'], 'Advertentie(s) met foto\'s verschijnen.'],
     ['SHP-2', 'Echt verzendlabel', ['Na betaling: Seller → Get the label price → Buy label → betaal.'], 'Echte PostNL/DHL-QR en label in de chat.'],
   ], 'Nodig: SVC-1 (gratis Cloudflare-account); voor SHP-2 ook Sendcloud + een Lightning-adres, voor BUG-2 Resend en een GitHub-token. Overslaan tot je die hebt.'],
-  ['Later: met je XBT-node en echte XBT', 'Seller, Buyer, Arbiter', [
-    ['WAL-1', 'XBT-node klaar', ['Start9 → knots-blake2b: "Blockchain Sync" klaar en de "chain"-controle groen.'], 'Hoogte gelijk aan mempool.guide.'],
-    ['WAL-4', 'XBT op de keten', ['knots-blake2b → Get Address. Koop ~€20 XBT en stuur het daarheen.'], 'Saldo zichtbaar met Get Balance.'],
-    ['REAL-1', 'Escrow-aankoop met echte XBT', ['Buyer en Seller betalen hun deel vanuit knots-blake2b (Send Coins). Seller verzendt, Buyer geeft vrij, Seller tekent mee.'], 'Bedragen komen aan in beide wallets (Seller: prijs + borg − fee-aandeel; Buyer: borg terug).'],
-    ['TRD-7', 'Termijnen in een echte aankoop', ['Kijk tijdens REAL-1 naar de ⏰-regels: Seller ziet "Ship by …", Buyer "The seller ships by …". Na verzenden: Seller tikt "📬 Delivered, per the tracking"; Buyer ziet hoe lang hij heeft om te bevestigen of te klagen.', 'Wat er gebeurt als iemand te laat is, testen de automatische tests (met een verzette klok).'], 'De teksten zijn duidelijk en de data kloppen (5 dagen verzenden, 7 naar het buitenland; 2 dagen na levering of 14 na verzenden).'],
-    ['REAL-2', 'Direct on-chain met echte XBT', ['Bestelling on-chain: Seller stuurt adres, Buyer betaalt en plakt de txid.'], '"✓ …, N confirmations"; geld bij Seller.'],
-    ['NODE-2', 'Eigen node als server', ['Start9: Mempool Pruned (op knots-blake2b + electrs-pruned) en het Start9 Root CA in je browser.', 'Account → Network → lees de stappen, plak het Mempool-adres (Interfaces → LAN) zonder /api → Use → Test connection. Probeer ook eens een fout adres.'], '"✓ block …" gelijk aan mempool.guide; de stappen zijn duidelijk en een fout geeft een begrijpelijke uitleg.'],
-  ], 'Nodig: knots-blake2b gesynchroniseerd en ~€20 XBT. Voor NODE-2 ook Mempool Pruned + Electrs Pruned op je Start9. Overslaan tot je node klaar is.'],
   ['Later: met XBT-Lightning', 'Seller verkoopt, Buyer koopt', [
     ['WAL-2', 'Lightning Fork', ['Marketplace → Change registry → start9.paulscode.com → installeer Lightning Fork. Select Node → knots-blake2b. Initialize Wallet → Start Fresh; seed op papier. Configure Channel Backups.'], 'Lightning Fork draait.'],
     ['WAL-3', 'Laguz Hub + kanaal', ['Registry start9.pyblock.xyz → Laguz Hub. Kanaal openen (peers: forum paulscode.com). Twee NWC-koppelingen: "seller" en "buyer".'], 'Twee connection strings.'],
@@ -106,7 +105,7 @@ const PLAN = [
   ], 'Nodig: een API-sleutel van Anthropic. Overslaan als je die (nog) niet wilt.'],
 ];
 
-const KEY = 'xbt-testplan-v7';
+const KEY = 'xbt-testplan-v8';
 let state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { state = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} render(); };

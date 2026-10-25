@@ -19,6 +19,9 @@ import { InstallGuide } from '../install.jsx';
 import { ProfileForm } from './EditProfile.jsx';
 import { blocks, unblock } from '../../lib/nostr/moderation.js';
 import { BugReport } from '../report.jsx';
+import { saveWalletKey, walletKeyConfigured, loadWallet } from '../../lib/payout.js';
+import { deriveAddress } from '../../lib/btc/xpub.js';
+import { usePayoutPick } from '../payout.jsx';
 
 function AccountHead() {
   const acc = useStore(account);
@@ -214,6 +217,45 @@ function nodeError(e, url) {
     `No se puede conectar. Abre ${probe} en este navegador: un aviso de certificado significa que este navegador aún no confía en tu nodo (Start9: importa su Root CA); si la página no carga, la dirección es incorrecta o no estás en tu red de casa; si ves un número, el servidor rechaza otros sitios web (CORS).`);
 }
 
+// The wallet's public key, so every trade gets a new payout address.
+function WalletKey() {
+  useStore(secretNames);
+  const network = useStore(settings, (s) => s.network);
+  const [text, setText] = useState('');
+  const [saved, setSaved] = useState(null); // { first, assumed }
+  const on = walletKeyConfigured();
+  const pick = usePayoutPick(on);
+  const wallet = on ? loadWallet() : null;
+  const first = wallet ? deriveAddress(wallet, 0, network) : '';
+  return (
+    <Field group label={T('Your XBT wallet: a new address for every trade', 'Tu cartera XBT: una dirección nueva en cada compra')}>
+      <p class="hint">{T('Using one address for every trade lets anyone who traded with you see all your payments. Paste your wallet\'s public key instead: the app then puts a new address from your wallet in every trade, and never one that was used before. The key can only make addresses, not spend; it stays encrypted in this browser and is never sent to anyone.', 'Usar una sola dirección en todas las compras deja que cualquiera con quien comerciaste vea todos tus pagos. Pega la clave pública de tu cartera: la app pondrá en cada compra una dirección nueva de tu cartera, nunca una ya usada. La clave solo crea direcciones, no puede gastar; queda cifrada en este navegador y no se envía a nadie.')}</p>
+      <ol class="small hint">
+        <li>{T('In Shrike or Sparrow, open the wallet account you use for this XBT Market account (one account per role, used only here).', 'En Shrike o Sparrow, abre la cuenta de la cartera que usas para esta cuenta de XBT Market (una cuenta por rol, usada solo aquí).')}</li>
+        <li>{T('Settings (left) → Keystores: copy the xpub. Or Export… → Output descriptor.', 'Settings (izquierda) → Keystores: copia el xpub. O Export… → Output descriptor.')}</li>
+        <li>{T('Paste it here and Save. Check that the first address below is the first one under Addresses in your wallet.', 'Pégalo aquí y guarda. Comprueba que la primera dirección de abajo es la primera en Addresses de tu cartera.')}</li>
+      </ol>
+      {on ? (
+        <>
+          <p class="small">✓ {T('Wallet key saved (encrypted).', 'Clave de cartera guardada (cifrada).')}</p>
+          <p class="small">{T('First address (#0)', 'Primera dirección (#0)')}: <code class="break">{first}</code></p>
+          {saved?.assumed && <p class="notice warn small">{T('A plain xpub does not say which address type your wallet uses; native segwit (bc1q…) is assumed. If the first address does not match your wallet, paste the output descriptor instead.', 'Un xpub simple no dice qué tipo de dirección usa tu cartera; se supone segwit nativo (bc1q…). Si la primera dirección no coincide, pega el output descriptor.')}</p>}
+          <p class="small">{T('Next trade gets', 'La próxima compra recibe')}: {pick?.address ? <code class="break">{pick.address}</code> : '…'} {pick && !pick.fixed && <span class="muted">(#{pick.index})</span>}</p>
+          <Action class="small ghost" confirm={T('Remove the wallet key from this browser?', '¿Quitar la clave de cartera de este navegador?')} onClick={async () => { saveWalletKey(''); setSaved(null); }}>{T('Remove', 'Quitar')}</Action>
+        </>
+      ) : (
+        <>
+          <textarea rows="3" value={text} onInput={(e) => setText(e.target.value)} placeholder="zpub… / xpub… / wpkh([…]xpub…/0/*)" />
+          <Action class="small" disabled={!text.trim()} onClick={async () => {
+            try { const r = saveWalletKey(text); setSaved({ first: r.first, assumed: r.wallet.assumed }); setText(''); toast(T('Wallet key saved', 'Clave de cartera guardada'), 'ok'); } catch (e) { toast(T('Cannot use this key: ', 'No se puede usar esta clave: ') + e.message, 'error', 9000); }
+          }}>{T('Save', 'Guardar')}</Action>
+        </>
+      )}
+      <p class="hint">{T('Shrike and Sparrow look 20 addresses ahead. Trades that never get paid leave gaps; after more than 20 in a row, raise the gap limit in your wallet (Settings → Advanced).', 'Shrike y Sparrow miran 20 direcciones por delante. Las compras que nunca se pagan dejan huecos; si hay más de 20 seguidos, sube el gap limit en tu cartera (Settings → Advanced).')}</p>
+    </Field>
+  );
+}
+
 function NodePicker() {
   const s = useStore(settings);
   const cur = s.esploraOverride?.[s.network] || s.esplora[s.network];
@@ -326,7 +368,8 @@ export function Settings({ query }) {
       <p class="hint">{T('You can buy and sell without any of this. Open a section when you need it.', 'Puedes comprar y vender sin nada de esto. Abre una sección cuando la necesites.')}</p>
 
       <Section icon="🤝" title={T('Trading', 'Compraventa')} summary={T('payout address, your address, exchange rate', 'dirección de cobro, tu dirección, tipo de cambio')} open={openSet.has('trading')}>
-        <Field label={T('Default XBT payout / refund address', 'Dirección XBT de cobro / reembolso por defecto')} hint={T('Used in escrow trades, and for your fee if you are an arbiter. An address from your own XBT wallet.', 'Se usa en compras con escrow, y para tu comisión si eres árbitro. Una dirección de tu propia cartera XBT.')}>
+        <WalletKey />
+        <Field label={T('Or one fixed XBT address (not recommended)', 'O una dirección XBT fija (no recomendado)')} hint={T('Only used without a wallet key above. Every trade then shows this same address.', 'Solo se usa sin la clave de cartera de arriba. Cada compra muestra entonces esta misma dirección.')}>
           <input value={payout} onInput={(e) => setPayout(e.target.value)} onBlur={() => (!payout || isValidAddress(payout, s.network)) ? updateSettings({ payoutAddress: payout.trim() }) : toast(T('Invalid address', 'Dirección no válida'), 'error')} placeholder="bc1q…" />
         </Field>
         <h4>{T('Your address', 'Tu dirección')}</h4>

@@ -1069,7 +1069,7 @@ try {
     await waitText(p, 'Dispute opened by the buyer', 30000);
     // The fee goes to the arbiter's payout address.
     const s = await go('A', '#/settings?open=trading');
-    await fill(s, 'Default XBT payout / refund address', CLI ? cli('getnewaddress', 'plan-arbiter', 'bech32') : 'bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080');
+    await fill(s, 'Or one fixed XBT address (not recommended)', CLI ? cli('getnewaddress', 'plan-arbiter', 'bech32') : 'bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080');
     await s.keyboard.press('Tab');
     await go('A', `#/trade/${tid2}`);
     await waitText(p, 'Dispute opened by the buyer', 30000);

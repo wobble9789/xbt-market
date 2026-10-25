@@ -40,6 +40,13 @@ async function utxos(address) {
 const routes = [
   ['GET', /^\/api\/blocks\/tip\/height$/, async () => String(await rpc('getblockcount'))],
   ['GET', /^\/api\/address\/([^/]+)\/utxo$/, (m) => utxos(m[1])],
+  // Whether an address was ever used: the node wallet's history for its own
+  // addresses (all test addresses are), unspent outputs for any other.
+  ['GET', /^\/api\/address\/([^/]+)$/, async (m) => {
+    const mine = (await rpc('listreceivedbyaddress', [0, true, true, m[1]]).catch(() => []))[0];
+    const txs = mine ? mine.txids.length : (await utxos(m[1])).length;
+    return { address: m[1], chain_stats: { tx_count: txs }, mempool_stats: { tx_count: 0 } };
+  }],
   ['GET', /^\/api\/tx\/([0-9a-f]{64})$/, async (m) => {
     const t = await rpc('getrawtransaction', [m[1], true]);
     const height = t.blockhash ? (await rpc('getblockheader', [t.blockhash])).height : undefined;

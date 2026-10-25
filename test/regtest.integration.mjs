@@ -72,4 +72,19 @@ async function run(label, signers) {
 await run('buyer+seller', ['buyer', 'seller']);
 await run('arbiter+seller', ['arbiter', 'seller']);
 await run('arbiter+buyer', ['buyer', 'arbiter']);
+// Payout addresses from the node wallet's own public descriptors match what
+// the node derives itself, and the wallet recognises them as its own.
+{
+  const { parseWalletKey, deriveAddress } = await import('../src/lib/btc/xpub.js');
+  const descs = json('listdescriptors').descriptors.filter((d) => !d.internal && /^(wpkh|sh\(wpkh|tr)\(/.test(d.desc));
+  for (const d of descs) {
+    const node = json('deriveaddresses', d.desc, JSON.stringify([0, 2]));
+    const w = parseWalletKey(d.desc, 'regtest');
+    const ours = [0, 1, 2].map((i) => deriveAddress(w, i, 'regtest'));
+    assert.deepEqual(ours, node, d.desc.slice(0, 12));
+    assert.ok(json('getaddressinfo', ours[1]).ismine);
+    console.log(`ok payout addresses from ${d.desc.split('(')[0]}: ${ours[0]} …`);
+  }
+  assert.ok(descs.length >= 2, 'the wallet has wpkh and tr descriptors');
+}
 console.log('regtest integration passed');
