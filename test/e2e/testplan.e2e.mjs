@@ -238,7 +238,15 @@ async function shipCountry(c) {
 }
 // A paid listing goes to "reserved" by itself; like a seller with more in
 // stock, put it back on sale before the next order of the same listing.
+// Shipping needs the buyer's address in the account (asked before ordering).
+async function ensureAddress(who) {
+  const p = await go(who, '#/settings?open=address');
+  const name = await el(p, '//label[span[normalize-space(.)="Full name"]]//input');
+  if (!(await name.evaluate((i) => i.value))) await fillAddress(p);
+  await sleep(500);
+}
 async function order(who, title, { pay, pickup = false, carrier }) {
+  if (!pickup) await ensureAddress(who);
   const c = await openListing(who, title);
   const before = await c.evaluate(() => location.hash);
   // An open conversation about this listing is reused, as a buyer would.
@@ -250,6 +258,8 @@ async function order(who, title, { pay, pickup = false, carrier }) {
   if (pickup) await choose(c, '🤝 Pick up');
   else await shipCountry(c);
   if (carrier) { await waitText(c, carrier, 30000); await choose(c, carrier); }
+  // Escrow: the refund address goes with the order (the arbiter is pre-chosen).
+  if (/Escrow/.test(pay)) await fillPh(c, 'bc1q…', people[who].refund);
   await click(c, 'Send order');
   await waitText(c, 'Waiting for the seller to accept');
   return tradeIdOf(c);
@@ -843,6 +853,7 @@ try {
   let tid;
   const buyerAddr = CLI && cli('getnewaddress', 'plan-buyer', 'bech32');
   const sellerAddr = CLI && cli('getnewaddress', 'plan-seller', 'bech32');
+  people.C.refund = buyerAddr;
   await step('TRD-1a', 'A message first, no obligation', async () => {
     const c = await openListing('C', 'Wollen sjaal, rood');
     await click(c, '💬 Message the seller');
@@ -856,20 +867,29 @@ try {
     await waitText(p, 'Is de sjaal nog beschikbaar?', 40000);
     return 'chat opened; the seller sees it under Messages with the last message';
   });
-  await step('TRD-1b', 'Order from the chat: only what is needed', async () => {
-    const c = await go('C', `#/trade/${tid}`);
+  await step('TRD-1b', 'Order from the chat: arbiter, refund and delivery address go with the order', async () => {
+    let c = await go('C', `#/trade/${tid}`);
+    await click(c, '🛒 Order');
+    await choose(c, '🛡 Escrow');
+    await shipCountry(c);
+    // Shipping needs an address in the account first.
+    await waitText(c, 'To have it shipped, first add your shipping address to your account');
+    if (!(await (await el(c, btnX('Send order'))).evaluate((b) => b.disabled))) throw new Error('Send order enabled without an address');
+    await ensureAddress('C');
+    c = await go('C', `#/trade/${tid}`);
     await click(c, '🛒 Order');
     await choose(c, '🛡 Escrow');
     await shipCountry(c);
     await waitText(c, 'PostNL', 30000);
     await choose(c, 'PostNL');
+    await c.waitForFunction(() => [...document.querySelectorAll('.order-form select')].some((s) => s.textContent.includes('Anna Arbiter')), { timeout: 30000 });
+    await fillPh(c, 'bc1q…', buyerAddr);
     const form = await c.$eval('.order-form', (f) => f.innerText);
-    for (const bad of ['Delivery address', 'Arbiter', 'refund']) if (form.includes(bad)) throw new Error(`order form asks for ${bad}`);
-    for (const good of ['How do you want to pay?', 'Ship to (country)', 'Carrier', 'Your offer for the item (XBT)', 'Shipping (PostNL)', 'Your deposit (15%), back when the trade completes', 'Message to the seller', 'You pay into escrow']) if (!form.includes(good)) throw new Error(`no "${good}"`);
-    await proof(c, 'plan', 'TRD-1b · Bestellen in de chat: betaalmethode, land, vervoerder met prijs, prijs, bericht; escrow-berekening');
+    for (const good of ['How do you want to pay?', 'Ship to (country)', 'Carrier', 'Ship to', 'Kerkstraat 1', 'Arbiter', 'Your XBT address for refunds and your deposit', 'Your offer for the item (XBT)', 'Shipping (PostNL)', 'Your deposit (15%), paid back when the trade completes', 'The seller puts in the same deposit (15%)', 'Message to the seller', 'You pay into escrow', 'First send the order, without any payment']) if (!form.includes(good)) throw new Error(`no "${good}"`);
+    await proof(c, 'plan', 'TRD-1b · Bestellen: betaalmethode, vervoerder, bod, arbiter van de verkoper, terugbetaaladres, verzendadres uit het account; bod, verzending, borg en totaal apart');
     await click(c, 'Send order');
     await waitText(c, 'Waiting for the seller to accept');
-    return 'payment, country, carrier with price, price, message; escrow sum visible; no address, refund address or arbiter';
+    return 'address required first; the order names the arbiter (Anna) and the refund address and shows the address from the account; item, shipping, deposit (both 15%) and total as separate lines';
   });
   await step('SHP-1', 'Buyer picks a carrier and pays the shipping', async () => {
     const c = await as('C');
@@ -893,7 +913,7 @@ try {
     await waitText(c, 'Your order');
     return 'colored banner per role, "Order from … (the buyer)" vs "Your order"; reason field after Reject';
   });
-  await step('ARB-4', 'Unapproved arbiter is not offered; the admin can reject, and approve after all', async () => {
+  await step('ARB-4', 'An unapproved arbiter: the admin can reject, and approve after all', async () => {
     const p = await B('#/arbiter');
     await fill(p, 'Name', 'Bob Unapproved');
     await click(p, 'Publish arbiter profile');
@@ -904,23 +924,19 @@ try {
     await waitToast(a, 'Rejected');
     await waitText(a, 'Rejected (');
     await el(a, '//div[contains(@class,"trade-row")][.//b[normalize-space(.)="Bob Unapproved"]]//button[normalize-space(.)="Approve after all"]');
-    return 'B announced without approval (not offered, see TRD-3b); admin: Reject moves him to "Rejected" with "Approve after all"';
+    return 'B announced without approval; admin: Reject moves him to "Rejected" with "Approve after all"';
   });
-  await step('TRD-3b', 'Details only after the accept', async () => {
+  await step('TRD-3b', 'After the accept the escrow is there at once', async () => {
     const p = await B(`#/trade/${tid}`);
+    await waitText(p, 'Arbiter:', 30000);
+    await waitText(p, 'you trust this arbiter');
     await fillPh(p, 'bc1q…', sellerAddr);
     await click(p, '✓ Accept');
-    await waitText(p, 'Waiting for the buyer to choose an arbiter', 30000);
+    await waitText(p, 'Total needed', 30000);
     const c = await go('C', `#/trade/${tid}`);
-    await waitText(c, 'A few details for the seller', 30000);
-    await c.waitForFunction(() => [...document.querySelectorAll('.details-form select')].some((s) => s.textContent.includes('Anna Arbiter')), { timeout: 30000 });
-    const opts = await c.$$eval('.details-form select', (s) => s.map((x) => x.textContent).join('|'));
-    if (opts.includes('Bob Unapproved')) throw new Error('unapproved arbiter offered (ARB-4)');
-    await fillAddress(c);
-    await fillPh(c, 'bc1q…', buyerAddr);
-    await clickIn(c, 'details-form', 'Send details');
     await waitText(c, 'Total needed', 30000);
-    return 'address, arbiter (only approved Anna) and refund address asked after the accept';
+    if ((await text(c)).includes('A few details for the seller')) throw new Error('the buyer is still asked for details');
+    return 'the seller sees the chosen arbiter as trusted, accepts, and the escrow address is there for both; no details step';
   });
   await step('TRD-4', 'Fund the escrow (3 confirmations)', async () => {
     const c = await as('C');
@@ -1026,12 +1042,7 @@ try {
     await waitText(p, 'Order from', 30000);
     await fillPh(p, 'bc1q…', sellerAddr);
     await click(p, '✓ Accept');
-    await waitText(p, 'Waiting for the buyer to choose an arbiter', 30000);
     const c = await go('C', `#/trade/${id}`);
-    await waitText(c, 'A few details for the seller', 30000);
-    await c.waitForFunction(() => [...document.querySelectorAll('.details-form select')].some((s) => s.textContent.includes('Anna Arbiter')), { timeout: 30000 });
-    await fillPh(c, 'bc1q…', buyerAddr);
-    await clickIn(c, 'details-form', 'Send details');
     await waitText(c, 'Total needed', 30000);
     const [buyerPays, sellerPays] = await escrowAmounts(c);
     const addr = await c.$eval('.addr code', (e) => e.textContent.trim());
@@ -1135,20 +1146,25 @@ try {
     await el(c, btnX('🛒 Make a new order'));
     return 'buyer sees a red "rejected" box with "Message from the seller" and can make a new order';
   });
-  await step('EDG-4', 'Invalid refund address blocks the details', async () => {
-    const id = await order('C', 'Sorteertest duur', { pay: '🛡 Escrow', pickup: true });
-    const p = await B(`#/trade/${id}`);
+  await step('EDG-4', 'Invalid refund address blocks the order', async () => {
+    const c = await openListing('C', 'Sorteertest duur');
+    if (await exists(c, btnX('💬 Go to your conversation'))) { await click(c, '💬 Go to your conversation'); await click(c, '🛒 Order'); } else await click(c, '🛒 Order now');
+    await waitText(c, 'How do you want to pay?');
+    await choose(c, '🛡 Escrow');
+    await choose(c, '🤝 Pick up');
+    await fillPh(c, 'bc1q…', 'tb1qinvalidaddress');
+    await c.waitForSelector('.order-form input.invalid');
+    if (!(await (await el(c, btnX('Send order'))).evaluate((b) => b.disabled))) throw new Error('Send order enabled');
+    await fillPh(c, 'bc1q…', buyerAddr);
+    await click(c, 'Send order');
+    await waitText(c, 'Waiting for the seller to accept');
+    people.C.edgTrade = await tradeIdOf(c);
+    const p = await B(`#/trade/${people.C.edgTrade}`);
     await waitText(p, 'Order from', 30000);
     await fillPh(p, 'bc1q…', sellerAddr);
     await click(p, '✓ Accept');
-    await waitText(p, 'Waiting for the buyer to choose an arbiter', 30000);
-    const c = await go('C', `#/trade/${id}`);
-    await waitText(c, 'A few details for the seller', 30000);
-    await fillPh(c, 'bc1q…', 'tb1qinvalidaddress');
-    await c.waitForSelector('.details-form input.invalid');
-    if (!(await (await el(c, '//*[contains(@class,"details-form")]//button[normalize-space(.)="Send details"]')).evaluate((b) => b.disabled))) throw new Error('Send enabled');
-    people.C.edgTrade = id;
-    return 'field red, Send disabled';
+    await waitText(p, 'Total needed', 30000);
+    return 'refund field red and "Send order" disabled until the address is valid';
   });
   await step('EDG-3', 'Cancel before paying', async () => {
     const p = await B(`#/trade/${people.C.edgTrade}`);
@@ -1280,19 +1296,14 @@ try {
     await click(p, 'Create invoice with my wallet');
     await waitText(p, 'I received the payment', 60000);
     const c = await go('C', `#/trade/${id}`);
-    await waitText(c, 'A few details for the seller', 30000);
-    // The address from TRD-3b is pre-filled, unless this browser was reset in TRD-11.
-    if (!(await c.$eval('::-p-xpath(//label[span[normalize-space(.)="Full name"]]//input)', (i) => i.value))) await fillAddress(c);
-    await clickIn(c, 'details-form', 'Send details');
-    await waitNoText(c, 'A few details for the seller');
-    await waitText(c, 'Details sent', 30000);
     await waitText(c, 'Pay with my wallet', 30000);
     await click(c, '⚡ Pay with my wallet');
     await waitText(c, 'Paid. The Lightning preimage proves it.', 60000);
     const types = (pg) => pg.evaluate((tid) => Object.values(window.xbt?.inbox.get().rumors || {}).filter((r) => r.tags.some((t) => t[1] === tid)).map((r) => `${r.tags.find((t) => t[0] === 'xbt-type')?.[1]}@${r.created_at}`).join(' '), id);
     const cTypes = await types(c);
     const s = await B(`#/trade/${id}`);
-    await waitText(s, 'Details sent', 30000).catch(async (e) => { throw new Error(`${e.message}; buyer has: ${cTypes}; seller has: ${await types(s)}`); });
+    // The delivery address came with the order.
+    await waitText(s, 'Kerkstraat 1', 30000).catch(async (e) => { throw new Error(`${e.message}; buyer has: ${cTypes}; seller has: ${await types(s)}`); });
     await s.waitForFunction(() => /Prepaid shipping label|Your address for the label/.test(document.querySelector('main').innerText), { timeout: 30000 });
     // B has no address yet in this run: fill it once.
     if ((await text(s)).includes('Your address for the label')) {
