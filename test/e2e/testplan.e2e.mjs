@@ -865,7 +865,7 @@ try {
     await choose(c, 'PostNL');
     const form = await c.$eval('.order-form', (f) => f.innerText);
     for (const bad of ['Delivery address', 'Arbiter', 'refund']) if (form.includes(bad)) throw new Error(`order form asks for ${bad}`);
-    for (const good of ['How do you want to pay?', 'Ship to (country)', 'Carrier', 'Your price in XBT', 'Message to the seller', 'You pay into escrow']) if (!form.includes(good)) throw new Error(`no "${good}"`);
+    for (const good of ['How do you want to pay?', 'Ship to (country)', 'Carrier', 'Your offer for the item (XBT)', 'Shipping (PostNL)', 'Your deposit (15%), back when the trade completes', 'Message to the seller', 'You pay into escrow']) if (!form.includes(good)) throw new Error(`no "${good}"`);
     await proof(c, 'plan', 'TRD-1b · Bestellen in de chat: betaalmethode, land, vervoerder met prijs, prijs, bericht; escrow-berekening');
     await click(c, 'Send order');
     await waitText(c, 'Waiting for the seller to accept');
@@ -918,7 +918,7 @@ try {
     if (opts.includes('Bob Unapproved')) throw new Error('unapproved arbiter offered (ARB-4)');
     await fillAddress(c);
     await fillPh(c, 'bc1q…', buyerAddr);
-    await clickIn(c, 'details-form', 'Send');
+    await clickIn(c, 'details-form', 'Send details');
     await waitText(c, 'Total needed', 30000);
     return 'address, arbiter (only approved Anna) and refund address asked after the accept';
   });
@@ -1031,7 +1031,7 @@ try {
     await waitText(c, 'A few details for the seller', 30000);
     await c.waitForFunction(() => [...document.querySelectorAll('.details-form select')].some((s) => s.textContent.includes('Anna Arbiter')), { timeout: 30000 });
     await fillPh(c, 'bc1q…', buyerAddr);
-    await clickIn(c, 'details-form', 'Send');
+    await clickIn(c, 'details-form', 'Send details');
     await waitText(c, 'Total needed', 30000);
     const [buyerPays, sellerPays] = await escrowAmounts(c);
     const addr = await c.$eval('.addr code', (e) => e.textContent.trim());
@@ -1069,7 +1069,8 @@ try {
     await waitText(p, 'Dispute opened by the buyer', 30000);
     // The fee goes to the arbiter's payout address.
     const s = await go('A', '#/settings?open=trading');
-    await fill(s, 'Or one fixed XBT address (not recommended)', CLI ? cli('getnewaddress', 'plan-arbiter', 'bech32') : 'bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080');
+    await click(s, 'No wallet key? Use one fixed address instead');
+    await fill(s, 'One fixed XBT address', CLI ? cli('getnewaddress', 'plan-arbiter', 'bech32') : 'bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080');
     await s.keyboard.press('Tab');
     await go('A', `#/trade/${tid2}`);
     await waitText(p, 'Dispute opened by the buyer', 30000);
@@ -1282,7 +1283,7 @@ try {
     await waitText(c, 'A few details for the seller', 30000);
     // The address from TRD-3b is pre-filled, unless this browser was reset in TRD-11.
     if (!(await c.$eval('::-p-xpath(//label[span[normalize-space(.)="Full name"]]//input)', (i) => i.value))) await fillAddress(c);
-    await clickIn(c, 'details-form', 'Send');
+    await clickIn(c, 'details-form', 'Send details');
     await waitNoText(c, 'A few details for the seller');
     await waitText(c, 'Details sent', 30000);
     await waitText(c, 'Pay with my wallet', 30000);
@@ -1519,14 +1520,15 @@ try {
     await waitToast(p, 'messages restored');
     return `${file.name} downloaded (${Object.keys(json.rumors || json).length} entries) and restored`;
   });
-  await step('SET-2', 'Manual exchange rate', async () => {
+  await step('SET-2', 'No manual exchange rate; payout settings', async () => {
     const p = await B('#/settings?open=trading');
-    await fill(p, 'Manual rate (1 XBT in EUR)', '500');
-    await openListing('B', 'Wollen sjaal, rood');
-    await waitText(p, '€3.00 ≈ 0.006 XBT');
-    const s = await B('#/settings?open=trading');
-    await fill(s, 'Manual rate (1 XBT in EUR)', '50000');
-    return 'XBT amount follows the manual rate';
+    await waitText(p, 'Your XBT wallet');
+    if ((await text(p)).includes('Manual rate')) throw new Error('manual rate field still there');
+    // The fixed address hides behind a button with a privacy warning.
+    if (await exists(p, '//main//input[@placeholder="bc1q…"]')) throw new Error('fixed address field shown without asking');
+    await click(p, 'No wallet key? Use one fixed address instead');
+    await waitText(p, 'Not private: everyone you trade with sees this same address');
+    return 'no manual rate; the fixed address only after "Use one fixed address instead", with a privacy warning';
   });
   await step('SET-3', 'Log out and log in again', async () => {
     const p = await B('#/settings');

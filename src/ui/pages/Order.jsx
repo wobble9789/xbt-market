@@ -56,7 +56,7 @@ export function OrderForm({ state, listing, onClose }) {
     Promise.all([fiatToSats(listing.price, listing.currency), shipPrice ? fiatToSats(shipPrice, shipCur) : 0]).then(([item, ship]) => {
       if (!live || item == null || ship == null) return;
       setSuggested({ item, ship, total: item + ship });
-      if (!edited) setPriceText(formatCoin(item + ship, { unit: false }));
+      if (!edited) setPriceText(formatCoin(item, { unit: false }));
     });
     return () => { live = false; };
   }, [listing.coord, shipPrice, shipCur, rate?.value]);
@@ -72,7 +72,10 @@ export function OrderForm({ state, listing, onClose }) {
   }, []);
 
   const escrow = pay === 'escrow';
-  const sats = parseCoin(priceText);
+  // What the buyer offers for the item; shipping is the carrier's rate on top.
+  const itemSats = parseCoin(priceText);
+  const shipSats = delivery === 'ship' ? suggested?.ship || 0 : 0;
+  const sats = itemSats ? itemSats + shipSats : itemSats;
   const bd = escrow && sats ? Math.round((sats * s.buyerDepositPct) / 100) : 0;
   const sdPct = listing.sellerDepositPct ?? s.sellerDepositPct;
   const sd = escrow && sats ? Math.round((sats * sdPct) / 100) : 0;
@@ -140,7 +143,7 @@ export function OrderForm({ state, listing, onClose }) {
         )}
       </>}
 
-      <Field label={T('Your price in XBT', 'Tu precio en XBT')} hint={suggested ? T(`Asking price ${formatCoin(suggested.item)}${suggested.ship ? ` + shipping ${formatCoin(suggested.ship)}` : ''}${rate ? ` (1 XBT ≈ ${formatFiat(rate.value, listing.currency)})` : ''}. You may offer less; the seller decides.`, `Precio pedido ${formatCoin(suggested.item)}${suggested.ship ? ` + envío ${formatCoin(suggested.ship)}` : ''}${rate ? ` (1 XBT ≈ ${formatFiat(rate.value, listing.currency)})` : ''}. Puedes ofrecer menos; decide el vendedor.`) : T('No exchange rate available; enter the amount you agreed in the chat.', 'No hay tipo de cambio; introduce el importe acordado en el chat.')}>
+      <Field label={T('Your offer for the item (XBT)', 'Tu oferta por el artículo (XBT)')} hint={suggested ? `${rate ? `1 XBT ≈ ${formatFiat(rate.value, listing.currency)}. ` : ''}${T('You may offer less; the seller decides.', 'Puedes ofrecer menos; decide el vendedor.')}` : T('No exchange rate available; enter the amount you agreed in the chat.', 'No hay tipo de cambio; introduce el importe acordado en el chat.')}>
         <input inputmode="decimal" value={priceText} onInput={(e) => { setPriceText(e.target.value); setEdited(true); }} placeholder="0.001" />
       </Field>
       {noArbiter && <p class="notice warn">{T('Escrow needs an arbiter who is not you or the seller, and there is none yet. Choose another payment method, or add an arbiter you trust under Account.', 'El escrow necesita un árbitro que no seas tú ni el vendedor, y aún no hay ninguno. Elige otro método de pago o añade un árbitro de confianza en Cuenta.')}</p>}
@@ -150,11 +153,13 @@ export function OrderForm({ state, listing, onClose }) {
       </Field>
       {sats > 0 && (
         <div class="summary">
+          <div><span>{T('Your offer for the item', 'Tu oferta por el artículo')}</span><b><Coin sats={itemSats} /></b></div>
+          {shipSats > 0 && <div><span>{T('Shipping', 'Envío')} ({carrier(pick?.carrier).name})</span><b><Coin sats={shipSats} /></b></div>}
           {escrow ? <>
-            <div><span>{T('You pay into escrow', 'Pagas al escrow')}</span><b><Coin sats={sats + bd} /></b></div>
-            <div class="muted small">{T(`= price + ${s.buyerDepositPct}% deposit, which you get back when the trade completes`, `= precio + ${s.buyerDepositPct}% de depósito, que recuperas al terminar la compra`)}</div>
-            <div><span>{T('Seller deposits', 'Depósito del vendedor')}</span><b><Coin sats={sd} /></b></div>
-          </> : <div><span>{T('You pay the seller', 'Pagas al vendedor')}</span><b><Coin sats={sats} /></b></div>}
+            <div><span>{T(`Your deposit (${s.buyerDepositPct}%), back when the trade completes`, `Tu depósito (${s.buyerDepositPct}%), lo recuperas al terminar`)}</span><b><Coin sats={bd} /></b></div>
+            <div class="total"><span>{T('You pay into escrow', 'Pagas al escrow')}</span><b><Coin sats={sats + bd} /></b></div>
+            <div class="muted small"><span>{T(`The seller also puts in a deposit (${sdPct}%)`, `El vendedor también deposita (${sdPct}%)`)}</span><span><Coin sats={sd} /></span></div>
+          </> : <div class="total"><span>{T('You pay the seller', 'Pagas al vendedor')}</span><b><Coin sats={sats} /></b></div>}
           <div class="muted small">{T('Nothing is paid yet: the seller accepts first, then you get a payment request in this chat.', 'Aún no se paga nada: primero acepta el vendedor y luego recibes una solicitud de pago en este chat.')}</div>
         </div>
       )}

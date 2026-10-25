@@ -490,7 +490,8 @@ function OfferCard({ state, role }) {
         <div><span>{T('Asking price', 'Precio pedido')}</span><b>{formatFiat(o.listing.price, o.listing.currency)}</b></div>
         <ShippingLine state={state} />
         <div><span>{T('Payment', 'Pago')}</span><b>{payShort(methodOf(state))}</b></div>
-        <div class="total"><span>{role === 'seller' ? T('The buyer offers', 'El comprador ofrece') : T('You offer', 'Ofreces')}</span><b><Coin sats={tm.priceSats} /></b></div>
+        {o.shipping?.sats > 0 && o.shipping.sats < tm.priceSats && <div><span>{role === 'seller' ? T('Offer for the item', 'Oferta por el artículo') : T('Your offer for the item', 'Tu oferta por el artículo')}</span><b><Coin sats={tm.priceSats - o.shipping.sats} /></b></div>}
+        <div class="total"><span>{o.shipping?.sats > 0 ? T('Total with shipping', 'Total con envío') : role === 'seller' ? T('The buyer offers', 'El comprador ofrece') : T('You offer', 'Ofreces')}</span><b><Coin sats={tm.priceSats} /></b></div>
         {escrow && <div class="muted small"><span>{T('Deposits', 'Depósitos')}: {T('buyer', 'comprador')} {formatCoin(tm.buyerDepositSats)} · {T('seller', 'vendedor')} {formatCoin(tm.sellerDepositSats)}</span></div>}
       </div>
       {o.note && <p class="quote">{o.note}</p>}
@@ -601,7 +602,7 @@ function DetailsForm({ state, role }) {
         if (needShip) updateSettings({ address });
         await sendDetails(state, { ...(needShip ? { shipTo: address } : {}), ...(needPoint ? { servicePointId: point } : {}), ...(needPayout ? { payoutAddress: payout } : {}), ...(needArbiter ? { arbiter: dir.arbiters.get(arbiter) } : {}) });
         if (needPayout) markPayoutUsed(pick, payout);
-      }}>{T('Send', 'Enviar')}</Action>
+      }}>{T('Send details', 'Enviar datos')}</Action>
     </div>
   );
 }

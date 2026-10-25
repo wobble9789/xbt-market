@@ -34,9 +34,12 @@ export const SIZES = { S: { kg: 2 }, M: { kg: 5 }, L: { kg: 10 }, XL: { kg: 20 }
 
 // Rough consumer prices in EUR when no live rates are available.
 const ESTIMATE = { S: [5, 10, 20], M: [7, 15, 30], L: [10, 25, 50], XL: [15, 40, 80] };
-export function estimatePrice(size, from, to) {
+// Known domestic consumer prices per carrier and country, for parcels up to size L.
+const DOMESTIC = { postnl: { NL: 6.95 } };
+export function estimatePrice(size, from, to, carrierId) {
   const zone = from && to && from === to ? 0 : EU.includes(from) && EU.includes(to) ? 1 : 2;
-  return (ESTIMATE[size] || ESTIMATE.M)[zone];
+  const known = zone === 0 && size !== 'XL' && DOMESTIC[carrierId]?.[from];
+  return known || (ESTIMATE[size] || ESTIMATE.M)[zone];
 }
 
 // Carriers without a known tracking page fall back to a universal tracker.

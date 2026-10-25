@@ -178,7 +178,7 @@ try {
   step('buyer sends the address and pays with their wallet');
   await waitText(await as('buyer'), 'A few details for the seller', 30000);
   await waitText(await as('buyer'), 'Delivery address');
-  await clickIn(await as('buyer'), 'details-form', 'Send');
+  await clickIn(await as('buyer'), 'details-form', 'Send details');
   await waitNoText(await as('buyer'), 'A few details for the seller');
   await waitText(await as('buyer'), 'Pay with my wallet', 30000);
   await shot(await as('buyer'), 'Koper: betaalverzoek in de chat met QR-code, factuur, netwerk (lnbcrt) en "Betaal met mijn wallet"');
