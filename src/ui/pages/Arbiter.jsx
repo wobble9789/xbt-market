@@ -3,6 +3,8 @@ import { useStore } from '../../lib/store.js';
 import { account, npub } from '../../lib/nostr/account.js';
 import { directory, announceArbiter, loadDirectory, myArbiterBase, arbiterFeePct, MAX_ARBITER_FEE_PCT } from '../../lib/nostr/directory.js';
 import { settings } from '../../lib/settings.js';
+import { secretNames } from '../../lib/secrets.js';
+import { walletKeyConfigured } from '../../lib/payout.js';
 import { T } from '../i18n.js';
 import { Action, Field, Empty, Copy, toast } from '../components.jsx';
 import { useMyTrades, TradeRow } from './Trades.jsx';
@@ -13,7 +15,9 @@ export function ArbiterPage() {
   const ann = dir.announcements.get(me);
   const approved = dir.arbiters.has(me);
   const [f, setF] = useState({ name: ann?.name || '', about: ann?.about || '', languages: ann?.languages || '', feePct: ann ? String(arbiterFeePct(ann)) : '1' });
-  const payout = useStore(settings, (s) => s.payoutAddress);
+  const fixedPayout = useStore(settings, (s) => s.payoutAddress);
+  useStore(secretNames);
+  const payout = fixedPayout || walletKeyConfigured();
   const pct = Number(String(f.feePct).replace(',', '.'));
   const pctOk = pct >= 0 && pct <= MAX_ARBITER_FEE_PCT;
   const trades = useMyTrades().filter((t) => t.state.role === 'arbiter');
@@ -38,10 +42,10 @@ export function ArbiterPage() {
         <Field label={T('Name', 'Nombre')}><input value={f.name} onInput={set('name')} /></Field>
         <Field label={T('About you', 'Sobre ti')}><textarea rows="3" value={f.about} onInput={set('about')} /></Field>
         <Field label={T('Languages', 'Idiomas')}><input value={f.languages} onInput={set('languages')} placeholder="NL, EN, DE" /></Field>
-        <Field label={T('Your fee (% of the escrow)', 'Tu comisión (% del escrow)')} hint={T(`Only when you rule in a dispute; 0 to ${MAX_ARBITER_FEE_PCT}%. Buyers see it when they pick an arbiter. When you propose a ruling, the app adds your fee as a separate output to your payout address (Account → Trading).`, `Solo cuando resuelves una disputa; de 0 a ${MAX_ARBITER_FEE_PCT}%. Los compradores la ven al elegir árbitro. Al proponer una resolución, la app añade tu comisión como salida aparte a tu dirección de cobro (Cuenta → Compraventa).`)}>
+        <Field label={T('Your fee (% of the escrow)', 'Tu comisión (% del escrow)')} hint={T(`Only when you rule in a dispute; 0 to ${MAX_ARBITER_FEE_PCT}%. Buyers see it when they pick an arbiter. When you propose a ruling, the app adds your fee as a separate output to a new address from your wallet (Account → Trading).`, `Solo cuando resuelves una disputa; de 0 a ${MAX_ARBITER_FEE_PCT}%. Los compradores la ven al elegir árbitro. Al proponer una resolución, la app añade tu comisión como salida aparte a una dirección nueva de tu cartera (Cuenta → Compraventa).`)}>
           <input inputmode="decimal" value={f.feePct} onInput={set('feePct')} class={pctOk ? '' : 'invalid'} />
         </Field>
-        {pct > 0 && !payout && <p class="notice warn small">{T('Set your payout address under Account → Trading to receive your fee.', 'Pon tu dirección de cobro en Cuenta → Compraventa para recibir tu comisión.')} <a href="#/settings?open=trading">→</a></p>}
+        {pct > 0 && !payout && <p class="notice warn small">{T('Add your wallet key (or a payout address) under Account → Trading to receive your fee.', 'Añade la clave de tu cartera (o una dirección de cobro) en Cuenta → Compraventa para recibir tu comisión.')} <a href="#/settings?open=trading">→</a></p>}
         <p class="small muted">{T('Escrow base key', 'Clave base del escrow')}: <code class="break">{myArbiterBase()}</code></p>
         <div class="row">
           <Action class="primary" disabled={!pctOk || !f.name.trim()} onClick={async () => { await announceArbiter({ ...f, feePct: pct }); await loadDirectory(); toast(T('Published', 'Publicado'), 'ok'); }}>{ann ? T('Update', 'Actualizar') : T('Publish arbiter profile', 'Publicar perfil de árbitro')}</Action>

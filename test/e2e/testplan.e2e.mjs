@@ -1069,7 +1069,7 @@ try {
     await waitText(p, 'Dispute opened by the buyer', 30000);
     // The fee goes to the arbiter's payout address.
     const s = await go('A', '#/settings?open=trading');
-    await fill(s, 'Default XBT payout / refund address', CLI ? cli('getnewaddress', 'plan-arbiter', 'bech32') : 'bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080');
+    await fill(s, 'Or one fixed XBT address (not recommended)', CLI ? cli('getnewaddress', 'plan-arbiter', 'bech32') : 'bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080');
     await s.keyboard.press('Tab');
     await go('A', `#/trade/${tid2}`);
     await waitText(p, 'Dispute opened by the buyer', 30000);
@@ -1478,11 +1478,13 @@ try {
   });
   await step('NODE-2', 'Own node', async () => {
     const p = await B('#/settings?open=network');
-    await fillPh(p, 'https://umbrel.local:3006/api', 'http://localhost:3006/api');
+    // Pasted as Start9 shows it, without /api: the app adds it.
+    await fillPh(p, 'https://mempool-xxxx.local', 'http://localhost:3006/');
     await click(p, 'Use');
     await waitText(p, '✓ block');
+    if (await p.$eval('::-p-xpath(//input[@placeholder="https://mempool-xxxx.local"])', (i) => i.value) !== 'http://localhost:3006/api') throw new Error('/api not added');
     await choose(p, 'Local (npm run shim)');
-    return 'own node URL accepted and tested';
+    return 'own node address without /api accepted (/api added) and tested';
   });
 
   // ---- the service ----

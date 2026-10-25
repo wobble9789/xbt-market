@@ -33,6 +33,7 @@
     "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.4.0",
     "@scure/base": "^2.4.0",
+    "@scure/bip32": "^2.0.1",
     "nostr-tools": "^2.25.2",
     "preact": "^11.0.0",
     "qrcode-generator": "^2.0.4"

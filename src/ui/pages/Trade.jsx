@@ -29,6 +29,8 @@ import { Reputation, payLabel, payShort, useListing } from './Listing.jsx';
 import { OrderForm } from './Order.jsx';
 import { useMyTrades } from './Trades.jsx';
 import { publishListing } from './Sell.jsx';
+import { usePayoutPick, PayoutInput } from '../payout.jsx';
+import { markPayoutUsed } from '../../lib/payout.js';
 
 const ROLE = { buyer: ['Buyer', 'Comprador'], seller: ['Seller', 'Vendedor'], arbiter: ['Arbiter', 'Árbitro'], other: ['Unknown', 'Desconocido'] };
 // Below this an output would be dust (546 sats) once its share of the network fee is taken.
@@ -152,7 +154,8 @@ function SplitEditor({ state, balance, purpose: initialPurpose, onDone, role }) 
   useEffect(() => { setSellerText(formatCoin(preset.find((a) => a.role === 'seller')?.sats || 0, { unit: false })); }, [preset]);
   // An arbiter's ruling includes the announced fee, to their payout address.
   const dir = useStore(directory);
-  const feeAddress = useStore(settings, (s) => s.payoutAddress);
+  const feePick = usePayoutPick(role === 'arbiter');
+  const feeAddress = role === 'arbiter' ? feePick?.address || '' : '';
   const feePct = role === 'arbiter' ? arbiterFeePct(dir.announcements.get(state.participants.arbiter)) : 0;
   // A fee too small for its own output would only be lost to the network fee.
   const feeSats = feePct && feeAddress ? Math.floor((balance * feePct) / 100) : 0;
@@ -195,11 +198,11 @@ function SplitEditor({ state, balance, purpose: initialPurpose, onDone, role }) 
       {valid && <p>{T('Buyer receives', 'El comprador recibe')}: <Coin sats={rest - sellerSats} /></p>}
       {fee > 0 && <p>{T(`Your fee (${feePct}%)`, `Tu comisión (${feePct}%)`)}: <Coin sats={fee} /></p>}
       {feeSats > 0 && !fee && <p class="hint">{T(`Your fee (${feePct}%, ${feeSats} sats) is too small to pay out on chain and is left out.`, `Tu comisión (${feePct}%, ${feeSats} sats) es demasiado pequeña para pagarla en cadena y se omite.`)}</p>}
-      {feePct > 0 && !feeAddress && <p class="notice warn small">{T('No fee: set your payout address under Account → Trading first.', 'Sin comisión: primero pon tu dirección de cobro en Cuenta → Compraventa.')}</p>}
+      {feePct > 0 && !feeAddress && <p class="notice warn small">{T('No fee: add your wallet key (or a payout address) under Account → Trading first.', 'Sin comisión: primero añade la clave de tu cartera (o una dirección de cobro) en Cuenta → Compraventa.')}</p>}
       <p class="hint">{T('The network fee is shared in proportion to each amount.', 'La comisión de red se reparte en proporción a cada importe.')}</p>
       <Field label={T('Note', 'Nota')}><textarea rows="2" value={note} onInput={(e) => setNote(e.target.value)} /></Field>
       <div class="row">
-        <Action class="primary" disabled={!valid} onClick={async () => { await proposePayout(state, { purpose, allocations, note }); toast(T('Proposal signed and sent', 'Propuesta firmada y enviada'), 'ok'); onDone(); }}>
+        <Action class="primary" disabled={!valid} onClick={async () => { await proposePayout(state, { purpose, allocations, note }); if (fee) markPayoutUsed(feePick, feeAddress); toast(T('Proposal signed and sent', 'Propuesta firmada y enviada'), 'ok'); onDone(); }}>
           {T('Sign and propose', 'Firmar y proponer')}
         </Action>
         <button class="btn ghost" onClick={onDone}>{T('Cancel', 'Cancelar')}</button>
@@ -273,15 +276,16 @@ function RequestForm({ state }) {
   const o = state.offer;
   const [lnAddr, setLnAddr] = useState(s.lightningAddress || walletLud16());
   const [invoice, setInvoice] = useState('');
-  const [address, setAddress] = useState(s.payoutAddress || '');
+  const [address, setAddress] = useState('');
+  const pick = usePayoutPick(state.method === 'onchain');
   const hasWallet = walletConnected();
   if (state.method === 'onchain') {
     const ok = isValidAddress(address, o.network);
     return (
       <div class="card">
         <h3>{T('Send a payment request', 'Envía una solicitud de pago')}</h3>
-        <Field label={T('Your XBT address', 'Tu dirección XBT')}><input value={address} onInput={(e) => setAddress(e.target.value)} class={address && !ok ? 'invalid' : ''} placeholder="bc1q…" /></Field>
-        <Action class="primary" disabled={!ok} onClick={async () => { updateSettings({ payoutAddress: address.trim() }); await requestOnchain(state, address); }}>{T('Request', 'Solicitar')} {formatCoin(state.terms.priceSats)}</Action>
+        <PayoutInput pick={pick} value={address} onChange={setAddress} network={o.network} label={T('Your XBT address', 'Tu dirección XBT')} />
+        <Action class="primary" disabled={!ok} onClick={async () => { await requestOnchain(state, address); markPayoutUsed(pick, address); }}>{T('Request', 'Solicitar')} {formatCoin(state.terms.priceSats)}</Action>
       </div>
     );
   }
@@ -459,7 +463,8 @@ function ShippingLine({ state }) {
 function OfferCard({ state, role }) {
   const s = settings.get();
   const dir = useStore(directory);
-  const [payout, setPayout] = useState(s.payoutAddress || '');
+  const [payout, setPayout] = useState('');
+  const pick = usePayoutPick(state.status === 'offered' && role === 'seller' && state.payment === 'escrow');
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const [limit, setLimit] = useState(null);
@@ -496,9 +501,7 @@ function OfferCard({ state, role }) {
           {busy > 0 && <p class="notice warn">{T(`You already accepted ${busy === 1 ? 'another order' : `${busy} other orders`} for this listing. Only accept this one too if you have more than one: otherwise this buyer pays for nothing.`, `Ya aceptaste ${busy === 1 ? 'otro pedido' : `${busy} pedidos más`} de este anuncio. Acepta este también solo si tienes más de uno: si no, este comprador paga para nada.`)}</p>}
           {listingNow && listingNow.status !== 'active' && <p class="notice warn">{listingNow.status === 'reserved' ? T('You marked this item as reserved. Only accept if you have another one.', 'Marcaste este artículo como reservado. Acepta solo si tienes otro.') : T('This item is marked as sold. Only accept if you have another one.', 'Este artículo está marcado como vendido. Acepta solo si tienes otro.')}</p>}
           {escrow && (
-            <Field label={T('Your XBT payout address', 'Tu dirección XBT de cobro')} hint={T('Where the escrow pays you. A wallet that follows the BLAKE2b chain.', 'Donde te paga el escrow. Una cartera que siga la cadena BLAKE2b.')}>
-              <input value={payout} onInput={(e) => setPayout(e.target.value)} class={payout && !ok ? 'invalid' : ''} placeholder="bc1q…" />
-            </Field>
+            <PayoutInput pick={pick} value={payout} onChange={setPayout} network={o.network} label={T('Your XBT payout address', 'Tu dirección XBT de cobro')} hint={T('Where the escrow pays you. A wallet that follows the BLAKE2b chain.', 'Donde te paga el escrow. Una cartera que siga la cadena BLAKE2b.')} />
           )}
           {!escrow && <p class="hint">{T('No escrow: you ship once the payment has arrived in your wallet.', 'Sin escrow: envías cuando el pago esté en tu cartera.')}</p>}
           {rejecting ? (
@@ -511,7 +514,7 @@ function OfferCard({ state, role }) {
             </div>
           ) : (
             <div class="row">
-              <Action class="primary" disabled={!ok || (v1Arbiter && !state.checks.arbiterTrusted)} onClick={async () => { if (escrow) updateSettings({ payoutAddress: payout.trim() }); await acceptOffer(state, escrow ? payout : ''); }}>✓ {T('Accept', 'Aceptar')}</Action>
+              <Action class="primary" disabled={!ok || (v1Arbiter && !state.checks.arbiterTrusted)} onClick={async () => { await acceptOffer(state, escrow ? payout : ''); if (escrow) markPayoutUsed(pick, payout); }}>✓ {T('Accept', 'Aceptar')}</Action>
               <button class="btn danger ghost" onClick={() => setRejecting(true)}>{T('Reject', 'Rechazar')}</button>
             </div>
           )}
@@ -564,7 +567,8 @@ function DetailsForm({ state, role }) {
   const [address, setAddress] = useState(() => ({ ...(s.address || {}), country: sh?.country || s.address?.country || '' }));
   const [point, setPoint] = useState('');
   const [arbiter, setArbiter] = useState(arbiters[0]?.pubkey || '');
-  const [payout, setPayout] = useState(s.payoutAddress || '');
+  const [payout, setPayout] = useState('');
+  const pick = usePayoutPick(needPayout);
   useEffect(() => { refreshDirectory().catch(() => {}); }, []);
   useEffect(() => { if (!arbiter && arbiters[0]) setArbiter(arbiters[0].pubkey); }, [arbiters.length]);
   if (!state.accept || state.cancelled || state.rejected || !(needShip || needPoint || needArbiter || needPayout)) return null;
@@ -591,14 +595,12 @@ function DetailsForm({ state, role }) {
         </Field>
       )}
       {needPayout && (
-        <Field label={role === 'buyer' ? T('Your XBT address for refunds and your deposit', 'Tu dirección XBT para reembolsos y tu depósito') : T('Your XBT payout address', 'Tu dirección XBT de cobro')} hint={payout && !payoutOk ? T('Not a valid address for ' + state.offer.network, 'No es una dirección válida para ' + state.offer.network) : T('An address from your own XBT wallet (BLAKE2b chain).', 'Una dirección de tu propia cartera XBT (cadena BLAKE2b).')}>
-          <input value={payout} onInput={(e) => setPayout(e.target.value)} placeholder="bc1q…" class={payout && !payoutOk ? 'invalid' : ''} />
-        </Field>
+        <PayoutInput pick={pick} value={payout} onChange={setPayout} network={state.offer.network} label={role === 'buyer' ? T('Your XBT address for refunds and your deposit', 'Tu dirección XBT para reembolsos y tu depósito') : T('Your XBT payout address', 'Tu dirección XBT de cobro')} hint={T('An address from your own XBT wallet (BLAKE2b chain).', 'Una dirección de tu propia cartera XBT (cadena BLAKE2b).')} />
       )}
       <Action class="primary" disabled={!ready} onClick={async () => {
         if (needShip) updateSettings({ address });
-        if (needPayout) updateSettings({ payoutAddress: payout.trim() });
         await sendDetails(state, { ...(needShip ? { shipTo: address } : {}), ...(needPoint ? { servicePointId: point } : {}), ...(needPayout ? { payoutAddress: payout } : {}), ...(needArbiter ? { arbiter: dir.arbiters.get(arbiter) } : {}) });
+        if (needPayout) markPayoutUsed(pick, payout);
       }}>{T('Send', 'Enviar')}</Action>
     </div>
   );

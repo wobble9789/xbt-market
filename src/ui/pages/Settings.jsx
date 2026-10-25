@@ -9,7 +9,7 @@ import { useUsername } from '../../lib/nostr/names.js';
 import { isValidAddress } from '../../lib/btc/address.js';
 import { CURRENCIES } from '../../lib/countries.js';
 import { DEFAULTS, ESPLORA_PRESETS } from '../../config.js';
-import { Esplora } from '../../lib/btc/esplora.js';
+import { Esplora, normalizeNodeUrl } from '../../lib/btc/esplora.js';
 import { secretNames } from '../../lib/secrets.js';
 import { connectWallet, disconnectWallet, walletConnected, walletBalance, walletLud16 } from '../../lib/ln/wallet.js';
 import { aiConfigured, saveAiKey } from '../../lib/ai/listing.js';
@@ -19,6 +19,9 @@ import { InstallGuide } from '../install.jsx';
 import { ProfileForm } from './EditProfile.jsx';
 import { blocks, unblock } from '../../lib/nostr/moderation.js';
 import { BugReport } from '../report.jsx';
+import { saveWalletKey, walletKeyConfigured, loadWallet } from '../../lib/payout.js';
+import { deriveAddress } from '../../lib/btc/xpub.js';
+import { usePayoutPick } from '../payout.jsx';
 
 function AccountHead() {
   const acc = useStore(account);
@@ -202,6 +205,57 @@ function LightningWallet() {
   );
 }
 
+// What a failed connection test most likely means, in words people can act on.
+function nodeError(e, url) {
+  const probe = `${url.replace(/\/+$/, '')}/blocks/tip/height`;
+  if (e.notApi) return T('This address is a web page, not the API. Add /api at the end.', 'Esta dirección es una página web, no la API. Añade /api al final.');
+  const status = Number(String(e.message).match(/: (\d{3})\b/)?.[1]);
+  if (status === 404) return T('Not found (404): check the address; it usually ends in /api.', 'No encontrado (404): revisa la dirección; suele terminar en /api.');
+  if (status >= 500) return T(`The server answered ${status}: it is still starting or indexing. Try again in a few minutes.`, `El servidor respondió ${status}: aún está arrancando o indexando. Prueba de nuevo en unos minutos.`);
+  if (status) return `${status}: ${e.message}`;
+  return T(`Could not reach it. Open ${probe} in this browser: a certificate warning means this browser does not trust your node yet (Start9: import its Root CA); a page that does not load means a wrong address, or you are not on your home network; a number means the server refuses other websites (CORS).`,
+    `No se puede conectar. Abre ${probe} en este navegador: un aviso de certificado significa que este navegador aún no confía en tu nodo (Start9: importa su Root CA); si la página no carga, la dirección es incorrecta o no estás en tu red de casa; si ves un número, el servidor rechaza otros sitios web (CORS).`);
+}
+
+// The wallet's public key, so every trade gets a new payout address.
+function WalletKey() {
+  useStore(secretNames);
+  const network = useStore(settings, (s) => s.network);
+  const [text, setText] = useState('');
+  const [saved, setSaved] = useState(null); // { first, assumed }
+  const on = walletKeyConfigured();
+  const pick = usePayoutPick(on);
+  const wallet = on ? loadWallet() : null;
+  const first = wallet ? deriveAddress(wallet, 0, network) : '';
+  return (
+    <Field group label={T('Your XBT wallet: a new address for every trade', 'Tu cartera XBT: una dirección nueva en cada compra')}>
+      <p class="hint">{T('Using one address for every trade lets anyone who traded with you see all your payments. Paste your wallet\'s public key instead: the app then puts a new address from your wallet in every trade, and never one that was used before. The key can only make addresses, not spend; it stays encrypted in this browser and is never sent to anyone.', 'Usar una sola dirección en todas las compras deja que cualquiera con quien comerciaste vea todos tus pagos. Pega la clave pública de tu cartera: la app pondrá en cada compra una dirección nueva de tu cartera, nunca una ya usada. La clave solo crea direcciones, no puede gastar; queda cifrada en este navegador y no se envía a nadie.')}</p>
+      <ol class="small hint">
+        <li>{T('In Shrike or Sparrow, open the wallet account you use for this XBT Market account (one account per role, used only here).', 'En Shrike o Sparrow, abre la cuenta de la cartera que usas para esta cuenta de XBT Market (una cuenta por rol, usada solo aquí).')}</li>
+        <li>{T('Settings (left) → Keystores: copy the xpub. Or Export… → Output descriptor.', 'Settings (izquierda) → Keystores: copia el xpub. O Export… → Output descriptor.')}</li>
+        <li>{T('Paste it here and tap "Save wallet key". Check that the first address below is the first one under Addresses in your wallet.', 'Pégalo aquí y toca «Guardar clave de cartera». Comprueba que la primera dirección de abajo es la primera en Addresses de tu cartera.')}</li>
+      </ol>
+      {on ? (
+        <>
+          <p class="small">✓ {T('Wallet key saved (encrypted).', 'Clave de cartera guardada (cifrada).')}</p>
+          <p class="small">{T('First address (#0)', 'Primera dirección (#0)')}: <code class="break">{first}</code></p>
+          {saved?.assumed && <p class="notice warn small">{T('A plain xpub does not say which address type your wallet uses; native segwit (bc1q…) is assumed. If the first address does not match your wallet, paste the output descriptor instead.', 'Un xpub simple no dice qué tipo de dirección usa tu cartera; se supone segwit nativo (bc1q…). Si la primera dirección no coincide, pega el output descriptor.')}</p>}
+          <p class="small">{T('Next trade gets', 'La próxima compra recibe')}: {pick?.address ? <code class="break">{pick.address}</code> : '…'} {pick && !pick.fixed && <span class="muted">(#{pick.index})</span>}</p>
+          <Action class="small ghost" confirm={T('Remove the wallet key from this browser?', '¿Quitar la clave de cartera de este navegador?')} onClick={async () => { saveWalletKey(''); setSaved(null); }}>{T('Remove', 'Quitar')}</Action>
+        </>
+      ) : (
+        <>
+          <textarea rows="3" value={text} onInput={(e) => setText(e.target.value)} placeholder="zpub… / xpub… / wpkh([…]xpub…/0/*)" />
+          <Action class="small" disabled={!text.trim()} onClick={async () => {
+            try { const r = saveWalletKey(text); setSaved({ first: r.first, assumed: r.wallet.assumed }); setText(''); toast(T('Wallet key saved', 'Clave de cartera guardada'), 'ok'); } catch (e) { toast(T('Cannot use this key: ', 'No se puede usar esta clave: ') + e.message, 'error', 9000); }
+          }}>{T('Save wallet key', 'Guardar clave de cartera')}</Action>
+        </>
+      )}
+      <p class="hint">{T('Shrike and Sparrow look 20 addresses ahead. Trades that never get paid leave gaps; after more than 20 in a row, raise the gap limit in your wallet (Settings → Advanced).', 'Shrike y Sparrow miran 20 direcciones por delante. Las compras que nunca se pagan dejan huecos; si hay más de 20 seguidos, sube el gap limit en tu cartera (Settings → Advanced).')}</p>
+    </Field>
+  );
+}
+
 function NodePicker() {
   const s = useStore(settings);
   const cur = s.esploraOverride?.[s.network] || s.esplora[s.network];
@@ -209,13 +263,13 @@ function NodePicker() {
   const isPreset = presets.some((p) => p.url === cur);
   const [custom, setCustom] = useState(isPreset ? '' : cur);
   const [status, setStatus] = useState(null);
-  const use = (url) => { updateSettings({ esploraOverride: { ...(s.esploraOverride || {}), [s.network]: url.trim() } }); setStatus(null); };
+  const use = (url) => { updateSettings({ esploraOverride: { ...(s.esploraOverride || {}), [s.network]: url } }); setStatus(null); };
   const test = async (url) => {
     setStatus('…');
-    try { const h = await new Esplora(url).tipHeight(); setStatus(`✓ ${T('block', 'bloque')} ${h.toLocaleString()}`); } catch (e) { setStatus(`✗ ${e.message}`); }
+    try { const h = await new Esplora(url).tipHeight(); setStatus(`✓ ${T('block', 'bloque')} ${h.toLocaleString()}`); } catch (e) { setStatus(`✗ ${nodeError(e, url)}`); }
   };
   return (
-    <Field group label={T('Blockchain server', 'Servidor de blockchain')} hint={T('Pick a known server or use your own node. It must speak the Esplora/mempool REST API (mempool or electrs on Umbrel, Start9, a VPS…) and follow the BLAKE2b chain. Browsers cannot talk to Electrum servers directly.', 'Elige un servidor conocido o usa tu propio nodo. Debe hablar la API REST de Esplora/mempool (mempool o electrs en Umbrel, Start9, un VPS…) y seguir la cadena BLAKE2b. Los navegadores no pueden hablar directamente con servidores Electrum.')}>
+    <Field group label={T('Blockchain server', 'Servidor de blockchain')} hint={T('Pick a known server or use your own node, which must follow the BLAKE2b chain.', 'Elige un servidor conocido o usa tu propio nodo, que debe seguir la cadena BLAKE2b.')}>
       <div class="choices">
         {presets.map((p) => (
           <label key={p.url} class={`choice ${cur === p.url ? 'on' : ''}`}>
@@ -226,9 +280,15 @@ function NodePicker() {
           <input type="radio" name="node" checked={!isPreset} onChange={() => custom && use(custom)} /><span>{T('My own node', 'Mi propio nodo')}</span>
         </label>
       </div>
+      <ol class="small hint">
+        <li>{T('Your own node: install Mempool on it (on Start9 with a BLAKE2b node: Mempool Pruned, set to knots-blake2b and electrs-pruned). Electrs alone does not work: browsers cannot talk to Electrum servers.', 'Tu propio nodo: instala Mempool en él (en Start9 con un nodo BLAKE2b: Mempool Pruned, con knots-blake2b y electrs-pruned). Electrs solo no sirve: los navegadores no hablan con servidores Electrum.')}</li>
+        <li>{T('Copy Mempool\'s address (Start9: Mempool → Interfaces → LAN, https://….local) and paste it below. The app adds /api itself.', 'Copia la dirección de Mempool (Start9: Mempool → Interfaces → LAN, https://….local) y pégala abajo. La app añade /api sola.')}</li>
+        <li>{T('Start9: this browser must trust your Start9 certificate first (System → Root CA → download, then import it in the browser).', 'Start9: este navegador debe confiar antes en el certificado de tu Start9 (Sistema → Root CA → descargar, e importarlo en el navegador).')}</li>
+        <li>{T('Use, then Test connection. Does the browser ask to "access other devices on your local network"? Allow it (always): that is your node. The block must match mempool.guide. A .local address only works at home; a .onion address only in Tor Browser.', 'Usar y luego Probar conexión. ¿El navegador pide «acceder a otros dispositivos de tu red local»? Permítelo (siempre): es tu nodo. El bloque debe coincidir con mempool.guide. Una dirección .local solo funciona en casa; una .onion solo en Tor Browser.')}</li>
+      </ol>
       <div class="row">
-        <input value={custom} onInput={(e) => setCustom(e.target.value)} placeholder="https://umbrel.local:3006/api" />
-        <button type="button" class="btn" disabled={!/^https?:\/\//.test(custom)} onClick={() => { use(custom); test(custom); }}>{T('Use', 'Usar')}</button>
+        <input value={custom} onInput={(e) => setCustom(e.target.value)} placeholder="https://mempool-xxxx.local" />
+        <button type="button" class="btn" disabled={!/^https?:\/\//.test(custom.trim())} onClick={() => { const url = normalizeNodeUrl(custom); setCustom(url); use(url); test(url); }}>{T('Use', 'Usar')}</button>
         <button type="button" class="btn ghost" onClick={() => test(cur)}>{T('Test connection', 'Probar conexión')}</button>
       </div>
       {status && <span class="small">{status}</span>}
@@ -308,7 +368,8 @@ export function Settings({ query }) {
       <p class="hint">{T('You can buy and sell without any of this. Open a section when you need it.', 'Puedes comprar y vender sin nada de esto. Abre una sección cuando la necesites.')}</p>
 
       <Section icon="🤝" title={T('Trading', 'Compraventa')} summary={T('payout address, your address, exchange rate', 'dirección de cobro, tu dirección, tipo de cambio')} open={openSet.has('trading')}>
-        <Field label={T('Default XBT payout / refund address', 'Dirección XBT de cobro / reembolso por defecto')} hint={T('Used in escrow trades, and for your fee if you are an arbiter. An address from your own XBT wallet.', 'Se usa en compras con escrow, y para tu comisión si eres árbitro. Una dirección de tu propia cartera XBT.')}>
+        <WalletKey />
+        <Field label={T('Or one fixed XBT address (not recommended)', 'O una dirección XBT fija (no recomendado)')} hint={T('Only used without a wallet key above. Every trade then shows this same address.', 'Solo se usa sin la clave de cartera de arriba. Cada compra muestra entonces esta misma dirección.')}>
           <input value={payout} onInput={(e) => setPayout(e.target.value)} onBlur={() => (!payout || isValidAddress(payout, s.network)) ? updateSettings({ payoutAddress: payout.trim() }) : toast(T('Invalid address', 'Dirección no válida'), 'error')} placeholder="bc1q…" />
         </Field>
         <h4>{T('Your address', 'Tu dirección')}</h4>

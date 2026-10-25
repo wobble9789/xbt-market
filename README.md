@@ -43,6 +43,12 @@ A peer-to-peer marketplace paid in **Bitcoin BLAKE2b** (XBT / BTCB2), the chain 
 
 The escrow witness script and the three public keys are shown under *Recovery details* on every trade. Any two parties can move the coins with any wallet that supports P2WSH multisig and the unified sighash (Bitcoin Knots, Sparrow BLAKE2b build), even without this app.
 
+### Payout addresses: a new one every trade
+
+Using one address for every trade lets everyone you traded with see all your payments. Under *Account → Trading* you paste your wallet's public key: an xpub/ypub/zpub, or a `wpkh()`, `sh(wpkh())` or `tr()` descriptor (Shrike/Sparrow: the account's *Settings → Keystores*, or *Export → Output descriptor*). The key is stored encrypted in the browser and never published. Each payout address, refund address, on-chain payment request and arbiter fee output then gets the next receive address (`…/0/i`) that is neither used on chain (Esplora `/address/:a`) nor already in one of your trades on any device. An address typed by hand gets a warning when it was used before. `src/lib/btc/xpub.js` matches the BIP84/49/86 vectors and Knots' own `deriveaddresses`.
+
+Silent payments (BIP352) cannot be used here: escrow payouts spend a P2WSH multisig, and P2WSH inputs are not eligible for silent-payment outputs. No BLAKE2b wallet can receive them yet either.
+
 ### Trust model and safeguards
 
 - **The arbiter list is the trust root.** The community admin (`VITE_ADMIN_NPUB`) publishes which arbiters are approved. A seller's app refuses to accept an offer whose arbiter, or arbiter escrow key, is not on that list. Otherwise a buyer could slip in a key they control. Users can add extra arbiters they trust under *Account*.
@@ -105,7 +111,7 @@ Locally: `npm run sendcloud` (a Sendcloud mock), `npm run wallets` (includes the
 
 ## Configuration
 
-`src/config.js` holds the defaults: relays, Esplora API (`https://mempool.guide/api`), the list of known servers per chain (`ESPLORA_PRESETS`), Blossom photo server, deposits, confirmations, trade limits, the escrow advice threshold and the AI model. Users can override most of these under *Account*. Like Sparrow, they pick a known server or enter their own node (any Esplora/mempool REST API that follows the BLAKE2b chain, e.g. mempool or electrs on Umbrel or Start9) and test the connection. Browsers cannot talk to Electrum servers directly, so an Electrum-only node needs an Esplora/mempool front end.
+`src/config.js` holds the defaults: relays, Esplora API (`https://mempool.guide/api`), the list of known servers per chain (`ESPLORA_PRESETS`), Blossom photo server, deposits, confirmations, trade limits, the escrow advice threshold and the AI model. Users can override most of these under *Account*. Like Sparrow, they pick a known server or enter their own node (any Esplora/mempool REST API that follows the BLAKE2b chain, e.g. mempool or electrs on Umbrel or Start9) and test the connection. Browsers cannot talk to Electrum servers directly, so an Electrum-only node needs an Esplora/mempool front end (on Start9 with a BLAKE2b node: Mempool Pruned). A pasted address without a path gets `/api` added, and a failed test says why: untrusted certificate, wrong address, server still starting, or CORS.
 
 Build-time variables:
 
