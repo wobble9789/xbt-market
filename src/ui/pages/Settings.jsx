@@ -233,7 +233,7 @@ function WalletKey() {
       <ol class="small hint">
         <li>{T('In Shrike or Sparrow, open the wallet account you use for this XBT Market account (one account per role, used only here).', 'En Shrike o Sparrow, abre la cuenta de la cartera que usas para esta cuenta de XBT Market (una cuenta por rol, usada solo aquí).')}</li>
         <li>{T('Settings (left) → Keystores: copy the xpub. Or Export… → Output descriptor.', 'Settings (izquierda) → Keystores: copia el xpub. O Export… → Output descriptor.')}</li>
-        <li>{T('Paste it here and Save. Check that the first address below is the first one under Addresses in your wallet.', 'Pégalo aquí y guarda. Comprueba que la primera dirección de abajo es la primera en Addresses de tu cartera.')}</li>
+        <li>{T('Paste it here and tap "Save wallet key". Check that the first address below is the first one under Addresses in your wallet.', 'Pégalo aquí y toca «Guardar clave de cartera». Comprueba que la primera dirección de abajo es la primera en Addresses de tu cartera.')}</li>
       </ol>
       {on ? (
         <>
@@ -248,7 +248,7 @@ function WalletKey() {
           <textarea rows="3" value={text} onInput={(e) => setText(e.target.value)} placeholder="zpub… / xpub… / wpkh([…]xpub…/0/*)" />
           <Action class="small" disabled={!text.trim()} onClick={async () => {
             try { const r = saveWalletKey(text); setSaved({ first: r.first, assumed: r.wallet.assumed }); setText(''); toast(T('Wallet key saved', 'Clave de cartera guardada'), 'ok'); } catch (e) { toast(T('Cannot use this key: ', 'No se puede usar esta clave: ') + e.message, 'error', 9000); }
-          }}>{T('Save', 'Guardar')}</Action>
+          }}>{T('Save wallet key', 'Guardar clave de cartera')}</Action>
         </>
       )}
       <p class="hint">{T('Shrike and Sparrow look 20 addresses ahead. Trades that never get paid leave gaps; after more than 20 in a row, raise the gap limit in your wallet (Settings → Advanced).', 'Shrike y Sparrow miran 20 direcciones por delante. Las compras que nunca se pagan dejan huecos; si hay más de 20 seguidos, sube el gap limit en tu cartera (Settings → Advanced).')}</p>

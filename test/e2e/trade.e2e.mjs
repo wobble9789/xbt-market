@@ -164,7 +164,7 @@ try {
   const firstAddr = JSON.parse(cli('deriveaddresses', sellerDesc, '[0,0]'))[0];
   await go(await as('seller'), '#/settings?open=trading');
   await fillPh(await as('seller'), 'zpub… / xpub… / wpkh([…]xpub…/0/*)', sellerDesc);
-  await click(await as('seller'), 'Save');
+  await click(await as('seller'), 'Save wallet key');
   await waitText(await as('seller'), 'Wallet key saved (encrypted)');
   await waitText(await as('seller'), firstAddr);
   await waitText(await as('seller'), 'Next trade gets');
