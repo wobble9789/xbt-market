@@ -308,7 +308,7 @@ try {
     if ((await text(p)).includes('Finish your profile')) throw new Error('old "finish your profile" banner');
     const open = await p.evaluate(() => [...document.querySelectorAll('details.collapsible')].map((d) => [d.querySelector('summary h3')?.textContent.trim(), d.open]));
     if (!open[0]?.[0]?.includes('Profile') || !open[0][1]) throw new Error('profile is not the first, open section: ' + JSON.stringify(open));
-    const closed = ['Password', 'Language and currency', 'Install as an app', 'Trading', 'Lightning wallet', 'AI listing assistant', 'Trusted arbiters', 'Network', 'Trade backup', 'Become an arbiter', 'Report a problem'];
+    const closed = ['Password', 'Language and currency', 'Install as an app', 'Getting paid', 'Shipping address', 'Lightning wallet', 'AI listing assistant', 'Trusted arbiters', 'Network', 'Trade backup', 'Become an arbiter', 'Report a problem'];
     for (const w of closed) if (!open.some(([t, o]) => t?.includes(w) && !o)) throw new Error(`${w} is not a closed section: ${JSON.stringify(open)}`);
     if (open.findIndex(([t]) => t?.includes('Become an arbiter')) < open.findIndex(([t]) => t?.includes('Trade backup'))) throw new Error('arbiter is not at the bottom');
     if (await p.evaluate(() => [...document.querySelectorAll('header a, nav a')].some((a) => a.textContent.includes('Admin')))) throw new Error('B sees the Admin menu');
