@@ -5,7 +5,7 @@
 // Both are kind 30078 (application data), d = xbt-market/config and
 // d = xbt-market/arbiter.
 
-import { ADMIN_NPUB } from '../../config.js';
+import { ADMIN_NPUB, DEFAULT_ARBITERS } from '../../config.js';
 import { settings } from '../settings.js';
 import { createStore } from '../store.js';
 import { query, signAndPublish, latestBy } from './pool.js';
@@ -52,7 +52,7 @@ async function load() {
     const a = parse(e.content);
     if (a && isValidPubkey(a.escrowBase || '') && a.active !== false) announcements.set(e.pubkey, { ...a, pubkey: e.pubkey, at: e.created_at });
   }
-  const approved = new Set([...(cfg?.arbiters || []), ...(settings.get().trustedArbiters || [])]);
+  const approved = new Set([...(cfg?.arbiters || []), ...DEFAULT_ARBITERS, ...(settings.get().trustedArbiters || [])]);
   const arbiters = new Map();
   for (const pk of approved) if (announcements.has(pk)) arbiters.set(pk, announcements.get(pk));
   directory.set({ loaded: true, admin, config: cfg, arbiters, announcements });
@@ -60,6 +60,13 @@ async function load() {
 }
 
 export const myArbiterBase = () => pubkeyOf(arbiterBaseKey(secretKey()));
+
+// The listing's arbiters this user trusts too (escrow is possible with them).
+// A listing that names none takes any arbiter both sides trust.
+export function sharedArbiters(listing, dir, me) {
+  const mine = [...dir.arbiters.keys()].filter((pk) => pk !== me && pk !== listing.pubkey);
+  return listing.arbiters?.length ? mine.filter((pk) => listing.arbiters.includes(pk)) : mine;
+}
 
 // The arbiter's fee: a percentage of the escrow, only taken in a ruling (a
 // dispute). Older announcements only have a free-text note.

@@ -55,16 +55,23 @@ export async function openConversation({ listing, network, text, prev }) {
 
 // The order: price, payment method and delivery only. Addresses and the
 // arbiter follow once the seller accepts (sendDetails).
-export async function createOffer({ tradeId, listing, priceSats, buyerDepositSats, sellerDepositSats, note, network, payment = 'escrow', method, shipping }) {
+export async function createOffer({ tradeId, listing, priceSats, buyerDepositSats, sellerDepositSats, note, network, payment = 'escrow', method, shipping, arbiter, refundAddress, shipTo }) {
   const me = account.get().pubkey;
   if (listing.pubkey === me) throw new Error('You cannot buy your own listing');
   const body = {
     v: 2, tradeId, network, listing: listingInfoOf(listing), payment, priceSats,
     ...(payment === 'direct' ? { method } : { buyerDepositSats, sellerDepositSats }),
-    buyer: { escrowPubkey: pubkeyOf(deriveTradeKey(secretKey(), tradeId)) },
+    buyer: { escrowPubkey: pubkeyOf(deriveTradeKey(secretKey(), tradeId)), ...(payment !== 'direct' && refundAddress ? { payoutAddress: refundAddress.trim() } : {}) },
+    // Escrow: the arbiter (one of the listing's) comes with the order, so the
+    // escrow exists as soon as the seller accepts.
+    ...(payment !== 'direct' && arbiter ? { arbiter: { pubkey: arbiter.pubkey, escrowBase: arbiter.escrowBase } } : {}),
+    // The delivery address, encrypted to the seller; shown once they accept.
+    ...(shipTo ? { shipTo } : {}),
     shipping: shipping || null, note: note || '', shipDays: shipDaysFor(listing.country, shipping), confirmDays: CONFIRM_DAYS,
   };
   await sendTradeMessage(tradeId, 'offer', body, [listing.pubkey]);
+  // The arbiter gets the conversation so far (and this order), signed by me.
+  if (body.arbiter) await forwardOwnRumors(tradeId, body.arbiter.pubkey).catch(() => {});
   return tradeId;
 }
 

@@ -214,7 +214,7 @@ async function newListing(p, { title, price, cat = 'diversen', sub, escrow = fal
   await setCategory(p, cat, sub);
   await fill(p, 'Price', String(price));
   if (currency) await select(p, 'Currency', currency);
-  if (escrow) { await setChoice(p, '🛡 Escrow', true); await waitText(p, 'Your escrow deposit'); }
+  if (escrow) { await setChoice(p, '🛡 Escrow', true); await waitText(p, 'Arbiters you accept for escrow'); }
   if (onchain) await setChoice(p, 'On-chain', true);
   await click(p, 'Publish');
   // A tap during a late layout shift can miss; publishing twice only replaces the listing.
@@ -514,10 +514,10 @@ try {
     const p = await as('B');
     const pays = await p.evaluate(() => [...document.querySelectorAll('label.choice')].filter((l) => /Lightning \(|On-chain \(|Escrow \(/.test(l.textContent)).map((l) => [l.textContent.trim().slice(0, 12), l.querySelector('input').checked]));
     if (JSON.stringify(pays.map((x) => x[1])) !== '[true,false,false]' || !pays[2][0].includes('Escrow')) throw new Error(JSON.stringify(pays));
-    if ((await text(p)).includes('Your escrow deposit')) throw new Error('deposit field without escrow');
+    if ((await text(p)).includes('Arbiters you accept for escrow')) throw new Error('arbiter choice without escrow');
     await choose(p, '🛡 Escrow');
-    await waitText(p, 'Your escrow deposit (%)');
-    return 'Lightning ✓, On-chain ✗, Escrow ✗ (last); deposit field only after ticking escrow';
+    await waitText(p, 'Arbiters you accept for escrow');
+    return 'Lightning ✓, On-chain ✗, Escrow ✗ (last); arbiter choice only after ticking escrow';
   });
   await step('LST-1e', 'Publish with photos', async () => {
     const p = await as('B');

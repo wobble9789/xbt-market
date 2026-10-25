@@ -23,6 +23,14 @@ export const ESPLORA_PRESETS = {
   regtest: [{ name: 'Local (npm run shim)', url: import.meta.env?.VITE_REGTEST_ESPLORA || 'http://127.0.0.1:3006/api' }],
 };
 
+// Both sides put this share of the price into the escrow, returned when the
+// trade completes. The same for everyone, so nobody can offer without risk.
+export const DEPOSIT_PCT = 15;
+
+// Arbiters every account trusts from the start (the project's own arbiter),
+// until enough others with a track record are approved.
+export const DEFAULT_ARBITERS = ['3d7147dd5081238129ebb7f68a2cb3b6ad0314168efa7ee8d7b3657a687dac84'];
+
 export const DEFAULTS = {
   network: import.meta.env?.VITE_NETWORK || 'mainnet',
   esplora: {
@@ -38,8 +46,6 @@ export const DEFAULTS = {
   // Above this value (in the display currency) the app recommends escrow.
   escrowAdviceAbove: 50,
   minConfirmations: 3,
-  buyerDepositPct: 15,
-  sellerDepositPct: 15,
   // Highest trade value (price, in sats) allowed by number of completed trades.
   tradeLimits: [
     { minTrades: 0, maxSats: 20_000_000 },

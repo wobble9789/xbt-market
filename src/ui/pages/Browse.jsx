@@ -6,7 +6,7 @@ import { follows } from '../../lib/nostr/follows.js';
 import { usernamesEnabled, searchUsernames, cleanUsername } from '../../lib/nostr/names.js';
 import { searchCachedProfiles } from '../../lib/nostr/profiles.js';
 import { blocks, blockCounts, loadBlockCounts, suspension } from '../../lib/nostr/moderation.js';
-import { directory } from '../../lib/nostr/directory.js';
+import { directory, sharedArbiters } from '../../lib/nostr/directory.js';
 import { CONDITIONS } from '../../lib/nostr/listings.js';
 import { offersPickup, shipCarriers } from '../../lib/shipping.js';
 import { shipsToCountry } from '../../lib/countries.js';
@@ -32,7 +32,7 @@ export function ListingCard({ l }) {
 }
 
 const SORTS = [['new', ['Newest first', 'Más recientes']], ['old', ['Oldest first', 'Más antiguos']], ['price', ['Price: low to high', 'Precio: de menor a mayor']], ['-price', ['Price: high to low', 'Precio: de mayor a menor']]];
-const FILTER_KEYS = ['c', 'sub', 'model', 'country', 'to', 'min', 'max', 'cond', 'del', 'pay'];
+const FILTER_KEYS = ['c', 'sub', 'model', 'country', 'to', 'min', 'max', 'cond', 'del', 'pay', 'arb'];
 
 function UserResults({ q }) {
   const [list, setList] = useState(null);
@@ -109,6 +109,8 @@ export function Browse({ query }) {
     if (flt.del === 'pickup') list = list.filter((l) => offersPickup(l));
     if (flt.del === 'ship') list = list.filter((l) => shipCarriers(l).length);
     if (flt.pay) list = list.filter((l) => l.payments.includes(flt.pay));
+    // Escrow with an arbiter both sides trust.
+    if (flt.arb) list = list.filter((l) => l.payments.includes('escrow') && sharedArbiters(l, dir, me).length);
     if (flt.to) list = list.filter((l) => shipCarriers(l).length && shipsToCountry(l.shipsTo, flt.to, l.country));
     const min = Number(flt.min) || 0;
     const max = Number(flt.max) || 0;
@@ -163,6 +165,7 @@ export function Browse({ query }) {
               <select value={flt.pay} onChange={(e) => setF({ pay: e.target.value })}><option value="">{T('Any', 'Cualquiera')}</option><option value="lightning">Lightning</option><option value="onchain">On-chain</option><option value="escrow">Escrow</option></select>
             </label>
           </div>
+          <label class={`choice ${flt.arb ? 'on' : ''}`}><input type="checkbox" checked={!!flt.arb} onChange={() => setF({ arb: flt.arb ? '' : '1' })} /><span>🛡 {T('Only escrow with an arbiter I trust', 'Solo escrow con un árbitro de mi confianza')}</span></label>
           <div class="row">
             <button class="btn ghost" onClick={() => setFlt(Object.fromEntries(FILTER_KEYS.map((k) => [k, ''])))}>{T('Clear filters', 'Quitar filtros')}</button>
             <button class="btn primary" onClick={() => setOpen(false)}>{T(`Show ${shown.length} results`, `Ver ${shown.length} resultados`)}</button>

@@ -96,6 +96,35 @@ check(/1 changed/.test(r.summary), 'price change detected');
 check(!/no longer on that profile/.test(r.notices) && !(await r.imp.evaluate(() => [...document.querySelectorAll('button')].some((b) => /Mark as sold/.test(b.textContent)))), 'no "no longer on that profile" notice or button (removed: confusing)');
 await r.imp.close(); await r.shop.close();
 
+// On a phone the bookmark opens no pop-up: XBT Market opens in the same tab,
+// with the listings compressed in the address, after a note on the shop page.
+{
+  const shop = await browser.newPage();
+  await shop.setUserAgent('Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36');
+  await shop.goto('http://127.0.0.1:4300/u/test-seller/123456/', { waitUntil: 'load' });
+  let popups = 0;
+  const count = () => { popups++; };
+  browser.on('targetcreated', count);
+  shop.on('dialog', (d) => { console.log('  dialog:', d.message()); d.dismiss(); });
+  // The note can be gone again within moments, when the page navigates.
+  let noteShown = false;
+  await shop.exposeFunction('xbtNoteSeen', () => { noteShown = true; });
+  await shop.evaluate(() => new MutationObserver(() => { if (/XBT Market: (reading|\d+ listings found)/.test(document.getElementById('xbt-import-note')?.textContent || '')) window.xbtNoteSeen(); }).observe(document.body, { childList: true, subtree: true, characterData: true }));
+  const nav = shop.waitForNavigation({ timeout: 60000 }).catch(() => null);
+  await shop.evaluate(BOOKMARKLET + ';0');
+  await nav;
+  await shop.waitForSelector('.import-row', { timeout: 30000 }).catch(() => {});
+  browser.off('targetcreated', count);
+  const url = shop.url();
+  const rows = await shop.evaluate(() => document.querySelectorAll('.import-row').length);
+  check(noteShown, 'phone: a note on the shop page while reading');
+  check(url.startsWith((process.env.APP_URL || 'http://127.0.0.1:4173/')) && url.includes('#/import'), `phone: XBT Market opened in the same tab (${url.slice(0, 80)})`);
+  check(popups === 0, 'phone: no pop-up');
+  check(rows >= 1, `phone: the listings arrived (${rows} rows)`);
+  console.log(popups === 0 && rows >= 1 ? 'ok   phone bookmark: same tab, compressed listings' : 'FAIL phone bookmark');
+  await shop.close();
+}
+
 // An old (v1) bookmark still imports, without a warning.
 {
   const imp = await browser.newPage();

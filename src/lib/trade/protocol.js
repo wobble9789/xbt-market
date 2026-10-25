@@ -104,12 +104,15 @@ function validateOffer(m) {
   }
   if (!isInt(b.buyerDepositSats) || !isInt(b.sellerDepositSats)) return 'bad deposits';
   if (!isValidPubkey(b.buyer?.escrowPubkey || '')) return 'bad buyer escrow key';
-  if (b.arbiter) { // version 1: arbiter and refund address in the offer
+  // The arbiter in the offer: always in version 1 (with the refund address),
+  // optional in version 2, where the buyer picks one of the listing's arbiters.
+  if (b.arbiter) {
     if (!HEX64.test(b.arbiter.pubkey || '')) return 'bad arbiter';
     if (!isValidPubkey(b.arbiter.escrowBase || '')) return 'bad arbiter escrow key';
-    if (!isValidAddress(b.buyer?.payoutAddress || '', net)) return 'bad buyer payout address';
+    if (b.v !== 2 && !isValidAddress(b.buyer?.payoutAddress || '', net)) return 'bad buyer payout address';
     if (new Set([m.from, b.listing.sellerPubkey, b.arbiter.pubkey]).size !== 3) return 'buyer, seller and arbiter must be three different people';
   }
+  if (b.buyer?.payoutAddress && !isValidAddress(b.buyer.payoutAddress, net)) return 'bad buyer payout address';
   return null;
 }
 
@@ -121,8 +124,8 @@ function decisionError(m, offer) {
   if (paymentOf(offer) === 'direct') return null;
   if (!seller?.escrowPubkey) return 'bad seller escrow key';
   if (seller.escrowPubkey === offer.buyer.escrowPubkey) return 'duplicate escrow key';
-  if (offer.arbiter) { // version 1
-    if (!isValidAddress(seller.payoutAddress || '', offer.network)) return 'bad seller payout address';
+  if (offer.arbiter) {
+    if (offer.v !== 2 && !isValidAddress(seller.payoutAddress || '', offer.network)) return 'bad seller payout address'; // version 1
     const keys = [offer.buyer.escrowPubkey, seller.escrowPubkey, arbiterTradePubkey(offer.arbiter.escrowBase, offer.tradeId)];
     if (new Set(keys).size !== 3) return 'duplicate escrow key';
   }
@@ -339,7 +342,7 @@ export function reduceTrade(tradeId, rumors, ctx = {}) {
     state.offer = o;
     state.listing = o.listing;
     state.offerAt = offerMsg.at;
-    state.version = o.arbiter || (!openMsg && o.v === 1) ? 1 : 2;
+    state.version = o.v === 2 ? 2 : o.arbiter || !openMsg ? 1 : 2;
     state.payment = paymentOf(o);
     state.method = direct ? o.method : null;
     state.terms = { priceSats: o.priceSats, buyerDepositSats: o.buyerDepositSats || 0, sellerDepositSats: o.sellerDepositSats || 0 };

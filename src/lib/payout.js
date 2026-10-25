@@ -69,6 +69,20 @@ export async function nextPayoutAddress(known = new Set()) {
   throw new Error('No unused address found in the next 200 of your wallet');
 }
 
+// The first `count` receiving addresses without any payment on chain, as the
+// user's own wallet shows them (it knows nothing of open trades).
+export async function unusedOnChain(count = 2) {
+  const wallet = loadWallet();
+  if (!wallet) return [];
+  const net = settings.get().network;
+  const out = [];
+  for (let i = 0; out.length < count && i < MAX_SCAN; i++) {
+    const address = deriveAddress(wallet, i, net);
+    if (!(await usedOnChain(address))) out.push({ address, index: i });
+  }
+  return out;
+}
+
 // Call once the address is actually sent in a trade.
 export function markPayoutUsed(pick, sent) {
   if (!pick || sent.trim() !== pick.address) return;

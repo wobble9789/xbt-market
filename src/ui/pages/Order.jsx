@@ -1,6 +1,8 @@
-// The order a buyer makes from inside the chat: payment method, price,
-// delivery country and carrier, and an optional message. Addresses and the
-// arbiter are asked only after the seller accepts (DetailsForm).
+// The order a buyer makes from inside the chat: payment method, offer,
+// delivery and an optional message. With escrow it also names the arbiter (one
+// the seller accepts) and the refund address; with shipping the delivery
+// address from the account. So once the seller accepts, the escrow exists and
+// nothing else needs to be sent.
 import { useEffect, useState } from 'preact/hooks';
 import { useStore } from '../../lib/store.js';
 import { account } from '../../lib/nostr/account.js';
@@ -14,9 +16,13 @@ import { offersPickup, shipCarriers, carrier } from '../../lib/shipping.js';
 import { shippingQuotes } from '../../lib/shipping-api.js';
 import { shipsToCountry } from '../../lib/countries.js';
 import { isService } from '../../lib/categories.js';
-import { directory } from '../../lib/nostr/directory.js';
+import { directory, arbiterFeeLabel } from '../../lib/nostr/directory.js';
+import { markPayoutUsed } from '../../lib/payout.js';
+import { isValidAddress } from '../../lib/btc/address.js';
+import { DEPOSIT_PCT } from '../../config.js';
+import { usePayoutPick, PayoutInput } from '../payout.jsx';
 import { T, countryName } from '../i18n.js';
-import { Action, Field, Coin, Spinner, useRate } from '../components.jsx';
+import { Action, Field, Coin, Spinner, Name, useRate, addressComplete, formatAddress } from '../components.jsx';
 import { CountrySelect } from '../countries.jsx';
 import { payLabel } from './Listing.jsx';
 
@@ -72,18 +78,26 @@ export function OrderForm({ state, listing, onClose }) {
   }, []);
 
   const escrow = pay === 'escrow';
+  // Escrow: one of the seller's arbiters that this buyer trusts too (older
+  // listings name none: then any arbiter both may trust).
+  const dir = useStore(directory);
+  const candidates = [...dir.arbiters.keys()].filter((pk) => pk !== me && pk !== listing.pubkey && (!listing.arbiters?.length || listing.arbiters.includes(pk)));
+  const [arbiter, setArbiter] = useState('');
+  useEffect(() => { if (!candidates.includes(arbiter)) setArbiter(candidates[0] || ''); }, [candidates.join()]);
+  const [refund, setRefund] = useState('');
+  const refundPick = usePayoutPick(escrow);
+  const shipAddress = s.address;
+  const addressOk = delivery !== 'ship' || addressComplete(shipAddress);
   // What the buyer offers for the item; shipping is the carrier's rate on top.
   const itemSats = parseCoin(priceText);
   const shipSats = delivery === 'ship' ? suggested?.ship || 0 : 0;
   const sats = itemSats ? itemSats + shipSats : itemSats;
-  const bd = escrow && sats ? Math.round((sats * s.buyerDepositPct) / 100) : 0;
-  const sdPct = listing.sellerDepositPct ?? s.sellerDepositPct;
-  const sd = escrow && sats ? Math.round((sats * sdPct) / 100) : 0;
+  // Both sides deposit the same share.
+  const bd = escrow && sats ? Math.round((sats * DEPOSIT_PCT) / 100) : 0;
+  const sd = bd;
   const overLimit = escrow && limit != null && sats > limit;
-  // Escrow needs an arbiter who is neither buyer nor seller.
-  const dir = useStore(directory);
-  const noArbiter = escrow && dir.loaded && ![...dir.arbiters.keys()].some((pk) => pk !== me && pk !== listing.pubkey);
-  const ready = sats > 0 && pay && !overLimit && !noArbiter && (delivery !== 'ship' || (country && reaches && pick));
+  const noArbiter = escrow && dir.loaded && !candidates.length;
+  const ready = sats > 0 && pay && !overLimit && !noArbiter && (!escrow || (arbiter && isValidAddress(refund, s.network))) && addressOk && (delivery !== 'ship' || (country && reaches && pick));
 
   const submit = async () => {
     if (country) updateSettings({ country: s.country || country });
@@ -91,8 +105,10 @@ export function OrderForm({ state, listing, onClose }) {
       : delivery === 'pickup' ? { carrier: 'pickup' } : null;
     await createOffer({
       tradeId: state.tradeId, listing, priceSats: sats, note, network: s.network, shipping,
-      ...(escrow ? { payment: 'escrow', buyerDepositSats: bd, sellerDepositSats: sd } : { payment: 'direct', method: pay }),
+      ...(delivery === 'ship' ? { shipTo: shipAddress } : {}),
+      ...(escrow ? { payment: 'escrow', buyerDepositSats: bd, sellerDepositSats: sd, arbiter: dir.arbiters.get(arbiter), refundAddress: refund } : { payment: 'direct', method: pay }),
     });
+    if (escrow) markPayoutUsed(refundPick, refund);
     onClose?.();
   };
 
@@ -122,7 +138,7 @@ export function OrderForm({ state, listing, onClose }) {
         </Field>
       )}
       {delivery === 'ship' && <>
-        <Field label={T('Ship to (country)', 'Enviar a (país)')} hint={T('Your address is asked only after the seller accepts.', 'Tu dirección se pide solo cuando el vendedor acepte.')}>
+        <Field label={T('Ship to (country)', 'Enviar a (país)')}>
           <CountrySelect value={country} onChange={setCountry} required />
         </Field>
         {country && !reaches && <p class="notice warn">{T(`The seller does not ship to ${countryName(country)}. Ask in the chat, or choose pick-up.`, `El vendedor no envía a ${countryName(country)}. Pregunta en el chat o elige recogida.`)}</p>}
@@ -146,7 +162,20 @@ export function OrderForm({ state, listing, onClose }) {
       <Field label={T('Your offer for the item (XBT)', 'Tu oferta por el artículo (XBT)')} hint={suggested ? `${rate ? `1 XBT ≈ ${formatFiat(rate.value, listing.currency)}. ` : ''}${T('You may offer less; the seller decides.', 'Puedes ofrecer menos; decide el vendedor.')}` : T('No exchange rate available; enter the amount you agreed in the chat.', 'No hay tipo de cambio; introduce el importe acordado en el chat.')}>
         <input inputmode="decimal" value={priceText} onInput={(e) => { setPriceText(e.target.value); setEdited(true); }} placeholder="0.001" />
       </Field>
-      {noArbiter && <p class="notice warn">{T('Escrow needs an arbiter who is not you or the seller, and there is none yet. Choose another payment method, or add an arbiter you trust under Account.', 'El escrow necesita un árbitro que no seas tú ni el vendedor, y aún no hay ninguno. Elige otro método de pago o añade un árbitro de confianza en Cuenta.')}</p>}
+      {delivery === 'ship' && (addressOk
+        ? <div class="field"><span class="label">{T('Ship to', 'Enviar a')}</span><pre class="address small">{formatAddress(shipAddress)}</pre><span class="hint">{T('From your account. It goes to the seller with the order, encrypted; the seller sees it once they accept.', 'De tu cuenta. Va al vendedor con el pedido, cifrada; el vendedor la ve cuando acepta.')} <a href="#/settings?open=address">{T('Change', 'Cambiar')}</a></span></div>
+        : <p class="notice warn">{T('To have it shipped, first add your shipping address to your account. Or choose pick-up.', 'Para que te lo envíen, añade primero tu dirección de envío a tu cuenta. O elige recogida.')} <a href="#/settings?open=address">{T('Add my address', 'Añadir mi dirección')} →</a></p>)}
+      {escrow && !noArbiter && (
+        <Field label={T('Arbiter', 'Árbitro')} hint={T('Decides only if something goes wrong. These are arbiters the seller accepts and you trust.', 'Solo decide si algo sale mal. Son árbitros que el vendedor acepta y en los que tú confías.')}>
+          <select value={arbiter} onChange={(e) => setArbiter(e.target.value)} aria-label={T('Arbiter', 'Árbitro')}>
+            {candidates.map((pk) => <option key={pk} value={pk}>{dir.arbiters.get(pk)?.name || pk.slice(0, 12)} · {arbiterFeeLabel(dir.arbiters.get(pk))}</option>)}
+          </select>
+        </Field>
+      )}
+      {escrow && <PayoutInput pick={refundPick} value={refund} onChange={setRefund} network={s.network} label={T('Your XBT address for refunds and your deposit', 'Tu dirección XBT para reembolsos y tu depósito')} />}
+      {noArbiter && <p class="notice warn">{listing.arbiters?.length
+        ? T('You trust none of the arbiters this seller accepts, so escrow is not possible here. Choose another payment method, ask the seller in the chat, or add one of their arbiters under Account → Trusted arbiters.', 'No confías en ninguno de los árbitros que acepta este vendedor, así que aquí no es posible el escrow. Elige otro método de pago, pregunta al vendedor en el chat o añade uno de sus árbitros en Cuenta → Árbitros de confianza.')
+        : T('Escrow needs an arbiter who is not you or the seller, and there is none yet. Choose another payment method, or add an arbiter you trust under Account.', 'El escrow necesita un árbitro que no seas tú ni el vendedor, y aún no hay ninguno. Elige otro método de pago o añade un árbitro de confianza en Cuenta.')}</p>}
       {overLimit && <p class="notice warn">{T(`New accounts can trade up to ${formatCoin(limit)} per escrow trade. Complete a few smaller trades first.`, `Las cuentas nuevas pueden operar hasta ${formatCoin(limit)} por compra con escrow. Haz antes algunas compras más pequeñas.`)}</p>}
       <Field label={T('Message to the seller (optional)', 'Mensaje para el vendedor (opcional)')}>
         <textarea rows="2" value={note} onInput={(e) => setNote(e.target.value)} />
@@ -156,11 +185,11 @@ export function OrderForm({ state, listing, onClose }) {
           <div><span>{T('Your offer for the item', 'Tu oferta por el artículo')}</span><b><Coin sats={itemSats} /></b></div>
           {shipSats > 0 && <div><span>{T('Shipping', 'Envío')} ({carrier(pick?.carrier).name})</span><b><Coin sats={shipSats} /></b></div>}
           {escrow ? <>
-            <div><span>{T(`Your deposit (${s.buyerDepositPct}%), back when the trade completes`, `Tu depósito (${s.buyerDepositPct}%), lo recuperas al terminar`)}</span><b><Coin sats={bd} /></b></div>
+            <div><span>{T(`Your deposit (${DEPOSIT_PCT}%), paid back when the trade completes`, `Tu depósito (${DEPOSIT_PCT}%), se te devuelve al terminar la compra`)}</span><b><Coin sats={bd} /></b></div>
             <div class="total"><span>{T('You pay into escrow', 'Pagas al escrow')}</span><b><Coin sats={sats + bd} /></b></div>
-            <div class="muted small"><span>{T(`The seller also puts in a deposit (${sdPct}%)`, `El vendedor también deposita (${sdPct}%)`)}</span><span><Coin sats={sd} /></span></div>
+            <div class="muted small"><span>{T(`The seller puts in the same deposit (${DEPOSIT_PCT}%)`, `El vendedor pone el mismo depósito (${DEPOSIT_PCT}%)`)}</span><span><Coin sats={sd} /></span></div>
           </> : <div class="total"><span>{T('You pay the seller', 'Pagas al vendedor')}</span><b><Coin sats={sats} /></b></div>}
-          <div class="muted small">{T('Nothing is paid yet: the seller accepts first, then you get a payment request in this chat.', 'Aún no se paga nada: primero acepta el vendedor y luego recibes una solicitud de pago en este chat.')}</div>
+          <div class="muted small">{T('First send the order, without any payment. If the seller accepts, you get a payment request in this chat.', 'Primero envía el pedido, sin pagar nada. Si el vendedor acepta, recibes una solicitud de pago en este chat.')}</div>
         </div>
       )}
       <div class="row">

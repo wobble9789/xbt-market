@@ -6,7 +6,7 @@
 // Bump BOOKMARKLET_VERSION whenever extraction changes: bookmarks never update
 // themselves, and the version travels with every import.
 
-export const BOOKMARKLET_VERSION = 7;
+export const BOOKMARKLET_VERSION = 8;
 
 export const absUrl = (u, base) => { try { return new URL(u, base).href; } catch { return ''; } };
 
