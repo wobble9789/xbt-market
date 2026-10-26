@@ -77,13 +77,13 @@ async function open(who) {
       address: { name: `${p.name} Tester`, street: 'Kerkstraat', number: '1', postalCode: '1234AB', city: p.city, country: 'NL', email: 'test@example.com' },
     }));
   }, people[who], people.arbiter.pk);
-  // The wallet key (encrypted secrets) and the address counter outlive a context.
+  // The wallet key (encrypted secrets), the address counter and the addresses kept with an order outlive a context.
   if (kept[who]) await page.evaluate((k) => { for (const [n, v] of Object.entries(k)) localStorage.setItem(n, v); }, kept[who]);
   await page.reload({ waitUntil: 'load' });
   page.who = who;
   const close = page.browserContext().close.bind(page.browserContext());
   page.browserContext().close = async () => {
-    kept[who] = await page.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([k]) => /^xbt:(secrets|payout-index):/.test(k)))).catch(() => kept[who]);
+    kept[who] = await page.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([k]) => /^xbt:(secrets|payout-index|pending-details):/.test(k)))).catch(() => kept[who]);
     return close();
   };
   return page;
@@ -258,8 +258,10 @@ try {
   await waitText(await as('seller'), 'Total needed', 30000);
   await waitText(await as('buyer'), 'Total needed', 30000);
   if ((await text(await as('buyer'))).includes('A few details for the seller')) throw new Error('the buyer is still asked for details');
-  // The buyer's app sends the address by itself once the seller accepted.
-  await waitText(await as('seller'), 'Kerkstraat 1', 30000);
+  // The buyer's app sends the address by itself once the seller accepted
+  // (the seller sees it when it is time to ship).
+  await waitText(await as('buyer'), 'Details sent', 30000);
+  await waitText(await as('seller'), 'Details sent', 30000);
 
   step('both fund the escrow');
   await waitText(await as('buyer'), 'Total needed');

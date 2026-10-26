@@ -940,8 +940,9 @@ try {
     const c = await go('C', `#/trade/${tid}`);
     await waitText(c, 'Total needed', 30000);
     if ((await text(c)).includes('A few details for the seller')) throw new Error('the buyer is still asked for details');
+    await waitText(c, 'Details sent', 30000);
     await go('B', `#/trade/${tid}`);
-    await waitText(await as('B'), 'Kerkstraat 1', 30000);
+    await waitText(await as('B'), 'Details sent', 30000);
     return 'the seller sees the chosen arbiter as trusted, accepts, and the escrow address is there for both; the buyer\'s address arrives by itself only now; no details step';
   });
   await step('TRD-4', 'Fund the escrow (3 confirmations)', async () => {
