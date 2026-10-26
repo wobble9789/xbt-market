@@ -51,6 +51,7 @@ function ArbitersLine({ listing }) {
       🛡 {shared.length
         ? <>{T('Escrow possible: you both trust', 'Escrow posible: ambos confiáis en')} {shared.map((pk, i) => <span key={pk}>{i ? ', ' : ''}<Name pk={pk} avatar={false} /></span>)} ✓</>
         : T('Escrow not possible for you: you trust none of the arbiters this seller accepts.', 'Escrow no posible para ti: no confías en ninguno de los árbitros que acepta este vendedor.')}
+      {shared.length > 0 && <span class="muted"> · {T(`deposit ${listing.depositPct}% of the price, from you and from the seller`, `depósito del ${listing.depositPct}% del precio, tuyo y del vendedor`)}</span>}
     </div>
   );
 }

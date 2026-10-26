@@ -85,14 +85,15 @@ const PLAN = [
     ], 'Beide adressen kloppen met Shrike. "💰 Getting paid" en "📦 Shipping address" zijn twee aparte, overzichtelijke secties.'],
     ['ARB-8', 'Arbiters bij de advertentie', [
       '[Seller] Account → "🛡 Trusted arbiters": je arbiter-account staat erbij met "default".',
-      '[Seller] Sell → "+ New listing": titel "Test escrow", prijs 10, bij "Payment methods you accept" alleen "🛡 Escrow", PostNL aan. Onder "Arbiters you accept for escrow" staat je arbiter aangevinkt → "Publish".',
-      '[Buyer] open "Test escrow": onder de betaalmethodes staat "🛡 Escrow possible: you both trust … ✓".',
+      '[Seller] Sell → "+ New listing": titel "Test escrow", prijs 10, bij "Payment methods you accept" alleen "🛡 Escrow", PostNL aan. Zet "Escrow deposit (%)" op 10. Onder "Select from your trusted arbiters" staat je arbiter aangevinkt, met "demands …% fee in a dispute" → "Publish".',
+      '[Buyer] open "Test escrow": onder de betaalmethodes staat "🛡 Escrow possible: you both trust … ✓ · deposit 10% of the price, from you and from the seller".',
       '[Buyer] Browse → ⚙ Filters → vink "Only escrow with an arbiter I trust" aan.',
-    ], 'Duidelijk wie de arbiters zijn, of jij ze ook vertrouwt, en het filter laat alleen zulke advertenties zien.'],
+    ], 'Duidelijk wie de arbiters zijn, of jij ze ook vertrouwt, en hoeveel borg jullie allebei betalen; het filter laat alleen zulke advertenties zien.'],
     ['REAL-1', 'Escrow-aankoop met echte XBT', [
       '[Buyer] Account → "📦 Shipping address": vul je adres in (wordt meteen opgeslagen).',
-      '[Buyer] open "Test escrow" → "🛒 Order now" → "🛡 Escrow", land Netherlands, PostNL. Je ziet: je adres onder "Ship to", de arbiter al gekozen, je terugbetaaladres al ingevuld (✓ nieuw adres), en het overzicht: bod, "Shipping (PostNL)", "Your deposit (15%), paid back when the trade completes", "The seller puts in the same deposit (15%)" en het totaal → "Send order".',
-      '[Seller] Messages → open de bestelling: "Arbiter: … ✓ you trust this arbiter"; uitbetaaladres al ingevuld → "✓ Accept". Het escrowadres verschijnt meteen bij beiden: er zijn geen extra stappen meer.',
+      '[Buyer] open "Test escrow" → "🛒 Order now" → "🛡 Escrow", land Netherlands, PostNL. Je ziet: je adres onder "Ship to", de arbiter al gekozen, je terugbetaaladres al ingevuld (✓ nieuw adres), en het overzicht: bod, "Shipping (PostNL)", "Your deposit (10%), paid back when the trade completes", "The seller puts in the same deposit (10%)" en het totaal → "Send order".',
+      '[Seller] Messages → open de bestelling: "Deposits (10% each)" met twee gelijke bedragen, "Arbiter: … ✓ you trust this arbiter". Controleer: het verzendadres en terugbetaaladres van de koper staan er NOG NIET. Uitbetaaladres al ingevuld → "✓ Accept".',
+      '[Seller] Het escrowadres verschijnt meteen. Binnen een paar seconden (zodra de app van [Buyer] open is) komt het adres van de koper binnen.',
       'Onder "Escrow": [Buyer] stuurt vanuit Shrike #0 exact "Buyer pays (price + deposit)" naar het escrowadres; [Seller] vanuit #1 exact "Seller pays (deposit)" (kopiëren, niet overtypen; replay-bescherming aan).',
       'Wacht op "Fully paid" (3 bevestigingen, ±30 min). [Seller] vult een verzonnen trackingcode in → "Mark as shipped" → "📬 Delivered, per the tracking". [Buyer] "Everything OK: release payment". [Seller] "Agree and sign".',
     ], 'Shrike na 1 bevestiging: #1 ontvangt ongeveer prijs + verzending + borg, #0 zijn borg terug (min een klein deel netwerkkosten), elk op een nieuw adres. Het bestellen voelde logisch en zonder overbodige stappen.'],
@@ -133,7 +134,7 @@ const PLAN = [
   ], 'Nodig: een API-sleutel van Anthropic. Overslaan als je die (nog) niet wilt.'],
 ];
 
-const KEY = 'xbt-testplan-v10';
+const KEY = 'xbt-testplan-v11';
 let state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { state = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} render(); };

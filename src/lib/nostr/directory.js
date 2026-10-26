@@ -72,7 +72,7 @@ export function sharedArbiters(listing, dir, me) {
 // dispute). Older announcements only have a free-text note.
 export const MAX_ARBITER_FEE_PCT = 10;
 export const arbiterFeePct = (a) => { const n = Number(a?.feePct); return n >= 0 && n <= MAX_ARBITER_FEE_PCT ? n : 0; };
-export const arbiterFeeLabel = (a) => (arbiterFeePct(a) ? `${arbiterFeePct(a)}% ${T('fee in a dispute', 'de comisión en una disputa')}` : T('no fee', 'sin comisión'));
+export const arbiterFeeLabel = (a) => (arbiterFeePct(a) ? T(`demands ${arbiterFeePct(a)}% fee in a dispute`, `pide un ${arbiterFeePct(a)}% de comisión en una disputa`) : T('no fee', 'sin comisión'));
 
 export function announceArbiter({ name, about, languages, feePct = 0, active = true }) {
   const content = { escrowBase: myArbiterBase(), name, about, languages, feePct: Math.min(MAX_ARBITER_FEE_PCT, Math.max(0, Number(feePct) || 0)), active, v: 2 };

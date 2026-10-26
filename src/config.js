@@ -23,9 +23,13 @@ export const ESPLORA_PRESETS = {
   regtest: [{ name: 'Local (npm run shim)', url: import.meta.env?.VITE_REGTEST_ESPLORA || 'http://127.0.0.1:3006/api' }],
 };
 
-// Both sides put this share of the price into the escrow, returned when the
-// trade completes. The same for everyone, so nobody can offer without risk.
-export const DEPOSIT_PCT = 15;
+// Escrow deposit: the seller chooses the share of the price on the listing,
+// and buyer and seller both put in that same share, returned when the trade
+// completes. Never zero, so neither side can trade without risk.
+export const DEFAULT_DEPOSIT_PCT = 15;
+export const MIN_DEPOSIT_PCT = 5;
+export const MAX_DEPOSIT_PCT = 50;
+export const depositSats = (priceSats, pct) => Math.round((priceSats * pct) / 100);
 
 // Arbiters every account trusts from the start (the project's own arbiter),
 // until enough others with a track record are approved.

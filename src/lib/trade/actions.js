@@ -6,6 +6,8 @@ import { sendTradeMessage, forwardOwnRumors } from '../nostr/inbox.js';
 import { deriveTradeKey, arbiterTradeKey, arbiterBaseKey, pubkeyOf, planPayout, signEscrow, finalizeEscrow } from '../btc/escrow.js';
 import { escrowFunding, Esplora } from '../btc/esplora.js';
 import { settings } from '../settings.js';
+import { loadJSON, saveJSON } from '../store.js';
+import { depositPctOf } from '../nostr/listings.js';
 import { newTradeId, roleOf, shipDaysFor, CONFIRM_DAYS } from './protocol.js';
 import { decodeInvoice } from '../ln/bolt11.js';
 import { isService } from '../categories.js';
@@ -40,6 +42,7 @@ export function myEscrowKey(state) {
 const listingInfoOf = (listing) => ({
   coord: listing.coord, sellerPubkey: listing.pubkey, title: listing.title, image: listing.images[0] || '',
   price: listing.price, currency: listing.currency, payments: listing.payments, country: listing.country || '',
+  ...(listing.payments?.includes('escrow') ? { depositPct: depositPctOf(listing) } : {}),
   ...(isService(listing.category) ? { kind: 'service', priceUnit: listing.priceUnit || '' } : {}),
 });
 
@@ -53,22 +56,23 @@ export async function openConversation({ listing, network, text, prev }) {
   return tradeId;
 }
 
-// The order: price, payment method and delivery only. Addresses and the
-// arbiter follow once the seller accepts (sendDetails).
+// The order: price, payment method, delivery and (escrow) the arbiter. The
+// buyer's delivery and refund addresses stay on this device until the seller
+// accepts; then they go out by themselves (sendPendingDetails).
 export async function createOffer({ tradeId, listing, priceSats, buyerDepositSats, sellerDepositSats, note, network, payment = 'escrow', method, shipping, arbiter, refundAddress, shipTo }) {
   const me = account.get().pubkey;
   if (listing.pubkey === me) throw new Error('You cannot buy your own listing');
   const body = {
     v: 2, tradeId, network, listing: listingInfoOf(listing), payment, priceSats,
     ...(payment === 'direct' ? { method } : { buyerDepositSats, sellerDepositSats }),
-    buyer: { escrowPubkey: pubkeyOf(deriveTradeKey(secretKey(), tradeId)), ...(payment !== 'direct' && refundAddress ? { payoutAddress: refundAddress.trim() } : {}) },
+    buyer: { escrowPubkey: pubkeyOf(deriveTradeKey(secretKey(), tradeId)) },
     // Escrow: the arbiter (one of the listing's) comes with the order, so the
     // escrow exists as soon as the seller accepts.
     ...(payment !== 'direct' && arbiter ? { arbiter: { pubkey: arbiter.pubkey, escrowBase: arbiter.escrowBase } } : {}),
-    // The delivery address, encrypted to the seller; shown once they accept.
-    ...(shipTo ? { shipTo } : {}),
     shipping: shipping || null, note: note || '', shipDays: shipDaysFor(listing.country, shipping), confirmDays: CONFIRM_DAYS,
   };
+  const pending = { ...(shipTo ? { shipTo } : {}), ...(payment !== 'direct' && refundAddress ? { payoutAddress: refundAddress.trim() } : {}) };
+  if (Object.keys(pending).length) saveJSON(pendingKey(tradeId), pending);
   await sendTradeMessage(tradeId, 'offer', body, [listing.pubkey]);
   // The arbiter gets the conversation so far (and this order), signed by me.
   if (body.arbiter) await forwardOwnRumors(tradeId, body.arbiter.pubkey).catch(() => {});
@@ -92,6 +96,30 @@ export async function sendDetails(state, { shipTo, payoutAddress, arbiter, servi
   const to = [state.participants.buyer, state.participants.seller, arbiter?.pubkey || state.participants.arbiter].filter(Boolean);
   await sendTradeMessage(state.tradeId, 'details', body, to);
   if (arbiter) await forwardOwnRumors(state.tradeId, arbiter.pubkey).catch(() => {});
+}
+
+// The buyer's addresses for an order, kept here until the seller accepts.
+const pendingKey = (tradeId) => `xbt:pending-details:${account.get().pubkey}:${tradeId}`;
+export const pendingDetails = (tradeId) => loadJSON(pendingKey(tradeId), null);
+
+// Buyer, in the background: once the seller accepted, send the addresses
+// kept with the order (only what the trade does not have yet). They are
+// forgotten once the trade shows them, so no form asks for them meanwhile.
+export async function sendPendingDetails(state) {
+  const p = pendingDetails(state.tradeId);
+  if (!p || state.role !== 'buyer') return false;
+  const forget = () => saveJSON(pendingKey(state.tradeId), null);
+  if (state.rejected || state.cancelled) { forget(); return false; }
+  if (!state.accept) return false;
+  const body = {
+    ...(p.shipTo && !state.shipTo ? { shipTo: p.shipTo } : {}),
+    ...(p.payoutAddress && state.payment === 'escrow' && !state.payout.buyer ? { payoutAddress: p.payoutAddress } : {}),
+  };
+  if (!Object.keys(body).length) { forget(); return false; }
+  if (p.sentAt && Date.now() - p.sentAt < 60_000) return false; // on its way; sent again if it never shows up
+  saveJSON(pendingKey(state.tradeId), { ...p, sentAt: Date.now() });
+  try { await sendDetails(state, body); } catch (e) { saveJSON(pendingKey(state.tradeId), p); throw e; }
+  return true;
 }
 
 export const requestChange = (state, { method, buyerDepositSats, sellerDepositSats, note }) =>
