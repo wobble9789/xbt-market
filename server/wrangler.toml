@@ -13,3 +13,7 @@ class_name = "Store"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Store"]
+
+# Push notifications for saved searches: look for new listings every 10 minutes.
+[triggers]
+crons = ["*/10 * * * *"]

@@ -12,6 +12,7 @@ A peer-to-peer marketplace paid in **Bitcoin BLAKE2b** (XBT / BTCB2), the chain 
 - **Shipping like Vinted.** The seller ticks the carriers they are willing to use (PostNL, DHL, Mondial Relay, InPost, DPD, GLS, Colissimo, Correos…) and a parcel size; no price. The buyer picks a carrier for their country and pays its rate on top. With the service, the seller then buys a prepaid label (Sendcloud) paid over Lightning, and gets a QR code to show at the drop-off point (or a PDF) in the chat; the tracking code becomes a tracking link.
 - **Marktplaats categories.** All 36 main categories and 1,954 subcategories of Marktplaats, so imports keep theirs. Listings carry a country and where the seller ships to (EU, worldwide, countries); buyers filter on category, country, price, condition, delivery and payment, and sort by date or price.
 - **People.** Unique @usernames (NIP-05, like name@primal.net), search by @name, follow sellers (the standard Nostr contact list) and a feed of only the people you follow. English and Spanish; prices shown in 30+ currencies.
+- **Saved searches with notifications.** Save a search on the Browse page; new matching listings show as new, and a push notification opens just those (with the XBT Market service; without it, while the app is open). Manage them under *Account → Saved searches*. Synced between devices, encrypted to the account.
 - **AI listing assistant.** Upload photos and the AI writes the title, description, category, condition and a price suggestion. Each user connects their own AI service (see *AI assistant* below).
 
 > **Snel aan de slag (NL):** zet de app online (zie *Deploy*), maak in de app een account, zet jouw npub als `VITE_ADMIN_NPUB` en bouw opnieuw. Vraag een paar bekende community-leden om zich onder *Arbiter* aan te melden en keur ze goed onder *Admin*. Daarna kan iedereen handelen.
@@ -87,7 +88,7 @@ Users install it via the browser's *Add to Home screen* / *Install app*. No stor
 
 **Recommended later:** run a community Nostr relay (for example strfry or nostr-rs-relay) and add it to `DEFAULTS.relays` in `src/config.js`, so listings and messages do not depend on public relays only.
 
-## Service (usernames, shipping labels, import from a link)
+## Service (usernames, shipping labels, import from a link, push notifications)
 
 `server/` holds a small service that runs as a **Cloudflare Worker** (free plan; no server to maintain) with a Durable Object as its only storage. It never sees keys or listings. It provides:
 
@@ -95,9 +96,10 @@ Users install it via the browser's *Add to Home screen* / *Install app*. No stor
 - `/api/shipping/quote`, `/api/shipping/labels`: live rates and prepaid labels through **Sendcloud API v3**. The seller pays the label over Lightning to the platform's Lightning address (LUD-16 with LUD-21 *verify*); once paid, the Worker announces the shipment and serves the label PDF and, where the carrier supports it, a QR code;
 - `/api/import`: reads a public Marktplaats or Vinted page from a pasted link (for phones and the Marktplaats/Vinted apps);
 - `/api/issues`: the admin (and only the admin, checked against `ADMIN_NPUB`) publishes a reviewed bug report as a GitHub issue with the label `bug-report`;
+- `/api/push/key`, `/api/push/subscribe`: push notifications for saved searches. A device registers its Web Push subscription with the searches that notify (no account, no npub). Every 10 minutes a cron trigger reads new listings from the relays (`RELAYS`, default the app's relays), matches them with the same rules as the app (`src/lib/search.js`) and sends standard Web Push (VAPID, encrypted payload). The VAPID keys are made on first use and kept in the Durable Object: no setup;
 - `/api/bug`: e-mails a bug report with screenshots or a video (images and mp4/mov/webm, 15 MB at most) through **Resend** to the address in the `BUG_REPORT_EMAIL` secret. The address never reaches the app. At most 5 reports per account per hour.
 
-Without it, the app hides usernames and link import, shows estimated shipping prices and lets the seller buy labels on the carrier's site.
+Without it, the app hides usernames and link import, shows estimated shipping prices, lets the seller buy labels on the carrier's site, and notifies about saved searches only while it is open.
 
 **Set it up (once, on a computer):**
 1. Create a free account at cloudflare.com. *My Profile → API Tokens → Create Token → "Edit Cloudflare Workers"* template. Copy the token, and your *Account ID* (right column of the Workers & Pages overview).

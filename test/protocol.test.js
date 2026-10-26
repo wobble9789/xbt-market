@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { getPublicKey } from 'nostr-tools/pure';
 import { deriveTradeKey, arbiterBaseKey, arbiterTradeKey, pubkeyOf, planPayout, signEscrow } from '../src/lib/btc/escrow.js';
-import { reduceTrade, presetAllocations, finalizeProposal, deadlines, disputeClocks, shipDaysFor, DAY, TRADE_KIND, CHAT_KIND } from '../src/lib/trade/protocol.js';
+import { reduceTrade, presetAllocations, finalizeProposal, deadlines, disputeClocks, shipDaysFor, DAY, TRADE_KIND, CHAT_KIND, rumorInfo } from '../src/lib/trade/protocol.js';
 
 const sk = () => secp256k1.utils.randomSecretKey();
 const people = { buyer: sk(), seller: sk(), arbiter: sk(), mallory: sk() };
@@ -244,7 +244,7 @@ test('v2: shipping labels come from the seller only', () => {
 // ---- deadlines ---------------------------------------------------------------
 
 
-test('deadlines: ship within 5 days of paying (7 abroad), confirm within 14 days or 2 after delivery', () => {
+test('deadlines: ship within 5 days of paying (7 abroad); then 10 days to arrive and 4 to confirm or dispute, or 4 after a delivery', () => {
   assert.equal(shipDaysFor('NL', { country: 'NL' }), 5);
   assert.equal(shipDaysFor('NL', { country: 'DE' }), 7);
   assert.equal(shipDaysFor('NL', null), 5);
@@ -257,13 +257,18 @@ test('deadlines: ship within 5 days of paying (7 abroad), confirm within 14 days
   assert.equal(deadlines(s, { fundedAt: T0 + DAY }).remindAt, T0 + 4 * DAY);
   log.push(msg('seller', 'shipped', { carrier: 'postnl', tracking: 'X' }, T0 + 2 * DAY));
   s = reduceTrade(TID, log, { arbiters });
+  assert.equal(deadlines(s).arriveBy, T0 + 12 * DAY);
   assert.equal(deadlines(s).confirmBy, T0 + 16 * DAY);
-  // Only the seller reports the delivery, and only once shipped; the buyer then has 2 days.
+  // Only the seller reports the delivery, and only once shipped; the buyer then has 4 days.
   log.push(msg('buyer', 'delivered', {}, T0 + 3 * DAY), msg('seller', 'delivered', {}, T0 + 4 * DAY));
   s = reduceTrade(TID, log, { arbiters });
   assert.equal(s.delivered.at, T0 + 4 * DAY);
-  assert.equal(deadlines(s).confirmBy, T0 + 6 * DAY);
+  assert.equal(deadlines(s).arriveBy, T0 + 4 * DAY);
+  assert.equal(deadlines(s).confirmBy, T0 + 8 * DAY);
   assert.ok(s.errors.some((e) => e.includes('only the seller reports the delivery')));
+  // A hand-over at pick-up starts the 4 days at once.
+  const pick = reduceTrade(TID, [open2(), offer2({ confirmDays: 14 }), accept2(), details2(), msg('seller', 'shipped', { carrier: 'pickup' }, T0)], { arbiters });
+  assert.equal(deadlines(pick).confirmBy, T0 + 4 * DAY);
   // Shipped and delivered in the same second still count, whatever their ids.
   const same = reduceTrade(TID, [open2(), offer2(), accept2(), msg('seller', 'delivered', {}, T0), msg('seller', 'shipped', { carrier: 'postnl' }, T0)], { arbiters });
   assert.equal(same.delivered?.at, T0);
@@ -328,4 +333,11 @@ test('v2: the order itself names the arbiter, refund address and delivery addres
   assert.equal(reduceTrade(TID, [open2(), offer2({ arbiter: { pubkey: pk.buyer, escrowBase: arbiterBase } })], { arbiters }).offer, null);
   // An untrusted arbiter is flagged for the seller.
   assert.equal(reduceTrade(TID, log, { arbiters: new Map() }).checks.arbiterTrusted, false);
+});
+
+test('chat photos travel as imeta links (NIP-92) and come back as photos', () => {
+  const u = 'https://photos.example/abc.jpg';
+  const info = rumorInfo({ id: 'x', kind: 14, pubkey: 'a'.repeat(64), created_at: 1, content: `Here it is\n${u}`, tags: [['xbt-trade', TID], ['imeta', `url ${u}`, 'm image/jpeg']] });
+  assert.deepEqual(info.body, { text: 'Here it is', photos: [u] });
+  assert.deepEqual(rumorInfo({ id: 'y', kind: 14, pubkey: 'a'.repeat(64), created_at: 1, content: 'plain', tags: [['xbt-trade', TID]] }).body, { text: 'plain' });
 });

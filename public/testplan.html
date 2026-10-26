@@ -71,37 +71,26 @@
 </main>
 <script>
 const PLAN = [
-  ['Echt geld: on-chain met Shrike (hertest)', 'Drie browsers: [Buyer], [Seller] en [Arbiter] (je arbiter-account, met arbiterprofiel "Henk the arbiter"). Shrike: account #0 = buyer, #1 = seller, #2 = arbiter. Ververs eerst alle drie met Ctrl+Shift+R. Wat je eerder goedkeurde en niet veranderd is, staat hier niet meer. Bij een fout: screenshot + de txid in je notitie.', [
-    ['WAL-5', 'Ongebruikte adressen (hertest stap 2)', [
-      '[Buyer] Account → "💰 Getting paid". Bij "First unused receiving address (#…)" en "Second unused receiving address (#…)" staat nu ook het nummer van het adres.',
-      'Zoek die nummers op in Shrike #0 → Addresses. Beide adressen mogen nog nooit iets ontvangen hebben, ook niet als ze nu weer leeg zijn.',
-      'Doe hetzelfde in [Seller] met Shrike #1 en in [Arbiter] met Shrike #2.',
-    ], 'Beide adressen zijn in Shrike echt ongebruikt. Toont Shrike er toch een als gebruikt: screenshot, en noteer welke server bij Account → "🌐 Network" staat (een pruned node kent de oude geschiedenis niet; de app zegt dat nu ook).'],
-    ['ARB-8', 'Arbiternaam en filter (hertest stap 2 en 4)', [
-      '[Seller] Sell → "+ New listing": titel "Test escrow", prijs 10, alleen "🛡 Escrow", PostNL aan, "Escrow deposit (%)" op 10. Kijk onder "Select from your trusted arbiters" → "Publish".',
-      '[Buyer] open "Test escrow" en kijk naar de regel "🛡 Escrow possible: …".',
-      '[Buyer] Browse → ⚙ Filters → vink "Only show listings with shared trusted arbiters" aan.',
-    ], 'Overal staat "⚖️ Henk the arbiter" (de naam van het arbiterprofiel), nooit de accountnaam, met "demands …% fee in a dispute · speaks …". Het filter laat alleen advertenties met een gedeelde arbiter zien.'],
-    ['REAL-1', 'Escrow-aankoop met echte XBT', [
-      '[Buyer] open "Test escrow" → "🛒 Order now". Van boven naar beneden: "Delivery" (Ship it to me), land Netherlands, PostNL, "Ship to" met je adres, je bod, "How do you want to pay?" → "🛡 Escrow", direct daaronder "Arbiter".',
-      '[Buyer] Bij "Arbiter" staat "⚖️ Henk the arbiter" met een groen "✓ trusted by you and the seller", plus kosten en talen. Terugbetaaladres is al ingevuld (✓ nieuw) → "Send order".',
-      '[Seller] Messages → open de bestelling: "Arbiter: ⚖️ Henk the arbiter ✓ you trust this arbiter" en "Deposits (10% each)". Het adres van de koper staat er nog niet. Uitbetaaladres al ingevuld → "✓ Accept".',
-      'Onder "Escrow": [Buyer] stuurt vanuit Shrike #0 exact "Buyer pays (price + shipping + deposit)" naar het escrowadres; [Seller] vanuit #1 exact "Seller pays (deposit)" (kopiëren, niet overtypen; replay-bescherming aan).',
-      'Wacht op "Fully paid" (3 bevestigingen, ±30 min). [Seller] ziet nu het adres van de koper, vult een verzonnen trackingcode in → "Mark as shipped" → "📬 Delivered, per the tracking". [Buyer] "Everything OK: release payment". [Seller] "Agree and sign".',
-    ], 'Shrike na 1 bevestiging: #1 ontvangt ongeveer prijs + verzending + borg, #0 zijn borg terug (min een klein deel netwerkkosten), elk op een nieuw adres. Het bestellen voelde logisch en zonder overbodige stappen.'],
-    ['TRD-7', 'Termijnen (tijdens REAL-1)', [
-      'Na "Fully paid": [Seller] ziet "⏰ Paid. Ship by …", [Buyer] "⏰ Fully paid. The seller ships by …".',
-      'Na "📬 Delivered": [Buyer] ziet "Check it and confirm below, or open a dispute, before …".',
-    ], 'Duidelijk; de data kloppen (5 dagen na betaling verzenden; 2 dagen na levering bevestigen of klagen).'],
+  ['Echt geld: on-chain met Shrike (hertest)', 'Drie browsers: [Buyer], [Seller] en [Arbiter]. Shrike: #0 = buyer, #1 = seller. Ververs eerst met Ctrl+Shift+R. Wat je goedkeurde en niet veranderd is, staat hier niet meer. Bij een fout: screenshot + txid in je notitie.', [
+    ['CNL-1', 'Annuleren zonder betaling en gesprek verwijderen', [
+      '[Buyer] open "Test escrow" → "🛒 Order now" → "Send order". [Seller] "✓ Accept". [Seller] "Cancel trade (nothing paid yet)".',
+      '[Seller] Kijk naar de status bovenaan en in Messages.',
+      '[Seller] Messages → onder "Finished" bij deze trade op 🗑 → bevestigen. Open Messages ook op je telefoon met hetzelfde account.',
+    ], 'Status "Cancelled", niet "refund needed". Na 🗑 is het gesprek weg, ook op je telefoon. Bij [Buyer] staat het er nog (die heeft een eigen kopie).'],
+    ['REAL-1', 'Escrow-aankoop: betalen, termijnen en uitbetalen in één stap', [
+      '[Buyer] open "Test escrow" → "🛒 Order now" → Escrow, PostNL. Lees de tekst onder je terugbetaaladres → "Send order". [Seller] "✓ Accept".',
+      'Onder "Escrow": betaal beide uit Shrike (#0 en #1). [Seller] plakt de txid van zijn betaling bij "Payment txid" → "I paid".',
+      '[Buyer] In de chat staat "💸 Paid into escrow · txid … ↗": tik erop. Tik daarna op "Refresh".',
+      'Na "Fully paid": [Seller] ziet boven het verzendformulier de 📸-waarschuwing → trackingcode → "Mark as shipped".',
+      'Bekijk bij beiden de twee balken; [Seller] "📬 Delivered, per the tracking"; bekijk bij [Buyer] de tekst.',
+      '[Buyer] "Everything OK: release payment".',
+    ], 'Stap 1: "Your personal info to make the trade is only shared after the seller accepts your order". Stap 3: de link opent de transactie in de explorer; na Refresh even een draaiend icoon en dan "✓ Checked [tijd]". Stap 5: balken "Delivery time" (10 dagen) en "Time to confirm or open a dispute" (4 dagen); [Seller] ziet "You signed the release in advance"; na Delivered heeft [Buyer] 4 dagen. Stap 6: direct uitbetaald ("✅ Broadcast"), [Seller] hoeft niets te tekenen; daarna "⭐ Leave a review for your trading partner". In Shrike: #1 prijs + verzending + borg, #0 zijn borg terug.'],
     ['REAL-2', 'Directe on-chain betaling', [
       '[Seller] "+ New listing": titel "Test direct", prijs 5, alleen "On-chain", alleen "🤝 Pick-up" → "Publish".',
       '[Buyer] open "Test direct" → "🛒 Order now" → "On-chain" en "🤝 Pick up" → "Send order".',
       '[Seller] "✓ Accept" → onder "Send a payment request" staat je adres al (✓ nieuw) → "Request …".',
       '[Buyer] betaal vanuit Shrike #0 naar dat adres, precies dat bedrag. Kopieer in Shrike → Transactions de txid, plak bij "Payment txid" → "I paid".',
     ], '[Seller] ziet "✓ …, N confirmations"; het geld staat in Shrike #1 op weer een nieuw adres.'],
-    ['NODE-2', 'Eigen node (uitleg)', [
-      'Account → "🌐 Network" → lees de stappen onder "Blockchain server". Plak je Mempool-adres (zonder /api) → "Use" → "Test connection". Typ daarna een fout adres → "Use" → lees de melding. Zet het goede adres terug.',
-    ], '"✓ block …" gelijk aan mempool.guide; de foutmelding legt in gewone taal uit wat er mis is.'],
   ]],
   ['XBT Market-dienst (Cloudflare, kan nu al)', 'Admin, op je computer', [
     ['SVC-1', 'XBT Market-dienst staat live', [
@@ -118,6 +107,15 @@ const PLAN = [
     ['IMP-9', 'Link plakken', ['Marktplaats-app: één advertentie → Delen → Link kopiëren. Import → "Paste a link" → Read. Ook met het adres van je profiel uit de browser.'], 'Advertentie(s) met foto\'s verschijnen.'],
     ['SHP-2', 'Echt verzendlabel', ['Na betaling: Seller → Get the label price → Buy label → betaal.'], 'Echte PostNL/DHL-QR en label in de chat.'],
   ], 'SVC-1 kan nu al: de site staat al live, de dienst komt ernaast. De rest wanneer je die accounts hebt: SHP-2 Sendcloud + een Lightning-adres, BUG-2 Resend en een GitHub-token.'],
+  ['Opgeslagen zoekopdrachten met meldingen', '[Buyer] op je telefoon (de app op je beginscherm), [Seller] op je computer. Eerst SVC-1, anders komen meldingen alleen als de app open is.', [
+    ['SRCH-1', 'Melding bij een nieuwe advertentie', [
+      '[Buyer] Zoek op "fiets" → "🔔 Save search" → sta meldingen toe.',
+      '[Buyer] Account → "🔔 Saved searches": de zoekopdracht staat erbij, met "🔔 Notify" aan.',
+      '[Buyer] Sluit de app helemaal. [Seller] plaatst een advertentie "Test fiets", prijs 5.',
+      '[Buyer] Wacht op de melding (binnen ±10 minuten) en tik erop.',
+      '[Buyer] Account → "🔔 Saved searches" → tik op de naam van de zoekopdracht. Verwijder hem daarna met 🗑.',
+    ], 'Stap 2: "✓ Notifications are on for this device, also when XBT Market is closed." Stap 4: melding "New for “fiets”: Test fiets"; die opent XBT Market met alleen de nieuwe advertentie ("1 new since …"). Stap 5: alle advertenties voor "fiets"; daarna is de zoekopdracht weg.'],
+  ], 'Op een iPhone werken meldingen alleen in de app op je beginscherm.'],
   ['Later: met XBT-Lightning', 'Seller verkoopt, Buyer koopt', [
     ['WAL-2', 'Lightning Fork', ['Marketplace → Change registry → start9.paulscode.com → installeer Lightning Fork. Select Node → knots-blake2b. Initialize Wallet → Start Fresh; seed op papier. Configure Channel Backups.'], 'Lightning Fork draait.'],
     ['WAL-3', 'Laguz Hub + kanaal', ['Registry start9.pyblock.xyz → Laguz Hub. Kanaal openen (peers: forum paulscode.com). Twee NWC-koppelingen: "seller" en "buyer".'], 'Twee connection strings.'],
@@ -136,7 +134,7 @@ const PLAN = [
   ], 'Nodig: een API-sleutel van een AI-dienst naar keuze, of een model op je eigen computer.'],
 ];
 
-const KEY = 'xbt-testplan-v12';
+const KEY = 'xbt-testplan-v13';
 let state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { state = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} render(); };

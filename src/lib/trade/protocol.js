@@ -56,7 +56,11 @@ export function rumorInfo(r) {
   let body;
   if (r.kind === CHAT_KIND) {
     type = 'chat';
-    body = { text: String(r.content ?? '') };
+    // Photos: the imeta (NIP-92) links, taken out of the text.
+    const photos = r.tags.filter((t) => t[0] === 'imeta').map((t) => t.slice(1).find((x) => x.startsWith('url '))?.slice(4)).filter(Boolean);
+    let text = String(r.content ?? '');
+    for (const u of photos) text = text.split(u).join('');
+    body = { text: photos.length ? text.trim() : text, ...(photos.length ? { photos } : {}) };
   } else if (r.kind === TRADE_KIND) {
     try { body = JSON.parse(r.content); } catch { return null; }
     if (!body || typeof body !== 'object') return null;
@@ -154,6 +158,9 @@ function labelOutputs(state, outputs) {
     role: o.address === state.payout.seller ? 'seller' : o.address === state.payout.buyer ? 'buyer' : 'other',
   }));
 }
+
+// Photos as proof (in a dispute or the chat): web addresses only, at most six.
+const photosOf = (b) => (Array.isArray(b.photos) ? b.photos.filter((u) => typeof u === 'string' && u.length < 500 && /^https?:\/\/[^\s"'<>]+$/.test(u)).slice(0, 6) : []);
 
 function applyProposal(state, m, role) {
   const b = m.body;
@@ -460,7 +467,7 @@ export function reduceTrade(tradeId, rumors, ctx = {}) {
           if (role === 'arbiter') err = 'arbiter does not open disputes';
           else if (!afterAccept) err = 'not accepted yet';
           else if (!state.escrow) err = 'no escrow yet';
-          else state.disputes.push({ by: role, reason: str(b.reason), at: m.at });
+          else state.disputes.push({ by: role, reason: str(b.reason), photos: photosOf(b), at: m.at });
           break;
         case 'proposal':
           err = applyProposal(state, m, role);
@@ -483,7 +490,7 @@ export function reduceTrade(tradeId, rumors, ctx = {}) {
           else if (!state.paymentConfirmed) state.paymentConfirmed = { at: m.at };
           break;
         case 'chat':
-          state.chat.push({ id: m.id, from: m.from, role, text: b.text, at: m.at });
+          state.chat.push({ id: m.id, from: m.from, role, text: typeof b.text === 'string' ? b.text : '', photos: photosOf(b), at: m.at });
           break;
         default:
           err = 'unknown message type';
@@ -558,11 +565,34 @@ export function presetAllocations(state, purpose, balance) {
   ].filter((a) => a.sats > 0);
 }
 
+// The seller's release, signed in advance when shipping, that the buyer can
+// complete with one signature: it must spend exactly the escrow's confirmed
+// coins, pay nobody else, give the buyer their part of the normal release (at
+// most the network fee less) and keep that fee reasonable.
+export function presignedRelease(state, confirmedUtxos = []) {
+  const live = new Set(confirmedUtxos.map((u) => `${u.txid}:${u.vout}`));
+  for (const id of [...state.proposalOrder].reverse()) {
+    const p = state.proposals[id];
+    if (p.purpose !== 'release' || p.role !== 'seller' || p.signedBy.length !== 1) continue;
+    if (p.utxos.length !== live.size || !p.utxos.every((u) => live.has(`${u.txid}:${u.vout}`))) continue;
+    if (p.outputs.some((o) => o.role === 'other') || p.fee > Math.max(10_000, p.total * 0.05)) continue;
+    const owed = presetAllocations(state, 'release', p.total).find((a) => a.role === 'buyer')?.sats || 0;
+    const gets = p.outputs.filter((o) => o.role === 'buyer').reduce((sum, o) => sum + o.sats, 0);
+    if (gets >= owed - p.fee) return p;
+  }
+  return null;
+}
+
 export const DAY = 86400;
 export const SHIP_DAYS = 5;
 export const SHIP_DAYS_ABROAD = 7;
-export const CONFIRM_DAYS = 14;
-export const CONFIRM_AFTER_DELIVERY_DAYS = 2;
+// After shipping: up to ARRIVE_DAYS for the parcel to arrive, then
+// COMPLAIN_DAYS for the buyer to confirm or open a dispute. A delivery the
+// seller reports (or a hand-over) starts the COMPLAIN_DAYS at once.
+export const ARRIVE_DAYS = 10;
+export const COMPLAIN_DAYS = 4;
+export const CONFIRM_DAYS = ARRIVE_DAYS + COMPLAIN_DAYS;
+export const CONFIRM_AFTER_DELIVERY_DAYS = COMPLAIN_DAYS;
 export const RESPOND_DAYS = 3;
 export const REMIND_DAYS = 2; // the seller is reminded this long before the shipping deadline
 
@@ -581,19 +611,24 @@ export function paidAt(state, fundedAt) {
 }
 
 // The trade's deadlines (unix seconds). shipBy runs from the payment (from the
-// accept while unpaid); confirmBy from the shipment, or sooner from a reported
-// delivery or a pick-up, the moment the buyer has the item.
+// accept while unpaid). After shipping, arriveBy is the end of the delivery
+// time and confirmBy the end of the buyer's time to confirm or open a dispute;
+// a reported delivery, a hand-over or a finished job starts that time at once.
 export function deadlines(state, { fundedAt } = {}) {
   const o = state.offer;
   const paid = paidAt(state, fundedAt);
   const start = paid || state.acceptedAt || state.offerAt;
   const shipBy = start + (o.shipDays || SHIP_DAYS) * DAY;
   const shippedAt = state.shipped?.at || 0;
-  const handedOver = state.shipped?.carrier === 'pickup' ? shippedAt : 0;
+  const handedOver = ['pickup', 'service'].includes(state.shipped?.carrier) ? shippedAt : 0;
   const deliveredAt = state.delivered?.at || handedOver || 0;
   let confirmBy = (shippedAt || start) + (o.confirmDays || CONFIRM_DAYS) * DAY;
-  if (deliveredAt) confirmBy = Math.min(confirmBy, deliveredAt + CONFIRM_AFTER_DELIVERY_DAYS * DAY);
-  return { paidAt: paid, shipBy, remindAt: shipBy - REMIND_DAYS * DAY, confirmBy, deliveredAt: deliveredAt || null };
+  let arriveBy = confirmBy - COMPLAIN_DAYS * DAY;
+  if (deliveredAt) {
+    confirmBy = Math.min(confirmBy, deliveredAt + COMPLAIN_DAYS * DAY);
+    arriveBy = Math.min(arriveBy, deliveredAt);
+  }
+  return { paidAt: paid, shipBy, remindAt: shipBy - REMIND_DAYS * DAY, shippedAt: shippedAt || null, arriveBy, confirmBy, deliveredAt: deliveredAt || null };
 }
 
 // Each dispute with the other side's answer deadline: answered once they

@@ -6,6 +6,8 @@ import { useUsername } from '../lib/nostr/names.js';
 import { loadFollows } from '../lib/nostr/follows.js';
 import { loadBlocks, loadBlockCounts, blockCounts, suspension } from '../lib/nostr/moderation.js';
 import { autoForward } from '../lib/trade/forward.js';
+import { loadPrivate, privateData } from '../lib/nostr/private.js';
+import { SavedSearchWatcher } from './searches.jsx';
 import { startInbox, stopInbox, inbox, tradeIds } from '../lib/nostr/inbox.js';
 import { startMarket } from '../lib/market.js';
 import { loadDirectory, refreshDirectory, directory } from '../lib/nostr/directory.js';
@@ -117,7 +119,9 @@ const NEEDS_ACCOUNT = new Set(['sell', 'import', 'trades', 'trade', 'arbiter', '
 function Page({ route }) {
   const [p0, p1, p2] = route.parts;
   switch (p0) {
-    case undefined: return <Browse query={route.query} />;
+    // A new address from outside (a notification, a saved search) starts a fresh search;
+    // the page's own edits only replace the address and keep it.
+    case undefined: return <Browse key={JSON.stringify(route.query)} query={route.query} />;
     case 'l': return <ListingPage naddr={p1} />;
     case 'sell': return p1 ? <EditListing d={p1 === 'new' ? null : p1} /> : <Sell />;
     case 'import': return <ImportPage query={route.query} />;
@@ -151,6 +155,7 @@ export function App() {
     else stopInbox();
     loadFollows(acc.pubkey).catch(() => {});
     loadBlocks(acc.pubkey).catch(() => {});
+    if (acc.pubkey && !acc.locked) loadPrivate().catch(() => {});
     return stopInbox;
   }, [acc.pubkey, acc.locked, relaysKey]);
 
@@ -167,7 +172,8 @@ export function App() {
     return () => clearTimeout(t);
   }, [rumors, acc.pubkey, acc.locked]);
 
-  const tradeCount = acc.pubkey ? tradeIds(rumors).length : 0;
+  const { hidden } = useStore(privateData);
+  const tradeCount = acc.pubkey ? tradeIds(rumors).filter((t) => { const h = hidden[t.id]; return !h || h.gone || t.last > h.at; }).length : 0;
   const isArbiter = acc.pubkey && (dir.announcements.has(acc.pubkey) || dir.arbiters.has(acc.pubkey));
   const isAdmin = acc.pubkey && dir.admin === acc.pubkey;
   const here = route.parts[0] || '';
@@ -198,6 +204,7 @@ export function App() {
         ))}
       </nav>
       <Toasts />
+      {acc.pubkey && !acc.locked && <SavedSearchWatcher />}
     </div>
   );
 }

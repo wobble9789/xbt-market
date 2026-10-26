@@ -123,7 +123,7 @@ Every trade message is a rumor, sealed (kind 13) and gift-wrapped (kind 1059) to
 | `funded` | any party | `{ txid }` (a hint only; the chain is authoritative) |
 | `shipped` | seller | `{ carrier, tracking, note }` |
 | `received` | buyer | `{ note }` |
-| `dispute` | buyer or seller | `{ reason }` |
+| `dispute` | buyer or seller | `{ reason, photos? }` (photos: up to 6 http(s) addresses, as proof) |
 | `proposal` | any of the three | `{ id, purpose, utxos:[{txid,vout,value}], txHex, sigs:[sig per input], note, feeRate }` |
 | `sign` | any of the three | `{ proposalId, sigs }` |
 | `broadcast` | any of the three | `{ proposalId, txid }` |
@@ -198,10 +198,18 @@ The state is a pure function of the set of rumors. Sort by `created_at`, then `i
 10. **Deadlines.** The offer carries `shipDays` (5, or 7 when `shipping.country` differs from `listing.country`) and `confirmDays` (14). All times are unix seconds.
     - *Paid at*: direct, the `paid` or `confirm_paid` time; escrow, the block time at which the escrow first held the full amount (fallback: the buyer's `funded` hint, then the accept).
     - *Ship by* = paid at + `shipDays` days. The seller's client reminds them 2 days before. After it, in escrow the buyer may open a dispute and propose the standard refund; in a direct trade the buyer may cancel.
-    - *Confirm by* = `shipped` + `confirmDays` days, or 2 days after `delivered` (a pick-up counts as delivered when handed over), whichever is first. After it the buyer's client offers no dispute, and the seller may open one and propose the standard release for the arbiter to co-sign.
+    - *Arrive by* = `shipped` + `confirmDays` − 4 days (10): the delivery time. *Confirm by* = `shipped` + `confirmDays` days (14): after the delivery time, 4 days to confirm or open a dispute. A `delivered` from the seller (or a hand-over at pick-up, or a finished job) starts those 4 days at once: confirm by = min(confirm by, delivered + 4 days), arrive by = min(arrive by, delivered). After *confirm by* the buyer's client offers no dispute, and the seller may open one and propose the standard release for the arbiter to co-sign.
     - *Answer by* = a `dispute` + 3 days. The other party answers by sending any message after it; clients show the arbiter who left a dispute unanswered.
     - The arbiter may give both deposits to the honest side (`presetAllocations` purposes `buyer-fault`: all to the seller; `seller-fault`: all to the buyer).
     Deadlines guide clients and the arbiter; the escrow itself has no timelock, so nothing moves without two signatures.
+
+11. **Release in one step.** When the seller marks the item shipped (or handed over, or the job done) in an escrow trade, their client proposes and signs the standard `release` from the escrow's confirmed coins. The buyer's "Everything OK" then only adds the buyer's signature and broadcasts. The buyer's client uses that proposal only if it spends exactly the escrow's confirmed coins, pays no address but the two payout addresses, gives the buyer at least their part of the standard release minus the network fee, and the fee is at most 5% of the escrow (or 10,000 sats); otherwise the buyer proposes the release and the seller co-signs, as before.
+
+12. **Chat and proof.** A `chat` body is `{ text, photos? }` (photos as for `dispute`). Photos are uploaded to the photo server under their hash; only the people in the trade get the addresses.
+
+### Private app data
+
+Hidden conversations and saved searches follow the account to other devices in one replaceable event: kind 30078, `d` = `xbt-market/private`, content NIP-44 encrypted to the account itself: `{ hidden: { <tradeId>: { at } }, searches: { <id>: { name, query, notify, seen, createdAt, at } } }`. Removed entries stay as `{ at, gone: true }`; devices merge entry by entry, the newest `at` wins. A hidden conversation shows again when a message arrives after its `at`.
 
 **Before signing, a client must:**
 - check that every proposal input is still an unspent escrow UTXO with the stated value;

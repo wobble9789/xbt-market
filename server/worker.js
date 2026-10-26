@@ -17,8 +17,16 @@ export class Store {
   }
 }
 
+const main = (env) => env.STORE.get(env.STORE.idFromName('main'));
+
 export default {
   fetch(request, env) {
-    return env.STORE.get(env.STORE.idFromName('main')).fetch(request);
+    // Internal jobs only run from the cron trigger below.
+    if (new URL(request.url).pathname.startsWith('/internal/')) return new Response('Not found', { status: 404 });
+    return main(env).fetch(request);
+  },
+  // Every 10 minutes: push notifications for saved searches with new listings.
+  scheduled(event, env, ctx) {
+    ctx.waitUntil(main(env).fetch(new Request('https://service.internal/internal/push-run', { method: 'POST' })));
   },
 };

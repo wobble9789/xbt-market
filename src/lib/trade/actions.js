@@ -8,7 +8,7 @@ import { escrowFunding, Esplora } from '../btc/esplora.js';
 import { settings } from '../settings.js';
 import { loadJSON, saveJSON } from '../store.js';
 import { depositPctOf } from '../nostr/listings.js';
-import { newTradeId, roleOf, shipDaysFor, CONFIRM_DAYS } from './protocol.js';
+import { newTradeId, roleOf, shipDaysFor, CONFIRM_DAYS, presetAllocations } from './protocol.js';
 import { decodeInvoice } from '../ln/bolt11.js';
 import { isService } from '../categories.js';
 import { invoiceFromAddress } from '../ln/lnurl.js';
@@ -132,8 +132,8 @@ export const cancelTrade = (state, reason) => send(state, 'cancel', { reason });
 export const markShipped = (state, info) => send(state, 'shipped', info);
 export const markDelivered = (state, note) => send(state, 'delivered', { note });
 export const markReceived = (state, note) => send(state, 'received', { note });
-export const openDispute = (state, reason) => send(state, 'dispute', { reason });
-export const sendChat = (state, text) => send(state, 'chat', { text });
+export const openDispute = (state, reason, photos = []) => send(state, 'dispute', { reason, ...(photos.length ? { photos } : {}) });
+export const sendChat = (state, text, photos = []) => send(state, 'chat', { text, ...(photos.length ? { photos } : {}) });
 export const sendFundedHint = (state, txid) => send(state, 'funded', { txid });
 
 // ---- direct trades ----------------------------------------------------------
@@ -197,6 +197,17 @@ export async function proposePayout(state, { purpose, allocations, note, feeRate
   const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   await send(state, 'proposal', { id, purpose, utxos, txHex: plan.txHex, sigs, note: note || '', feeRate: rate });
   return id;
+}
+
+// Seller, when shipping (or handing over): sign the normal release in advance
+// (price and deposit to the seller, the buyer's deposit back), so the buyer's
+// "Everything OK" pays out at once. It can only ever pay the seller what the
+// release gives them. Skipped (the buyer then proposes it) when not possible.
+export async function presignRelease(state) {
+  if (state.payment !== 'escrow' || !state.escrow || !state.payout.buyer || !state.payout.seller) return null;
+  const funding = await loadFunding(state);
+  if (!funding.confirmedTotal) return null;
+  return proposePayout(state, { purpose: 'release', allocations: presetAllocations(state, 'release', funding.confirmedTotal), note: '' });
 }
 
 // Before signing, check every input still exists on chain with the stated value.

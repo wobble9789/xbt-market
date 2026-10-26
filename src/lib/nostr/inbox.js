@@ -104,8 +104,10 @@ export async function sendTradeMessage(tradeId, type, body, participants) {
   const rumorTemplate = {
     kind: chat ? CHAT_KIND : TRADE_KIND,
     created_at: Math.floor(Date.now() / 1000),
-    content: chat ? String(body.text) : JSON.stringify(body),
-    tags: [...recipients.map((p) => ['p', p]), ['xbt-trade', tradeId], ['xbt-type', type], ...(chat ? [['subject', 'XBT Market trade ' + tradeId.slice(0, 8)]] : [])],
+    // A chat message is a plain NIP-17 message; its photos are links in the text,
+    // each with an imeta tag (NIP-92), so other Nostr apps show them too.
+    content: chat ? [String(body.text || ''), ...(body.photos || [])].filter(Boolean).join('\n') : JSON.stringify(body),
+    tags: [...recipients.map((p) => ['p', p]), ['xbt-trade', tradeId], ['xbt-type', type], ...(chat ? [['subject', 'XBT Market trade ' + tradeId.slice(0, 8)], ...(body.photos || []).map((u) => ['imeta', `url ${u}`])] : [])],
   };
   const wraps = nip59.wrapManyEvents(rumorTemplate, sk, recipients);
   // The first wrap is the sender's own copy; decrypting it yields the exact rumor.
