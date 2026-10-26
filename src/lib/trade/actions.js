@@ -103,18 +103,22 @@ const pendingKey = (tradeId) => `xbt:pending-details:${account.get().pubkey}:${t
 export const pendingDetails = (tradeId) => loadJSON(pendingKey(tradeId), null);
 
 // Buyer, in the background: once the seller accepted, send the addresses
-// kept with the order (only what the trade does not have yet), then forget them.
+// kept with the order (only what the trade does not have yet). They are
+// forgotten once the trade shows them, so no form asks for them meanwhile.
 export async function sendPendingDetails(state) {
   const p = pendingDetails(state.tradeId);
   if (!p || state.role !== 'buyer') return false;
-  if (state.rejected || state.cancelled) { saveJSON(pendingKey(state.tradeId), null); return false; }
+  const forget = () => saveJSON(pendingKey(state.tradeId), null);
+  if (state.rejected || state.cancelled) { forget(); return false; }
   if (!state.accept) return false;
   const body = {
     ...(p.shipTo && !state.shipTo ? { shipTo: p.shipTo } : {}),
     ...(p.payoutAddress && state.payment === 'escrow' && !state.payout.buyer ? { payoutAddress: p.payoutAddress } : {}),
   };
-  if (Object.keys(body).length) await sendDetails(state, body);
-  saveJSON(pendingKey(state.tradeId), null);
+  if (!Object.keys(body).length) { forget(); return false; }
+  if (p.sentAt && Date.now() - p.sentAt < 60_000) return false; // on its way; sent again if it never shows up
+  saveJSON(pendingKey(state.tradeId), { ...p, sentAt: Date.now() });
+  try { await sendDetails(state, body); } catch (e) { saveJSON(pendingKey(state.tradeId), p); throw e; }
   return true;
 }
 

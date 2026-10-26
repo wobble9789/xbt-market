@@ -11,7 +11,7 @@ import {
   acceptOffer, rejectOffer, cancelTrade, markShipped, markDelivered, markReceived, openDispute, sendChat, sendFundedHint,
   loadFunding, proposePayout, signProposal, broadcastProposal, myEscrowKey, esploraFor,
   requestLightning, requestOnchain, payWithWallet, reportPaid, confirmPaid, checkOnchainPayment,
-  sendDetails, pendingDetails, requestChange, answerChange, sendLabel, openConversation,
+  sendDetails, pendingDetails, sendPendingDetails, requestChange, answerChange, sendLabel, openConversation,
 } from '../../lib/trade/actions.js';
 import { walletConnected, walletLud16, lookupInvoice, payInvoice } from '../../lib/ln/wallet.js';
 import { secretNames } from '../../lib/secrets.js';
@@ -999,6 +999,8 @@ export function TradePage({ tradeId, query = {} }) {
   const role = state.role;
   const { funding, error: fundErr, refresh } = useFunding(state);
   const [proposing, setProposing] = useState(null);
+  // Buyer: right after the accept, the addresses kept with the order go out.
+  useEffect(() => { if (role === 'buyer' && state.accept) sendPendingDetails(state).catch(() => {}); }, [role, !!state.accept, state.shipTo ? 1 : 0, state.payout?.buyer]);
 
   if (!state.participants) return <Empty>{syncing ? <><Spinner /> {T('Loading messages…', 'Cargando mensajes…')}</> : T('Trade not found', 'Compra no encontrada')}</Empty>;
   const L = state.listing;

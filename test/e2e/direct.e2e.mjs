@@ -176,7 +176,7 @@ try {
   await waitText(await as('seller'), 'I received the payment'); // request sent before closing this browser
 
   step('buyer sends the address and pays with their wallet');
-  // The delivery address came with the order, from the buyer's account: no details step.
+  // The delivery address from the buyer's account goes out by itself after the accept: no details step.
   if ((await text(await as('buyer'))).includes('A few details for the seller')) throw new Error('the buyer is still asked for details');
   await waitText(await as('buyer'), 'Pay with my wallet', 30000);
   await shot(await as('buyer'), 'Koper: betaalverzoek in de chat met QR-code, factuur, netwerk (lnbcrt) en "Betaal met mijn wallet"');
