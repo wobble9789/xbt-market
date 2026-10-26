@@ -61,11 +61,26 @@ export async function loadPrivate() {
 let timer = null;
 function schedulePublish() {
   clearTimeout(timer);
+  const pk = account.get().pubkey;
   timer = setTimeout(() => {
-    const content = nip44.encrypt(JSON.stringify(docOf(privateData.get())), convKey());
-    signAndPublish({ kind: 30078, tags: [['d', PRIVATE_D]], content }).catch(() => {});
+    // Never publish one account's data after switching to another, or while locked.
+    if (account.get().pubkey !== pk || account.get().locked) return;
+    try {
+      const content = nip44.encrypt(JSON.stringify(docOf(privateData.get())), convKey());
+      signAndPublish({ kind: 30078, tags: [['d', PRIVATE_D]], content }).catch(() => {});
+    } catch { /* locked meanwhile: published with the next change */ }
   }, 1500);
 }
+
+// A different account (or none): forget the previous one's data at once.
+let lastPk = account.get().pubkey;
+account.subscribe((a) => {
+  if (a.pubkey === lastPk) return;
+  lastPk = a.pubkey;
+  clearTimeout(timer);
+  loadedFor = null;
+  privateData.set({ ...empty(), loaded: false });
+});
 
 // Sets one entry (value null removes it), saves here and publishes.
 export function setPrivate(section, id, value) {

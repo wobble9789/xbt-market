@@ -119,7 +119,9 @@ const NEEDS_ACCOUNT = new Set(['sell', 'import', 'trades', 'trade', 'arbiter', '
 function Page({ route }) {
   const [p0, p1, p2] = route.parts;
   switch (p0) {
-    case undefined: return <Browse query={route.query} />;
+    // A new address from outside (a notification, a saved search) starts a fresh search;
+    // the page's own edits only replace the address and keep it.
+    case undefined: return <Browse key={JSON.stringify(route.query)} query={route.query} />;
     case 'l': return <ListingPage naddr={p1} />;
     case 'sell': return p1 ? <EditListing d={p1 === 'new' ? null : p1} /> : <Sell />;
     case 'import': return <ImportPage query={route.query} />;
