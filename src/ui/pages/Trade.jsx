@@ -3,7 +3,7 @@ import { useStore } from '../../lib/store.js';
 import { inbox, rumorsFor } from '../../lib/nostr/inbox.js';
 import { market } from '../../lib/market.js';
 import { account } from '../../lib/nostr/account.js';
-import { directory, refreshDirectory, arbiterFeePct, arbiterFeeLabel } from '../../lib/nostr/directory.js';
+import { directory, refreshDirectory, arbiterFeePct, arbiterDetails } from '../../lib/nostr/directory.js';
 import { publishReview, reviewsAbout, tradeLimitFor } from '../../lib/nostr/reviews.js';
 import { settings, updateSettings } from '../../lib/settings.js';
 import { reduceTrade, expectedTotal, presetAllocations, deadlines, disputeClocks, paymentProof, methodOf, DAY, RESPOND_DAYS, CONFIRM_AFTER_DELIVERY_DAYS } from '../../lib/trade/protocol.js';
@@ -24,7 +24,7 @@ import { explorerFor } from '../../config.js';
 import { loadJSON, saveJSON } from '../../lib/store.js';
 import { navigate } from '../router.js';
 import { T, fmtDate, timeAgo, countryName } from '../i18n.js';
-import { Action, Field, Name, Coin, QR, Copy, Img, Empty, Spinner, AddressForm, addressComplete, formatAddress, toast } from '../components.jsx';
+import { Action, Field, Name, ArbiterName, Coin, QR, Copy, Img, Empty, Spinner, AddressForm, addressComplete, formatAddress, toast } from '../components.jsx';
 import { Reputation, payLabel, payShort, useListing } from './Listing.jsx';
 import { OrderForm } from './Order.jsx';
 import { useMyTrades } from './Trades.jsx';
@@ -111,7 +111,7 @@ function EscrowBox({ state, funding, fundErr, refresh, role, done }) {
           <div class="addr"><code>{state.escrow.address}</code> <Copy text={state.escrow.address} /></div>
           <table class="amounts">
             <tbody>
-              <tr><td>{T('Buyer pays (price + deposit)', 'El comprador paga (precio + depósito)')}</td><td><Coin sats={tm.priceSats + tm.buyerDepositSats} /></td></tr>
+              <tr><td>{needsAddress(state) ? T('Buyer pays (price + shipping + deposit)', 'El comprador paga (precio + envío + depósito)') : T('Buyer pays (price + deposit)', 'El comprador paga (precio + depósito)')}</td><td><Coin sats={tm.priceSats + tm.buyerDepositSats} /></td></tr>
               <tr><td>{T('Seller pays (deposit)', 'El vendedor paga (depósito)')}</td><td><Coin sats={tm.sellerDepositSats} /></td></tr>
               <tr class="total"><td>{T('Total needed', 'Total necesario')}</td><td><Coin sats={need} /></td></tr>
               <tr><td>{T('In escrow now', 'Ahora en el escrow')}</td><td>
@@ -431,7 +431,7 @@ function Chat({ state }) {
           <div key={m.id} class="msg system"><span>{m.system}</span> <span class="muted small">· {m.from === me || m.role === state.role ? T('you', 'tú') : roleLabel(m.role)} · {timeAgo(m.at)}</span></div>
         ) : (
           <div key={m.id} class={`msg ${m.from === me ? 'mine' : ''} ${m.role}`}>
-            <div class="who">{m.from === me ? T('You', 'Tú') : <><Name pk={m.from} avatar={false} /> · {roleLabel(m.role)}</>} · {timeAgo(m.at)}</div>
+            <div class="who">{m.from === me ? T('You', 'Tú') : <>{m.role === 'arbiter' ? <ArbiterName pk={m.from} /> : <Name pk={m.from} avatar={false} />} · {roleLabel(m.role)}</>} · {timeAgo(m.at)}</div>
             <div class="text">{m.text}</div>
           </div>
         ))}
@@ -515,7 +515,7 @@ function OfferCard({ state, role }) {
         {escrow && <div class="muted small"><span>{T(`Deposits (${pct}% each)`, `Depósitos (${pct}% cada uno)`)}: {T('buyer', 'comprador')} {formatCoin(tm.buyerDepositSats)} · {T('seller', 'vendedor')} {formatCoin(tm.sellerDepositSats)}</span></div>}
       </div>
       {o.note && <p class="quote">{o.note}</p>}
-      {offerArbiter && <p>{T('Arbiter', 'Árbitro')}: <Name pk={offerArbiter.pubkey} /> <ArbiterBadge state={state} ok={arbiterOk} /></p>}
+      {offerArbiter && <p>{T('Arbiter', 'Árbitro')}: <ArbiterName pk={offerArbiter.pubkey} /> <ArbiterBadge state={state} ok={arbiterOk} /></p>}
       {role === 'seller' && !depositOk && state.status === 'offered' && <p class="notice danger">{T(`The deposits in this order are not ${pct}% each, as on your listing. You cannot accept it; ask the buyer to order again.`, `Los depósitos de este pedido no son del ${pct}% cada uno, como en tu anuncio. No puedes aceptarlo; pide al comprador que vuelva a pedir.`)}</p>}
       {role === 'seller' && limit != null && escrow && tm.priceSats > limit && <p class="notice warn">{T(`This buyer has few verified trades; the community limit for them is ${formatCoin(limit)}.`, `Este comprador tiene pocas compras verificadas; el límite de la comunidad para él es ${formatCoin(limit)}.`)}</p>}
       {state.status === 'offered' && role === 'seller' && (
@@ -613,7 +613,7 @@ function DetailsForm({ state, role }) {
         <Field label={T('Arbiter', 'Árbitro')} hint={T('Only steps in if you and the seller disagree. Holds one of the three escrow keys.', 'Solo interviene si el vendedor y tú no os ponéis de acuerdo. Tiene una de las tres claves del escrow.')}>
           {arbiters.length ? (
             <select value={arbiter} onChange={(e) => setArbiter(e.target.value)}>
-              {arbiters.map((a) => <option key={a.pubkey} value={a.pubkey}>{a.name || a.pubkey.slice(0, 12)}{a.languages ? ` (${a.languages})` : ''} · {arbiterFeeLabel(a)}</option>)}
+              {arbiters.map((a) => <option key={a.pubkey} value={a.pubkey}>{a.name || a.pubkey.slice(0, 12)} · {arbiterDetails(a)}</option>)}
             </select>
           ) : <p class="notice warn">{dir.loaded && allArbiters.length ? T('You cannot be the arbiter of your own trade, and neither can the seller, and there is no other approved arbiter yet. Ask the seller to switch to Lightning, or add another arbiter you trust under Account.', 'No puedes ser el árbitro de tu propia compra, ni tampoco el vendedor, y aún no hay otro árbitro aprobado. Pide al vendedor cambiar a Lightning o añade otro árbitro de confianza en Cuenta.') : dir.loaded ? T('No approved arbiters yet. Ask the seller to switch to Lightning, or add an arbiter you trust under Account.', 'Aún no hay árbitros aprobados. Pide al vendedor cambiar a Lightning o añade un árbitro de confianza en Cuenta.') : <Spinner />}</p>}
         </Field>
@@ -1055,7 +1055,7 @@ export function TradePage({ tradeId, query = {} }) {
       {o && <ChangeBox state={state} role={role} funded={fullyFunded} />}
       {o && <DetailsForm state={state} role={role} />}
       {state.arbiter && !state.checks.arbiterTrusted && role === 'seller' && !state.broadcasts.length && <p class="notice danger">{T('The buyer chose an arbiter who is not on your trusted list. Do not pay your deposit; cancel the trade or ask in the chat.', 'El comprador eligió un árbitro que no está en tu lista de confianza. No pagues tu depósito; cancela la compra o pregunta en el chat.')}</p>}
-      {state.arbiter && state.accept && <p class="small muted">{T('Arbiter', 'Árbitro')}: <Name pk={state.arbiter.pubkey} /> <ArbiterBadge state={state} ok={state.checks.arbiterTrusted} /></p>}
+      {state.arbiter && state.accept && <p class="small muted">{T('Arbiter', 'Árbitro')}: <ArbiterName pk={state.arbiter.pubkey} /> <ArbiterBadge state={state} ok={state.checks.arbiterTrusted} /></p>}
       {state.shipped && isServiceTrade(state) && <p class="notice ok">✅ {T('The seller marked the job as done.', 'El vendedor ha marcado el trabajo como hecho.')} {state.shipped.note}</p>}
       {state.shipped && !isServiceTrade(state) && <p class="notice ok">📦 {carrier(state.shipped.carrier).pickup ? T('Handed over', 'Entregado') : <>{T('Shipped with', 'Enviado con')} {carrier(state.shipped.carrier).name}</>}{state.shipped.tracking && <> · <b>{state.shipped.tracking}</b> <Copy text={state.shipped.tracking} />{trackingUrl(state.shipped.carrier, state.shipped.tracking) && <> <a class="btn small" href={trackingUrl(state.shipped.carrier, state.shipped.tracking)} target="_blank" rel="noopener noreferrer">{T('Track', 'Seguir')}</a></>}</>} {state.shipped.note && `· ${state.shipped.note}`}</p>}
       {label && role === 'seller' && !state.shipped && <LabelCard label={label} />}

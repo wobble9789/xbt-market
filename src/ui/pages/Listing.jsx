@@ -13,7 +13,7 @@ import { openConversation } from '../../lib/trade/actions.js';
 import { carrier, offersPickup, shipCarriers } from '../../lib/shipping.js';
 import { navigate } from '../router.js';
 import { T, CATEGORY_LABELS, CONDITION_LABELS, label, fmtDate, countryName } from '../i18n.js';
-import { Action, Field, Name, ListingPrice, Img, Stars, Empty, Spinner } from '../components.jsx';
+import { Action, Field, Name, ArbiterName, ListingPrice, Img, Stars, Empty, Spinner } from '../components.jsx';
 import { SubcategoryLabel } from '../categories.jsx';
 import { FollowButton } from './Profile.jsx';
 import { useMyTrades } from './Trades.jsx';
@@ -49,7 +49,7 @@ function ArbitersLine({ listing }) {
   return (
     <div class={`small arbiters-line ${shared.length ? 'ok-text' : 'error'}`}>
       🛡 {shared.length
-        ? <>{T('Escrow possible: you both trust', 'Escrow posible: ambos confiáis en')} {shared.map((pk, i) => <span key={pk}>{i ? ', ' : ''}<Name pk={pk} avatar={false} /></span>)} ✓</>
+        ? <>{T('Escrow possible: you both trust', 'Escrow posible: ambos confiáis en')} {shared.map((pk, i) => <span key={pk}>{i ? ', ' : ''}<ArbiterName pk={pk} /></span>)} ✓</>
         : T('Escrow not possible for you: you trust none of the arbiters this seller accepts.', 'Escrow no posible para ti: no confías en ninguno de los árbitros que acepta este vendedor.')}
       {shared.length > 0 && <span class="muted"> · {T(`deposit ${listing.depositPct}% of the price, from you and from the seller`, `depósito del ${listing.depositPct}% del precio, tuyo y del vendedor`)}</span>}
     </div>

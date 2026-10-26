@@ -17,7 +17,7 @@ import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure
 import * as nip19 from 'nostr-tools/nip19';
 import { SimplePool } from 'nostr-tools/pool';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { proof, setupPage, settle, fakeAnthropic, DEVICE } from './proof.mjs';
+import { proof, setupPage, settle, fakeAiService, DEVICE } from './proof.mjs';
 import { parseNwcUri, nwc } from '../../src/lib/ln/nwc.js';
 
 const hex = (b) => Buffer.from(b).toString('hex');
@@ -885,7 +885,13 @@ try {
     await shipCountry(c);
     await waitText(c, 'PostNL', 30000);
     await choose(c, 'PostNL');
-    await c.waitForFunction(() => [...document.querySelectorAll('.order-form select')].some((s) => s.textContent.includes('Anna Arbiter')), { timeout: 30000 });
+    // Each arbiter by their arbiter profile name, with a green "trusted by you and the seller", fee and languages.
+    await c.waitForFunction(() => document.querySelector('.order-form .arbiter-choices')?.textContent.includes('Anna Arbiter'), { timeout: 30000 });
+    const arb = await c.$eval('.order-form .arbiter-choices', (e) => e.innerText);
+    for (const good of ['✓ trusted by you and the seller', 'demands 2% fee in a dispute', 'speaks NL, EN']) if (!arb.includes(good)) throw new Error(`arbiter choice lacks "${good}": ${arb}`);
+    // Delivery and the offer first, then how to pay, right above the arbiter.
+    const order = await c.$eval('.order-form', (f) => ['Delivery', 'Your offer for the item (XBT)', 'How do you want to pay?', 'Arbiter'].map((t) => f.innerText.indexOf(t)));
+    if (order.some((x, i) => x < 0 || (i && x < order[i - 1]))) throw new Error('order form fields out of order: ' + order);
     await fillPh(c, 'bc1q…', buyerAddr);
     const form = await c.$eval('.order-form', (f) => f.innerText);
     for (const good of ['How do you want to pay?', 'Ship to (country)', 'Carrier', 'Ship to', 'Kerkstraat 1', 'Arbiter', 'Your XBT address for refunds and your deposit', 'Your offer for the item (XBT)', 'Shipping (PostNL)', 'Your deposit (15%), paid back when the trade completes', 'The seller puts in the same deposit (15%)', 'Message to the seller', 'You pay into escrow', 'First send the order, without any payment']) if (!form.includes(good)) throw new Error(`no "${good}"`);
@@ -933,6 +939,7 @@ try {
   await step('TRD-3b', 'After the accept the escrow is there at once', async () => {
     const p = await B(`#/trade/${tid}`);
     await waitText(p, 'Arbiter:', 30000);
+    await waitText(p, 'Arbiter: ⚖️ Anna Arbiter');
     await waitText(p, 'you trust this arbiter');
     await fillPh(p, 'bc1q…', sellerAddr);
     await click(p, '✓ Accept');
@@ -1447,22 +1454,28 @@ try {
     await (await el(p, '//summary[contains(.,"Import button for your browser")]')).click();
     await waitText(p, 'On a phone');
     await waitText(p, 'Copy the bookmark code');
-    return 'numbered phone steps for Chrome and Safari';
+    await waitText(p, 'Does not work with Chrome-based browsers on a phone.');
+    return 'numbered phone steps, with the warning that Chrome-based phone browsers do not work';
   });
   for (const [id, title] of [['IMP-2', 'Marktplaats profile, reserved recognised'], ['IMP-3', 'Published items disappear from the list'], ['IMP-8', 'Single ad /seller/view/m…']]) {
     manual(id, title, 'Needs your real shop pages. The same logic passes in test:import against fake Marktplaats/Vinted/eBay pages (incl. /seller/view/m…, reserved, hidden duplicates, all photos of each ad from a profile).');
   }
 
   // ---- AI ----
-  await step('AI-1', 'Save the API key', async () => {
+  await step('AI-1', 'Connect any AI service', async () => {
     const p = await B('#/settings?open=ai');
-    await waitText(p, 'other AI providers are not supported');
-    await fillPh(p, 'sk-ant-…', 'sk-ant-plan-test-key');
-    await click(p, 'Save');
-    await waitText(p, 'Key saved');
+    await waitText(p, 'Works with any AI service that can read photos');
+    if (/Marktplaats|not supported/.test(await text(p))) throw new Error('names another company or limits the service');
+    await fakeAiService(p, {});
+    await fill(p, 'API key', 'sk-plan-test-key');
+    await fill(p, 'API address', 'https://ai.example/v1');
+    await click(p, 'Show the available models');
+    await select(p, 'Model', 'vision-1');
+    await click(p, 'Connect AI service');
+    await waitText(p, 'vision-1 · ai.example');
     const raw = await p.evaluate((pk) => localStorage.getItem(`xbt:secrets:${pk}`), people.B.pk);
-    if (raw.includes('sk-ant-plan')) throw new Error('key stored in plain text');
-    return '"✓ Key saved"; only an Anthropic key, explained; storage holds only ciphertext';
+    if (raw.includes('sk-plan-test')) throw new Error('key stored in plain text');
+    return 'key, API address and a model from the service\'s list; "✓ Connected · vision-1 · ai.example"; storage holds only ciphertext';
   });
   await step('AI-2', 'Listing from photos', async () => {
     const p = await B('#/sell/new');
@@ -1470,13 +1483,14 @@ try {
     const input = await p.$('label.photo.add input[type=file]');
     await input.uploadFile('public/icon-512.png');
     await p.waitForFunction(() => document.querySelectorAll('.photos .photo img').length >= 1, { timeout: 30000 });
-    await fakeAnthropic(p, { title: 'Rode wollen sjaal', description: 'Zachte rode sjaal van wol, zo goed als nieuw.', category: 'kleding-dames', condition: 'like-new', price: 8, notes: 'Vermeld de lengte van de sjaal.' });
+    await fakeAiService(p, { title: 'Rode wollen sjaal', description: 'Zachte rode sjaal van wol, zo goed als nieuw.', category: 'kleding-dames', condition: 'like-new', price: 8, notes: 'Vermeld de lengte van de sjaal.' });
     await click(p, '✨ Write listing from photos');
     await p.waitForFunction(() => [...document.querySelectorAll('label.field')].find((l) => l.querySelector('.label')?.textContent === 'Title')?.querySelector('input')?.value === 'Rode wollen sjaal', { timeout: 30000 });
-    const call = (await p.evaluate(() => window.__aiCalls))[0]?.body;
-    if (!call?.messages?.[0]?.content?.some((c) => c.type === 'image' && c.source.url.startsWith(BLOSSOM))) throw new Error('uploaded photo not sent');
+    const call = (await p.evaluate(() => window.__aiCalls)).find((c) => c.url.endsWith('/chat/completions'));
+    if (call?.headers.authorization !== 'Bearer sk-plan-test-key' || call.body.model !== 'vision-1') throw new Error('unexpected AI request');
+    if (!call.body.messages[1].content.some((c) => c.type === 'image_url' && c.image_url.url.startsWith('data:image/'))) throw new Error('uploaded photo not sent');
     await waitText(p, 'Vermeld de lengte');
-    return 'title, description, category, condition, price and a tip filled in (fake API; the uploaded photo was sent)';
+    return 'title, description, category, condition, price and a tip filled in (fake service; the uploaded photo was sent with the chosen model)';
   });
   await step('AI-3', 'No photos: button disabled', async () => {
     const p = await B('#/sell/new');

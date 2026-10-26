@@ -6,6 +6,7 @@ import { npub, shortNpub } from '../lib/nostr/account.js';
 import { formatCoin, formatFiat } from '../lib/btc/units.js';
 import { xbtPrice } from '../lib/price.js';
 import { settings } from '../lib/settings.js';
+import { directory, refreshDirectory } from '../lib/nostr/directory.js';
 import { T, PRICE_UNIT_LABELS, label } from './i18n.js';
 import { CountrySelect } from './countries.jsx';
 
@@ -62,6 +63,15 @@ export function Name({ pk, link = true, avatar = true }) {
   const name = p.display_name || p.name || shortNpub(pk);
   const inner = <>{avatar && <Avatar pk={pk} size={20} />}<span>{name}</span></>;
   return link ? <a class="name" href={`#/u/${npub(pk)}`}>{inner}</a> : <span class="name">{inner}</span>;
+}
+
+// An arbiter by the name on their arbiter profile, never their account name:
+// that profile is what they act under.
+export function ArbiterName({ pk }) {
+  const dir = useStore(directory);
+  useEffect(() => { refreshDirectory().catch(() => {}); }, []);
+  const name = (dir.announcements.get(pk) || dir.arbiters.get(pk))?.name;
+  return <span class="name arbiter-name">⚖️ {name || shortNpub(pk)}</span>;
 }
 
 // ---- money -------------------------------------------------------------------

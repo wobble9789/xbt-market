@@ -188,6 +188,7 @@ export function ImportPage({ query: q }) {
               <li>{T('Open your profile on Marktplaats (marktplaats.nl/u/…) or Vinted (vinted.nl/member/…), or a single ad, and click the bookmark.', 'Abre tu perfil en Marktplaats (marktplaats.nl/u/…) o Vinted (vinted.es/member/…), o un solo anuncio, y pulsa el marcador.')}</li>
             </ol>
             <h4>{T('On a phone', 'En el móvil')}</h4>
+            <p class="notice warn small">{T('Does not work with Chrome-based browsers on a phone.', 'No funciona con navegadores basados en Chrome en el móvil.')}</p>
             {apiEnabled() && <p class="hint">{T('Fiddly on a phone? "Paste a link" above is easier.', '¿Complicado en el móvil? «Pega un enlace» arriba es más fácil.')}</p>}
             <ol class="small">
               <li>{T('Use one browser for everything, and be logged in to XBT Market in it (you are, if you see this page).', 'Usa un solo navegador para todo y ten la sesión de XBT Market abierta en él (la tienes, si ves esta página).')}</li>

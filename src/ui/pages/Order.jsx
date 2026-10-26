@@ -5,7 +5,7 @@
 // too, but only sent once the seller accepts (privacy), by themselves.
 import { useEffect, useState } from 'preact/hooks';
 import { useStore } from '../../lib/store.js';
-import { account } from '../../lib/nostr/account.js';
+import { account, shortNpub } from '../../lib/nostr/account.js';
 import { useProfile } from '../../lib/nostr/profiles.js';
 import { reviewsAbout, tradeLimitFor } from '../../lib/nostr/reviews.js';
 import { settings, updateSettings } from '../../lib/settings.js';
@@ -16,7 +16,7 @@ import { offersPickup, shipCarriers, carrier } from '../../lib/shipping.js';
 import { shippingQuotes } from '../../lib/shipping-api.js';
 import { shipsToCountry } from '../../lib/countries.js';
 import { isService } from '../../lib/categories.js';
-import { directory, arbiterFeeLabel } from '../../lib/nostr/directory.js';
+import { directory, arbiterDetails } from '../../lib/nostr/directory.js';
 import { markPayoutUsed } from '../../lib/payout.js';
 import { isValidAddress } from '../../lib/btc/address.js';
 import { depositSats } from '../../config.js';
@@ -118,20 +118,6 @@ export function OrderForm({ state, listing, onClose }) {
   return (
     <div class="card offer order-form">
       <h3>🛒 {T('Order', 'Pedido')}</h3>
-      <Field group label={T('How do you want to pay?', '¿Cómo quieres pagar?')}>
-        <div class="choices">
-          {listing.payments.map((p) => (
-            <label key={p} class={`choice ${pay === p ? 'on' : ''}`}>
-              <input type="radio" name="pay" checked={pay === p} onChange={() => setPay(p)} />
-              <span>{payLabel(p)}{p === 'escrow' && advise && <span class="badge ok">{T('recommended', 'recomendado')}</span>}</span>
-            </label>
-          ))}
-        </div>
-      </Field>
-      {escrow
-        ? <p class="hint">{T(`Your coins wait in a 2-of-3 escrow until you confirm receipt. Recommended above ${formatFiat(s.escrowAdviceAbove, listing.currency)}.`, `Tus monedas esperan en un escrow 2 de 3 hasta que confirmes la recepción. Recomendado por encima de ${formatFiat(s.escrowAdviceAbove, listing.currency)}.`)}</p>
-        : <p class={`notice small ${advise ? 'warn' : ''}`}>{T('You pay the seller directly: fast and without deposits, but without an arbiter.', 'Pagas directamente al vendedor: rápido y sin depósitos, pero sin árbitro.')}{advise && ' ' + T(`For more than ${formatFiat(s.escrowAdviceAbove, listing.currency)} we recommend escrow.`, `Para más de ${formatFiat(s.escrowAdviceAbove, listing.currency)} recomendamos escrow.`)}</p>}
-
       {!service && (
         <Field group label={T('Delivery', 'Entrega')}>
           <div class="choices">
@@ -162,17 +148,39 @@ export function OrderForm({ state, listing, onClose }) {
         )}
       </>}
 
-      <Field label={T('Your offer for the item (XBT)', 'Tu oferta por el artículo (XBT)')} hint={suggested ? `${rate ? `1 XBT ≈ ${formatFiat(rate.value, listing.currency)}. ` : ''}${T('You may offer less; the seller decides.', 'Puedes ofrecer menos; decide el vendedor.')}` : T('No exchange rate available; enter the amount you agreed in the chat.', 'No hay tipo de cambio; introduce el importe acordado en el chat.')}>
-        <input inputmode="decimal" value={priceText} onInput={(e) => { setPriceText(e.target.value); setEdited(true); }} placeholder="0.001" />
-      </Field>
       {delivery === 'ship' && (addressOk
         ? <div class="field"><span class="label">{T('Ship to', 'Enviar a')}</span><pre class="address small">{formatAddress(shipAddress)}</pre><span class="hint">{T('From your account. Sent to the seller only after they accept your order, encrypted.', 'De tu cuenta. Se envía al vendedor solo después de que acepte tu pedido, cifrada.')} <a href="#/settings?open=address">{T('Change', 'Cambiar')}</a></span></div>
         : <p class="notice warn">{T('To have it shipped, first add your shipping address to your account. Or choose pick-up.', 'Para que te lo envíen, añade primero tu dirección de envío a tu cuenta. O elige recogida.')} <a href="#/settings?open=address">{T('Add my address', 'Añadir mi dirección')} →</a></p>)}
+      <Field label={T('Your offer for the item (XBT)', 'Tu oferta por el artículo (XBT)')} hint={suggested ? `${rate ? `1 XBT ≈ ${formatFiat(rate.value, listing.currency)}. ` : ''}${T('You may offer less; the seller decides.', 'Puedes ofrecer menos; decide el vendedor.')}` : T('No exchange rate available; enter the amount you agreed in the chat.', 'No hay tipo de cambio; introduce el importe acordado en el chat.')}>
+        <input inputmode="decimal" value={priceText} onInput={(e) => { setPriceText(e.target.value); setEdited(true); }} placeholder="0.001" />
+      </Field>
+      <Field group label={T('How do you want to pay?', '¿Cómo quieres pagar?')}>
+        <div class="choices">
+          {listing.payments.map((p) => (
+            <label key={p} class={`choice ${pay === p ? 'on' : ''}`}>
+              <input type="radio" name="pay" checked={pay === p} onChange={() => setPay(p)} />
+              <span>{payLabel(p)}{p === 'escrow' && advise && <span class="badge ok">{T('recommended', 'recomendado')}</span>}</span>
+            </label>
+          ))}
+        </div>
+      </Field>
+      {escrow
+        ? <p class="hint">{T(`Your coins wait in a 2-of-3 escrow until you confirm receipt. Recommended above ${formatFiat(s.escrowAdviceAbove, listing.currency)}.`, `Tus monedas esperan en un escrow 2 de 3 hasta que confirmes la recepción. Recomendado por encima de ${formatFiat(s.escrowAdviceAbove, listing.currency)}.`)}</p>
+        : <p class={`notice small ${advise ? 'warn' : ''}`}>{T('You pay the seller directly: fast and without deposits, but without an arbiter.', 'Pagas directamente al vendedor: rápido y sin depósitos, pero sin árbitro.')}{advise && ' ' + T(`For more than ${formatFiat(s.escrowAdviceAbove, listing.currency)} we recommend escrow.`, `Para más de ${formatFiat(s.escrowAdviceAbove, listing.currency)} recomendamos escrow.`)}</p>}
+
       {escrow && !noArbiter && (
-        <Field label={T('Arbiter', 'Árbitro')} hint={T('Decides only if something goes wrong. These are arbiters the seller accepts and you trust.', 'Solo decide si algo sale mal. Son árbitros que el vendedor acepta y en los que tú confías.')}>
-          <select value={arbiter} onChange={(e) => setArbiter(e.target.value)} aria-label={T('Arbiter', 'Árbitro')}>
-            {candidates.map((pk) => <option key={pk} value={pk}>{dir.arbiters.get(pk)?.name || pk.slice(0, 12)} · {arbiterFeeLabel(dir.arbiters.get(pk))}</option>)}
-          </select>
+        <Field group label={T('Arbiter', 'Árbitro')} hint={T('Decides only if something goes wrong. You and the seller both trust these arbiters.', 'Solo decide si algo sale mal. Tú y el vendedor confiáis en estos árbitros.')}>
+          <div class="choices arbiter-choices">
+            {candidates.map((pk) => {
+              const a = dir.arbiters.get(pk);
+              return (
+                <label key={pk} class={`choice ${arbiter === pk ? 'on' : ''}`}>
+                  <input type="radio" name="arbiter" checked={arbiter === pk} onChange={() => setArbiter(pk)} />
+                  <span><b>⚖️ {a?.name || shortNpub(pk)}</b> <span class="badge ok">✓ {T('trusted by you and the seller', 'de confianza para ti y el vendedor')}</span><span class="muted small">{arbiterDetails(a)}</span></span>
+                </label>
+              );
+            })}
+          </div>
         </Field>
       )}
       {escrow && <PayoutInput pick={refundPick} value={refund} onChange={setRefund} network={s.network} label={T('Your XBT address for refunds and your deposit', 'Tu dirección XBT para reembolsos y tu depósito')} hint={T('Sent only after the seller accepts your order.', 'Se envía solo después de que el vendedor acepte tu pedido.')} />}

@@ -22,7 +22,7 @@ I/O adapters
   src/lib/ln/nwc.js, wallet.js     Nostr Wallet Connect (the user's Lightning wallet)
   src/lib/ln/lnurl.js              Lightning address -> invoice
   src/lib/secrets.js               wallet link and AI key, NIP-44 encrypted to the user's own key
-  src/lib/ai/listing.js            listing draft from photos (Claude, user's own API key, loaded on demand)
+  src/lib/ai/listing.js            listing draft from photos (user's own AI service: Anthropic SDK, or any OpenAI-compatible API)
   src/bookmarklet/source.js        page I/O for the import button
   src/lib/api.js                   the XBT Market service, NIP-98 signed requests
   src/lib/nostr/names.js           usernames (NIP-05), verified per profile

@@ -82,3 +82,5 @@ export function announceArbiter({ name, about, languages, feePct = 0, active = t
 export function publishConfig(cfg) {
   return signAndPublish({ kind: 30078, tags: [['d', CONFIG_D], ['t', 'xbt-market']], content: JSON.stringify({ v: 1, ...cfg }) });
 }
+// Fee and languages, as shown next to the arbiter's name.
+export const arbiterDetails = (a) => [arbiterFeeLabel(a), a?.languages ? `${T('speaks', 'habla')} ${a.languages}` : ''].filter(Boolean).join(' · ');

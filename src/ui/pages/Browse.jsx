@@ -165,7 +165,7 @@ export function Browse({ query }) {
               <select value={flt.pay} onChange={(e) => setF({ pay: e.target.value })}><option value="">{T('Any', 'Cualquiera')}</option><option value="lightning">Lightning</option><option value="onchain">On-chain</option><option value="escrow">Escrow</option></select>
             </label>
           </div>
-          <label class={`choice ${flt.arb ? 'on' : ''}`}><input type="checkbox" checked={!!flt.arb} onChange={() => setF({ arb: flt.arb ? '' : '1' })} /><span>🛡 {T('Only escrow with an arbiter I trust', 'Solo escrow con un árbitro de mi confianza')}</span></label>
+          <label class={`choice ${flt.arb ? 'on' : ''}`}><input type="checkbox" checked={!!flt.arb} onChange={() => setF({ arb: flt.arb ? '' : '1' })} /><span>🛡 {T('Only show listings with shared trusted arbiters', 'Solo anuncios con árbitros de confianza en común')}</span></label>
           <div class="row">
             <button class="btn ghost" onClick={() => setFlt(Object.fromEntries(FILTER_KEYS.map((k) => [k, ''])))}>{T('Clear filters', 'Quitar filtros')}</button>
             <button class="btn primary" onClick={() => setOpen(false)}>{T(`Show ${shown.length} results`, `Ver ${shown.length} resultados`)}</button>

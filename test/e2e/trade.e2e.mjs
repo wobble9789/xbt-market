@@ -232,7 +232,7 @@ try {
   const priceVal = await (await as('buyer')).$eval('.order-form input[inputmode="decimal"]', (e) => e.value);
   // The order names the arbiter (one the seller accepts), the refund address and
   // the delivery address from the account: nothing to send after the accept.
-  await (await as('buyer')).waitForFunction(() => [...document.querySelectorAll('.order-form select')].some((s) => s.textContent.includes('Alice Arbiter')), { timeout: 30000 });
+  await (await as('buyer')).waitForFunction(() => document.querySelector('.order-form .arbiter-choices')?.textContent.includes('Alice Arbiter'), { timeout: 30000 });
   await waitText(await as('buyer'), 'Kerkstraat 1');
   await waitText(await as('buyer'), 'Your deposit (20%), paid back when the trade completes');
   await waitText(await as('buyer'), 'The seller puts in the same deposit (20%)');
