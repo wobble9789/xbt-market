@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { getPublicKey } from 'nostr-tools/pure';
 import { deriveTradeKey, arbiterBaseKey, arbiterTradeKey, pubkeyOf, planPayout, signEscrow } from '../src/lib/btc/escrow.js';
-import { reduceTrade, presetAllocations, finalizeProposal, deadlines, disputeClocks, shipDaysFor, DAY, TRADE_KIND, CHAT_KIND } from '../src/lib/trade/protocol.js';
+import { reduceTrade, presetAllocations, finalizeProposal, deadlines, disputeClocks, shipDaysFor, DAY, TRADE_KIND, CHAT_KIND, rumorInfo } from '../src/lib/trade/protocol.js';
 
 const sk = () => secp256k1.utils.randomSecretKey();
 const people = { buyer: sk(), seller: sk(), arbiter: sk(), mallory: sk() };
@@ -333,4 +333,11 @@ test('v2: the order itself names the arbiter, refund address and delivery addres
   assert.equal(reduceTrade(TID, [open2(), offer2({ arbiter: { pubkey: pk.buyer, escrowBase: arbiterBase } })], { arbiters }).offer, null);
   // An untrusted arbiter is flagged for the seller.
   assert.equal(reduceTrade(TID, log, { arbiters: new Map() }).checks.arbiterTrusted, false);
+});
+
+test('chat photos travel as imeta links (NIP-92) and come back as photos', () => {
+  const u = 'https://photos.example/abc.jpg';
+  const info = rumorInfo({ id: 'x', kind: 14, pubkey: 'a'.repeat(64), created_at: 1, content: `Here it is\n${u}`, tags: [['xbt-trade', TID], ['imeta', `url ${u}`, 'm image/jpeg']] });
+  assert.deepEqual(info.body, { text: 'Here it is', photos: [u] });
+  assert.deepEqual(rumorInfo({ id: 'y', kind: 14, pubkey: 'a'.repeat(64), created_at: 1, content: 'plain', tags: [['xbt-trade', TID]] }).body, { text: 'plain' });
 });

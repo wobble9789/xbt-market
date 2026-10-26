@@ -1,5 +1,5 @@
 // Bookmarklet import test against local fake shop pages. See README "Testing".
-import { setupPage } from './proof.mjs';
+import { setupPage, launchBrowser } from './proof.mjs';
 import puppeteer from 'puppeteer-core';
 import { mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
@@ -8,7 +8,7 @@ const src = readFileSync(new URL('../../src/generated/bookmarklet.js', import.me
 const BOOKMARKLET = JSON.parse(src.match(/BOOKMARKLET_SOURCE = (".*");/)[1]).replace('__XBT_APP__', (process.env.APP_URL || 'http://127.0.0.1:4173/'));
 const d = (process.env.PROFILE_DIR || process.env.HOME + '/snap/firefox/common') + '/xbt-import'; rmSync(d, { recursive: true, force: true }); mkdirSync(d, { recursive: true });
 // Firefox by default (FIREFOX=…), or Chromium with CHROME=/path/to/chrome.
-const browser = await puppeteer.launch(process.env.CHROME
+const browser = await launchBrowser(puppeteer, process.env.CHROME
   ? { browser: 'chrome', executablePath: process.env.CHROME, headless: true, args: ['--no-sandbox'], protocolTimeout: 45000 }
   : { browser: 'firefox', executablePath: process.env.FIREFOX || '/usr/bin/firefox', headless: true, userDataDir: d, protocolTimeout: 45000 });
 const sk = generateSecretKey();

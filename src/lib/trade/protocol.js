@@ -56,7 +56,11 @@ export function rumorInfo(r) {
   let body;
   if (r.kind === CHAT_KIND) {
     type = 'chat';
-    body = { text: String(r.content ?? '') };
+    // Photos: the imeta (NIP-92) links, taken out of the text.
+    const photos = r.tags.filter((t) => t[0] === 'imeta').map((t) => t.slice(1).find((x) => x.startsWith('url '))?.slice(4)).filter(Boolean);
+    let text = String(r.content ?? '');
+    for (const u of photos) text = text.split(u).join('');
+    body = { text: photos.length ? text.trim() : text, ...(photos.length ? { photos } : {}) };
   } else if (r.kind === TRADE_KIND) {
     try { body = JSON.parse(r.content); } catch { return null; }
     if (!body || typeof body !== 'object') return null;

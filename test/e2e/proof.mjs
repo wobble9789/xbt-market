@@ -95,3 +95,15 @@ export function fakeAiService(page, draft) {
     };
   }, draft);
 }
+
+// Starts the browser. Firefox on a busy CI runner sometimes does not report
+// its endpoint within the launch timeout; one more start is then enough.
+export async function launchBrowser(puppeteer, opts) {
+  try {
+    return await puppeteer.launch(opts);
+  } catch (e) {
+    if (!/Timed out|WS endpoint/i.test(e.message)) throw e;
+    console.log('  (the browser did not start in time; starting it once more)');
+    return puppeteer.launch(opts);
+  }
+}

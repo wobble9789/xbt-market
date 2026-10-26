@@ -17,7 +17,7 @@ import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure
 import * as nip19 from 'nostr-tools/nip19';
 import { SimplePool } from 'nostr-tools/pool';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { proof, setupPage, settle, fakeAiService, DEVICE } from './proof.mjs';
+import { proof, setupPage, settle, fakeAiService, DEVICE, launchBrowser } from './proof.mjs';
 import { parseNwcUri, nwc } from '../../src/lib/ln/nwc.js';
 
 const hex = (b) => Buffer.from(b).toString('hex');
@@ -46,7 +46,7 @@ const API = process.env.API_URL || 'http://127.0.0.1:8787';
 const BASE_SETTINGS = { relays: [RELAY], network: 'regtest', lang: 'en', manualRate: { value: 50000, currency: 'EUR' }, currency: 'EUR', blossom: BLOSSOM, esploraOverride: { regtest: 'http://127.0.0.1:3006/api' } };
 
 const chrome = process.env.CHROME;
-const browser = await puppeteer.launch({
+const browser = await launchBrowser(puppeteer, {
   browser: chrome ? 'chrome' : 'firefox', executablePath: chrome || process.env.FIREFOX || '/usr/bin/firefox', headless: true, protocolTimeout: 60000,
   ...(chrome ? { args: ['--no-sandbox'] } : {
     userDataDir: (() => { const d = (process.env.PROFILE_DIR || process.env.HOME + '/snap/firefox/common') + '/xbt-plan'; rmSync(d, { recursive: true, force: true }); mkdirSync(d, { recursive: true }); return d; })(),

@@ -14,7 +14,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { execSync } from 'node:child_process';
-import { proof, setupPage, settle } from './proof.mjs';
+import { proof, setupPage, settle, launchBrowser } from './proof.mjs';
 
 const APP = process.env.APP_URL || 'http://127.0.0.1:4173/';
 const RELAY = process.env.RELAY || 'ws://127.0.0.1:7777';
@@ -29,7 +29,7 @@ const people = {};
 for (const who of ['seller', 'buyer']) { const sk = generateSecretKey(); people[who] = { sk: hex(sk), pk: getPublicKey(sk), name: who === 'seller' ? 'Sam Seller' : 'Bob Buyer', city: who === 'seller' ? 'Utrecht' : 'Amsterdam' }; }
 
 const chrome = process.env.CHROME;
-const browser = await puppeteer.launch({
+const browser = await launchBrowser(puppeteer, {
   browser: chrome ? 'chrome' : 'firefox', executablePath: chrome || process.env.FIREFOX || '/usr/bin/firefox', headless: true, protocolTimeout: 45000,
   ...(chrome ? { args: ['--no-sandbox'] } : {
     userDataDir: (() => { const d = (process.env.PROFILE_DIR || process.env.HOME + '/snap/firefox/common') + '/xbt-direct'; rmSync(d, { recursive: true, force: true }); mkdirSync(d, { recursive: true }); return d; })(),

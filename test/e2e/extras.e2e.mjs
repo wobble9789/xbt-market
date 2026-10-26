@@ -9,7 +9,7 @@ import { generateSecretKey, getPublicKey, finalizeEvent } from 'nostr-tools/pure
 import { Relay } from 'nostr-tools/relay';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { proof, setupPage, settle, fakeAnthropic } from './proof.mjs';
+import { proof, setupPage, settle, fakeAnthropic, launchBrowser } from './proof.mjs';
 
 const APP = process.env.APP_URL || 'http://127.0.0.1:4173/';
 const RELAY = process.env.RELAY || 'ws://127.0.0.1:7777';
@@ -21,7 +21,7 @@ const walletKey = (n) => sha256(new TextEncoder().encode(`xbt-mock-wallet/${n}`)
 const walletUri = (n) => `nostr+walletconnect://${getPublicKey(walletKey(n))}?relay=${encodeURIComponent(RELAY)}&secret=${hex(walletKey(`${n}/client`))}`;
 
 const chrome = process.env.CHROME;
-const browser = await puppeteer.launch({
+const browser = await launchBrowser(puppeteer, {
   browser: chrome ? 'chrome' : 'firefox', executablePath: chrome || process.env.FIREFOX || '/usr/bin/firefox', headless: true, protocolTimeout: 45000,
   ...(chrome ? { args: ['--no-sandbox'] } : {
     userDataDir: (() => { const d = (process.env.PROFILE_DIR || process.env.HOME + '/snap/firefox/common') + '/xbt-extras'; rmSync(d, { recursive: true, force: true }); mkdirSync(d, { recursive: true }); return d; })(),

@@ -8,7 +8,7 @@ import puppeteer from 'puppeteer-core';
 import { execSync } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
-import { proof, setupPage, settle } from './proof.mjs';
+import { proof, setupPage, settle, launchBrowser } from './proof.mjs';
 
 const APP = process.env.APP_URL || (process.env.APP_URL || 'http://127.0.0.1:4173/');
 const CLI = process.env.KNOTS_CLI;
@@ -25,7 +25,7 @@ for (const who of ['arbiter', 'seller', 'buyer']) { const sk = generateSecretKey
 
 // Firefox by default (FIREFOX=…), or Chromium with CHROME=/path/to/chrome.
 const chrome = process.env.CHROME;
-const browser = await puppeteer.launch({
+const browser = await launchBrowser(puppeteer, {
   browser: chrome ? 'chrome' : 'firefox', executablePath: chrome || process.env.FIREFOX || '/usr/bin/firefox', headless: true, protocolTimeout: 45000,
   ...(chrome ? { args: ['--no-sandbox'] } : {
     userDataDir: (() => { const d = (process.env.PROFILE_DIR || process.env.HOME + '/snap/firefox/common') + '/xbt-e2e'; rmSync(d, { recursive: true, force: true }); mkdirSync(d, { recursive: true }); return d; })(),
@@ -73,7 +73,7 @@ async function open(who) {
     localStorage.setItem('xbt:account', JSON.stringify({ pubkey: p.pk, sk: p.sk, backedUp: true }));
     localStorage.setItem('xbt:settings', JSON.stringify({
       relays: ['ws://127.0.0.1:7777'], network: 'regtest', esploraOverride: { regtest: 'http://127.0.0.1:3006/api' },
-      minConfirmations: 1, lang: 'en', trustedArbiters: [arbiterPk], manualRate: { value: 50000, currency: 'EUR' }, currency: 'EUR', country: 'NL',
+      minConfirmations: 1, lang: 'en', trustedArbiters: [arbiterPk], blossom: 'http://127.0.0.1:3008', manualRate: { value: 50000, currency: 'EUR' }, currency: 'EUR', country: 'NL',
       address: { name: `${p.name} Tester`, street: 'Kerkstraat', number: '1', postalCode: '1234AB', city: p.city, country: 'NL', email: 'test@example.com' },
     }));
   }, people[who], people.arbiter.pk);
