@@ -1621,8 +1621,13 @@ try {
   });
   await step('SET-3', 'Log out and log in again', async () => {
     const p = await B('#/settings');
-    await click(p, 'Log out');
-    await waitText(p, 'Create a new account', 20000);
+    const btn = await el(p, btnX('Log out'));
+    await btn.evaluate((b) => b.scrollIntoView({ block: 'center' }));
+    // What is on top of the button (a toast, the tab bar) would get the tap instead.
+    const onTop = await btn.evaluate((b) => { const r = b.getBoundingClientRect(); const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return e && !b.contains(e) ? e.outerHTML.slice(0, 200) : null; });
+    if (onTop) throw new Error('"Log out" is covered by: ' + onTop);
+    await btn.click();
+    await waitText(p, 'Create a new account', 20000).catch(async (e) => { throw new Error(`${e.message}; page: ${(await text(p)).slice(0, 300)}`); });
     await fillPh(p, 'nsec1…', people.B.nsec);
     await click(p, 'Log in');
     await p.evaluate(() => { location.hash = '#/sell'; });
