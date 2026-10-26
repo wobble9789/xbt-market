@@ -12,7 +12,7 @@ A peer-to-peer marketplace paid in **Bitcoin BLAKE2b** (XBT / BTCB2), the chain 
 - **Shipping like Vinted.** The seller ticks the carriers they are willing to use (PostNL, DHL, Mondial Relay, InPost, DPD, GLS, Colissimo, Correos…) and a parcel size; no price. The buyer picks a carrier for their country and pays its rate on top. With the service, the seller then buys a prepaid label (Sendcloud) paid over Lightning, and gets a QR code to show at the drop-off point (or a PDF) in the chat; the tracking code becomes a tracking link.
 - **Marktplaats categories.** All 36 main categories and 1,954 subcategories of Marktplaats, so imports keep theirs. Listings carry a country and where the seller ships to (EU, worldwide, countries); buyers filter on category, country, price, condition, delivery and payment, and sort by date or price.
 - **People.** Unique @usernames (NIP-05, like name@primal.net), search by @name, follow sellers (the standard Nostr contact list) and a feed of only the people you follow. English and Spanish; prices shown in 30+ currencies.
-- **AI listing assistant.** Upload photos and Claude writes the title, description, category, condition and a price suggestion, like Marktplaats does. Each user brings their own Anthropic API key (see *AI assistant* below).
+- **AI listing assistant.** Upload photos and the AI writes the title, description, category, condition and a price suggestion. Each user connects their own AI service (see *AI assistant* below).
 
 > **Snel aan de slag (NL):** zet de app online (zie *Deploy*), maak in de app een account, zet jouw npub als `VITE_ADMIN_NPUB` en bouw opnieuw. Vraag een paar bekende community-leden om zich onder *Arbiter* aan te melden en keur ze goed onder *Admin*. Daarna kan iedereen handelen.
 
@@ -69,7 +69,7 @@ There is no arbiter: if the item never arrives, the buyer depends on the seller.
 
 ### AI assistant
 
-Each user adds their own Anthropic API key under *Account → AI listing assistant*. The key is stored encrypted with the user's Nostr key, on that device only, and is sent only to `api.anthropic.com`. API keys cannot be limited to certain actions, so the advice in the app is: make a separate key in a separate workspace at console.anthropic.com with a low monthly spend limit, and revoke it if in doubt. Photos are sent to Anthropic to be described. The model is set in `src/config.js` (`AI_MODEL`).
+Each user connects their own AI service under *Account → AI listing assistant*: any service that can read photos. An Anthropic key (`sk-ant-…`) is recognised and used through the official SDK (model `AI_MODEL` in `src/config.js`); any other service is used through its OpenAI-compatible chat completions API at the address and with the model the user enters (the model list is read from `/models`). That includes a model on the user's own computer (`http://localhost…`, no key). Photos are sent inline, so such a model sees them too. The connection is stored encrypted with the user's Nostr key, on that device only, and the key and photos go only to that service. Keys cannot be limited to certain actions, so the app advises a low monthly spending limit at the service.
 
 ## Deploy
 

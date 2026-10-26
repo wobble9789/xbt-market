@@ -71,31 +71,23 @@
 </main>
 <script>
 const PLAN = [
-  ['Telefoon: bladwijzer (hertest)', '[Seller] op je telefoon', [
-    ['IMP-11', 'Bladwijzer in Chrome op de telefoon', [
-      'Telefoon, Chrome: open XBT Market en log in als Seller. Sell → Import → "On a phone" → volg de 6 stappen (dit zet de nieuwe bladwijzer v8 neer; verwijder eerst de oude).',
-      'Open je Marktplaats-profiel in Chrome en tik de bladwijzer aan zoals stap 5 zegt.',
-    ], 'Onderin verschijnt "XBT Market: reading your listings…", daarna opent XBT Market in hetzelfde tabblad met je advertenties. Er komt geen pop-up meer.'],
-  ]],
-  ['Echt geld: on-chain met Shrike', 'Drie browsers: [Buyer], [Seller] en [Arbiter] (= je eigen arbiter-account, dat elk account nu standaard vertrouwt). Shrike: account #0 = buyer, #1 = seller, #2 = arbiter. Ververs eerst alle drie met Ctrl+Shift+R. Alles hieronder is ook automatisch getest; jij controleert de echte keten en of alles duidelijk is. Bij een fout: screenshot + de txid in je notitie.', [
-    ['WAL-5', 'Wallet koppelen (3×)', [
-      '[Buyer] Account → "💰 Getting paid": staat de wallet nog gekoppeld, dan zie je meteen het controleblok. Anders: Shrike account #0 → Settings (links) → kopieer "xpub" → plak → "Save wallet key".',
-      'Vergelijk "First unused receiving address" en "Second unused receiving address" met Shrike #0 → Receive (het adres dat Shrike voorstelt) en het adres daarna onder Addresses.',
-      'Doe hetzelfde in [Seller] met account #1 en in [Arbiter] met account #2.',
-    ], 'Beide adressen kloppen met Shrike. "💰 Getting paid" en "📦 Shipping address" zijn twee aparte, overzichtelijke secties.'],
-    ['ARB-8', 'Arbiters bij de advertentie', [
-      '[Seller] Account → "🛡 Trusted arbiters": je arbiter-account staat erbij met "default".',
-      '[Seller] Sell → "+ New listing": titel "Test escrow", prijs 10, bij "Payment methods you accept" alleen "🛡 Escrow", PostNL aan. Zet "Escrow deposit (%)" op 10. Onder "Select from your trusted arbiters" staat je arbiter aangevinkt, met "demands …% fee in a dispute" → "Publish".',
-      '[Buyer] open "Test escrow": onder de betaalmethodes staat "🛡 Escrow possible: you both trust … ✓ · deposit 10% of the price, from you and from the seller".',
-      '[Buyer] Browse → ⚙ Filters → vink "Only escrow with an arbiter I trust" aan.',
-    ], 'Duidelijk wie de arbiters zijn, of jij ze ook vertrouwt, en hoeveel borg jullie allebei betalen; het filter laat alleen zulke advertenties zien.'],
+  ['Echt geld: on-chain met Shrike (hertest)', 'Drie browsers: [Buyer], [Seller] en [Arbiter] (je arbiter-account, met arbiterprofiel "Henk the arbiter"). Shrike: account #0 = buyer, #1 = seller, #2 = arbiter. Ververs eerst alle drie met Ctrl+Shift+R. Wat je eerder goedkeurde en niet veranderd is, staat hier niet meer. Bij een fout: screenshot + de txid in je notitie.', [
+    ['WAL-5', 'Ongebruikte adressen (hertest stap 2)', [
+      '[Buyer] Account → "💰 Getting paid". Bij "First unused receiving address (#…)" en "Second unused receiving address (#…)" staat nu ook het nummer van het adres.',
+      'Zoek die nummers op in Shrike #0 → Addresses. Beide adressen mogen nog nooit iets ontvangen hebben, ook niet als ze nu weer leeg zijn.',
+      'Doe hetzelfde in [Seller] met Shrike #1 en in [Arbiter] met Shrike #2.',
+    ], 'Beide adressen zijn in Shrike echt ongebruikt. Toont Shrike er toch een als gebruikt: screenshot, en noteer welke server bij Account → "🌐 Network" staat (een pruned node kent de oude geschiedenis niet; de app zegt dat nu ook).'],
+    ['ARB-8', 'Arbiternaam en filter (hertest stap 2 en 4)', [
+      '[Seller] Sell → "+ New listing": titel "Test escrow", prijs 10, alleen "🛡 Escrow", PostNL aan, "Escrow deposit (%)" op 10. Kijk onder "Select from your trusted arbiters" → "Publish".',
+      '[Buyer] open "Test escrow" en kijk naar de regel "🛡 Escrow possible: …".',
+      '[Buyer] Browse → ⚙ Filters → vink "Only show listings with shared trusted arbiters" aan.',
+    ], 'Overal staat "⚖️ Henk the arbiter" (de naam van het arbiterprofiel), nooit de accountnaam, met "demands …% fee in a dispute · speaks …". Het filter laat alleen advertenties met een gedeelde arbiter zien.'],
     ['REAL-1', 'Escrow-aankoop met echte XBT', [
-      '[Buyer] Account → "📦 Shipping address": vul je adres in (wordt meteen opgeslagen).',
-      '[Buyer] open "Test escrow" → "🛒 Order now" → "🛡 Escrow", land Netherlands, PostNL. Je ziet: je adres onder "Ship to", de arbiter al gekozen, je terugbetaaladres al ingevuld (✓ nieuw adres), en het overzicht: bod, "Shipping (PostNL)", "Your deposit (10%), paid back when the trade completes", "The seller puts in the same deposit (10%)" en het totaal → "Send order".',
-      '[Seller] Messages → open de bestelling: "Deposits (10% each)" met twee gelijke bedragen, "Arbiter: … ✓ you trust this arbiter". Controleer: het verzendadres en terugbetaaladres van de koper staan er NOG NIET. Uitbetaaladres al ingevuld → "✓ Accept".',
-      '[Seller] Het escrowadres verschijnt meteen. Binnen een paar seconden (zodra de app van [Buyer] open is) komt het adres van de koper binnen.',
-      'Onder "Escrow": [Buyer] stuurt vanuit Shrike #0 exact "Buyer pays (price + deposit)" naar het escrowadres; [Seller] vanuit #1 exact "Seller pays (deposit)" (kopiëren, niet overtypen; replay-bescherming aan).',
-      'Wacht op "Fully paid" (3 bevestigingen, ±30 min). [Seller] vult een verzonnen trackingcode in → "Mark as shipped" → "📬 Delivered, per the tracking". [Buyer] "Everything OK: release payment". [Seller] "Agree and sign".',
+      '[Buyer] open "Test escrow" → "🛒 Order now". Van boven naar beneden: "Delivery" (Ship it to me), land Netherlands, PostNL, "Ship to" met je adres, je bod, "How do you want to pay?" → "🛡 Escrow", direct daaronder "Arbiter".',
+      '[Buyer] Bij "Arbiter" staat "⚖️ Henk the arbiter" met een groen "✓ trusted by you and the seller", plus kosten en talen. Terugbetaaladres is al ingevuld (✓ nieuw) → "Send order".',
+      '[Seller] Messages → open de bestelling: "Arbiter: ⚖️ Henk the arbiter ✓ you trust this arbiter" en "Deposits (10% each)". Het adres van de koper staat er nog niet. Uitbetaaladres al ingevuld → "✓ Accept".',
+      'Onder "Escrow": [Buyer] stuurt vanuit Shrike #0 exact "Buyer pays (price + shipping + deposit)" naar het escrowadres; [Seller] vanuit #1 exact "Seller pays (deposit)" (kopiëren, niet overtypen; replay-bescherming aan).',
+      'Wacht op "Fully paid" (3 bevestigingen, ±30 min). [Seller] ziet nu het adres van de koper, vult een verzonnen trackingcode in → "Mark as shipped" → "📬 Delivered, per the tracking". [Buyer] "Everything OK: release payment". [Seller] "Agree and sign".',
     ], 'Shrike na 1 bevestiging: #1 ontvangt ongeveer prijs + verzending + borg, #0 zijn borg terug (min een klein deel netwerkkosten), elk op een nieuw adres. Het bestellen voelde logisch en zonder overbodige stappen.'],
     ['TRD-7', 'Termijnen (tijdens REAL-1)', [
       'Na "Fully paid": [Seller] ziet "⏰ Paid. Ship by …", [Buyer] "⏰ Fully paid. The seller ships by …".',
@@ -111,15 +103,21 @@ const PLAN = [
       'Account → "🌐 Network" → lees de stappen onder "Blockchain server". Plak je Mempool-adres (zonder /api) → "Use" → "Test connection". Typ daarna een fout adres → "Use" → lees de melding. Zet het goede adres terug.',
     ], '"✓ block …" gelijk aan mempool.guide; de foutmelding legt in gewone taal uit wat er mis is.'],
   ]],
-  ['Later: met de dienst', 'Admin', [
-    ['SVC-1', 'XBT Market-dienst staat live', ['Cloudflare: gratis account → API-token (sjabloon "Edit Cloudflare Workers") + Account ID. GitHub → Settings → Secrets and variables → Actions: CLOUDFLARE_API_TOKEN en CLOUDFLARE_ACCOUNT_ID. Actions → laatste run → Re-run all jobs.', 'Open de workers.dev-link uit de deploy-log.'], 'Je ziet {"service":"xbt-market","usernames":true,…}.'],
+  ['XBT Market-dienst (Cloudflare, kan nu al)', 'Admin, op je computer', [
+    ['SVC-1', 'XBT Market-dienst staat live', [
+      'dash.cloudflare.com, inloggen. Eerste keer Workers: links "Workers & Pages" → kies je workers.dev-subdomein.',
+      'Rechtsboven je profiel → "My Profile" → "API Tokens" → "Create Token" → sjabloon "Edit Cloudflare Workers" → "Use template". Bij Account Resources je account, bij Zone Resources "All zones" → "Continue to summary" → "Create Token" → kopieer de token.',
+      'Je Account ID: "Workers & Pages" → rechts in de kolom "Account ID" → kopieer.',
+      'GitHub → wobble9789/xbt-market → Settings → Secrets and variables → Actions → "New repository secret": CLOUDFLARE_API_TOKEN (de token) en CLOUDFLARE_ACCOUNT_ID (het ID).',
+      'GitHub → Actions → de bovenste run op main → "Re-run all jobs". Klaar na ±2 min: open de stap "Deploy the XBT Market service" in de job build en open de workers.dev-link die daar staat.',
+    ], 'Je ziet {"service":"xbt-market","usernames":true,…}. In de app is onder Import nu "Paste a link" te zien.'],
     ['SVC-2', 'Verzending aan', ['Secrets SENDCLOUD_PUBLIC_KEY, SENDCLOUD_SECRET_KEY en PLATFORM_LN_ADDRESS, opnieuw deployen.'], '"shipping":true.'],
     ['SVC-3', 'Bugmeldingen per mail', ['resend.com: gratis account met steenh819@gmail.com → API Keys → Create. Secrets RESEND_API_KEY en BUG_REPORT_EMAIL, opnieuw deployen.'], '"bugReports":true.'],
     ['SVC-4', 'Bugs naar GitHub (+ Claude)', ['Fine-grained token (alleen deze repo, Issues: Read and write) → secret ISSUES_TOKEN. Voor Claude: in Claude Code /install-github-app. Opnieuw deployen.'], '"issues":true.'],
     ['BUG-2', 'Echte bugmelding', ['Seller: Account → Report a problem met screenshot. Admin: Bug reports → Publish as GitHub issue.'], 'Mail met bijlage in je inbox; issue op GitHub zonder naam van de melder.'],
     ['IMP-9', 'Link plakken', ['Marktplaats-app: één advertentie → Delen → Link kopiëren. Import → "Paste a link" → Read. Ook met het adres van je profiel uit de browser.'], 'Advertentie(s) met foto\'s verschijnen.'],
     ['SHP-2', 'Echt verzendlabel', ['Na betaling: Seller → Get the label price → Buy label → betaal.'], 'Echte PostNL/DHL-QR en label in de chat.'],
-  ], 'Nodig: SVC-1 (gratis Cloudflare-account); voor SHP-2 ook Sendcloud + een Lightning-adres, voor BUG-2 Resend en een GitHub-token. Overslaan tot je die hebt.'],
+  ], 'SVC-1 kan nu al: de site staat al live, de dienst komt ernaast. De rest wanneer je die accounts hebt: SHP-2 Sendcloud + een Lightning-adres, BUG-2 Resend en een GitHub-token.'],
   ['Later: met XBT-Lightning', 'Seller verkoopt, Buyer koopt', [
     ['WAL-2', 'Lightning Fork', ['Marketplace → Change registry → start9.paulscode.com → installeer Lightning Fork. Select Node → knots-blake2b. Initialize Wallet → Start Fresh; seed op papier. Configure Channel Backups.'], 'Lightning Fork draait.'],
     ['WAL-3', 'Laguz Hub + kanaal', ['Registry start9.pyblock.xyz → Laguz Hub. Kanaal openen (peers: forum paulscode.com). Twee NWC-koppelingen: "seller" en "buyer".'], 'Twee connection strings.'],
@@ -128,13 +126,17 @@ const PLAN = [
     ['LN-8', 'Andere wallet', ['Buyer scant de QR met een andere XBT-Lightning-wallet → "I have paid".'], 'Status Paid.'],
     ['LN-3', 'Lightning-adres', ['Seller: vul je echte Lightning-adres in, ontkoppel de wallet en laat een factuur maken.'], 'Factuur komt van je Lightning-adres.'],
   ], 'Nodig: Lightning Fork + Laguz Hub met een kanaal (WAL-2, WAL-3), en voor LN-3 een Lightning-adres. Overslaan tot je dat hebt.'],
-  ['Later: met een AI-sleutel', 'Seller', [
-    ['AI-1', 'Sleutel instellen', ['console.anthropic.com: workspace met lage limiet + sleutel. Account → AI listing assistant → Save.'], '"✓ Key saved".'],
-    ['AI-2', 'Kwaliteit van de AI', ['Nieuwe advertentie → 2–3 foto\'s → AI-knop. Doe het voor een paar verschillende spullen.'], 'Titel, beschrijving, categorie en prijs zijn bruikbaar.'],
-  ], 'Nodig: een API-sleutel van Anthropic. Overslaan als je die (nog) niet wilt.'],
+  ['AI-assistent', '[Seller]', [
+    ['AI-1', 'Een AI-dienst naar keuze koppelen', [
+      'Maak bij je AI-dienst een API-sleutel en zet daar een lage maandlimiet.',
+      'Account → "✨ AI listing assistant": lees de uitleg. Plak je sleutel. Een sleutel die de app herkent heeft verder niets nodig; anders vul je het "API address" van je dienst in → "Show the available models" → kies een model dat foto\'s kan lezen.',
+      '"Connect AI service".',
+    ], 'De uitleg noemt geen andere bedrijven en is duidelijk. Daarna staat er "✓ Connected · [model] · [adres van je dienst]".'],
+    ['AI-2', 'Kwaliteit van de AI', ['Nieuwe advertentie → 2–3 foto\'s → "✨ Write listing from photos". Doe het voor een paar verschillende spullen.'], 'Titel, beschrijving, categorie en prijs zijn bruikbaar.'],
+  ], 'Nodig: een API-sleutel van een AI-dienst naar keuze, of een model op je eigen computer.'],
 ];
 
-const KEY = 'xbt-testplan-v11';
+const KEY = 'xbt-testplan-v12';
 let state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { state = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} render(); };

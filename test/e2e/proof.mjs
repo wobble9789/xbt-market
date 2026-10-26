@@ -75,3 +75,23 @@ export function fakeAnthropic(page, draft) {
     };
   }, draft);
 }
+
+// A fake OpenAI-compatible AI service at https://ai.example/v1 inside the page:
+// it lists two models, answers chat completions with `draft`, and keeps the
+// requests in window.__aiCalls.
+export function fakeAiService(page, draft) {
+  return page.evaluate((draft) => {
+    window.__aiCalls = [];
+    const real = window.__realFetch || window.fetch;
+    window.__realFetch = real;
+    window.fetch = async (input, init = {}) => {
+      const url = String(typeof input === 'string' || input instanceof URL ? input : input.url);
+      if (!url.startsWith('https://ai.example/')) return real(input, init);
+      const headers = Object.fromEntries(new Headers(init.headers || {}));
+      window.__aiCalls.push({ url, headers, body: init.body ? JSON.parse(init.body) : null });
+      const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+      if (url.endsWith('/models')) return json({ data: [{ id: 'vision-1' }, { id: 'text-only-1' }] });
+      return json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(draft) } }] });
+    };
+  }, draft);
+}

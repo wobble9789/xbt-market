@@ -12,9 +12,9 @@ import { DEFAULTS, ESPLORA_PRESETS, DEFAULT_ARBITERS } from '../../config.js';
 import { Esplora, normalizeNodeUrl } from '../../lib/btc/esplora.js';
 import { secretNames } from '../../lib/secrets.js';
 import { connectWallet, disconnectWallet, walletConnected, walletBalance, walletLud16 } from '../../lib/ln/wallet.js';
-import { aiConfigured, saveAiKey } from '../../lib/ai/listing.js';
+import { aiConfigured, loadAi, saveAi, aiHost, isAnthropicKey, validBase, listModels } from '../../lib/ai/listing.js';
 import { T, LANGS } from '../i18n.js';
-import { Action, Field, Copy, Avatar, Name, AddressForm, addressComplete, toast, toastError } from '../components.jsx';
+import { Action, Field, Copy, Avatar, Name, ArbiterName, AddressForm, addressComplete, toast, toastError } from '../components.jsx';
 import { InstallGuide } from '../install.jsx';
 import { ProfileForm } from './EditProfile.jsx';
 import { blocks, unblock } from '../../lib/nostr/moderation.js';
@@ -227,7 +227,8 @@ function WalletKey() {
   const pick = usePayoutPick(on);
   // What the user's own wallet app should show as its next receiving addresses.
   const [unused, setUnused] = useState(null);
-  useEffect(() => { setUnused(null); if (on) unusedOnChain(2).then(setUnused).catch(() => setUnused([])); }, [on, network]);
+  const [checkErr, setCheckErr] = useState('');
+  useEffect(() => { setUnused(null); setCheckErr(''); if (on) unusedOnChain(2).then(setUnused).catch((e) => { setUnused([]); setCheckErr(e.message); }); }, [on, network]);
   return (
     <Field group label={T('Your XBT wallet', 'Tu cartera XBT')}>
       <p class="hint">{T('Paste your wallet\'s public key. XBT Market then uses a new address from your wallet for every trade, so nobody can link your payments.', 'Pega la clave pública de tu cartera. XBT Market usará entonces una dirección nueva de tu cartera en cada compra, para que nadie pueda relacionar tus pagos.')}</p>
@@ -235,10 +236,14 @@ function WalletKey() {
         <>
           <p class="small ok-text">✓ {T('Wallet linked.', 'Cartera vinculada.')}</p>
           <p class="small">{T('We advise you to check this in your wallet app:', 'Te aconsejamos comprobar esto en tu app de cartera:')}</p>
-          <table class="amounts small wallet-check"><tbody>
-            <tr><td>{T('First unused receiving address', 'Primera dirección de recepción sin usar')}</td><td><code class="break">{unused?.[0]?.address || '…'}</code></td></tr>
-            <tr><td>{T('Second unused receiving address', 'Segunda dirección de recepción sin usar')}</td><td><code class="break">{unused?.[1]?.address || '…'}</code></td></tr>
-          </tbody></table>
+          {checkErr ? <p class="notice warn small">{checkErr}</p> : <>
+            <table class="amounts small wallet-check"><tbody>
+              {[T('First unused receiving address', 'Primera dirección de recepción sin usar'), T('Second unused receiving address', 'Segunda dirección de recepción sin usar')].map((label, i) => (
+                <tr key={i}><td>{label}{unused?.[i] ? <span class="muted"> (#{unused[i].index})</span> : ''}</td><td><code class="break">{unused?.[i]?.address || '…'}</code></td></tr>
+              ))}
+            </tbody></table>
+            <p class="hint">{T('Unused means: never received anything, not even coins that were spent later. Does your wallet show one of these as used? Then your blockchain server is missing its history (for example a pruned node): choose a complete server under Account → Network.', 'Sin usar significa: nunca ha recibido nada, ni siquiera monedas gastadas después. ¿Tu cartera muestra una de estas como usada? Entonces a tu servidor de blockchain le falta su historial (por ejemplo, un nodo podado): elige un servidor completo en Cuenta → Red.')}</p>
+          </>}
           {saved?.assumed && <p class="notice warn small">{T('Your key does not say which address type your wallet uses, so bc1q… addresses are assumed. Do these not match your wallet? Paste the "output descriptor" from your wallet instead.', 'Tu clave no dice qué tipo de dirección usa tu cartera, así que se suponen direcciones bc1q…. ¿No coinciden con tu cartera? Pega en su lugar el «output descriptor» de tu cartera.')}</p>}
           {pick && !pick.fixed && unused?.[0] && pick.address !== unused[0].address && <p class="hint">{T(`Your next trade gets ${pick.address}: the earlier unused ones are waiting in open trades.`, `Tu próxima compra recibe ${pick.address}: las anteriores sin usar esperan en compras abiertas.`)}</p>}
           <Action class="small ghost" confirm={T('Unlink your wallet from XBT Market in this browser? Your wallet and its coins are not touched.', '¿Desvincular tu cartera de XBT Market en este navegador? Tu cartera y sus monedas no se tocan.')} onClick={async () => { saveWalletKey(''); setSaved(null); }}>{T('Unlink wallet', 'Desvincular cartera')}</Action>
@@ -331,23 +336,46 @@ function NodePicker() {
 
 function AiKey() {
   useStore(secretNames);
+  const conn = loadAi();
   const [key, setKey] = useState('');
-  const on = aiConfigured();
+  const [base, setBase] = useState('');
+  const [model, setModel] = useState('');
+  const [models, setModels] = useState(null);
+  const anthropic = isAnthropicKey(key);
+  const ready = anthropic || (validBase(base) && model.trim());
   return (
     <>
-      <p class="hint">{T('Fills in the title, description, category, condition and a price suggestion from your photos, like Marktplaats does. You check and adjust before publishing. It uses your own API key from Anthropic (the maker of Claude); other AI providers are not supported. You pay Anthropic only for what you use, a few cents per listing.', 'Rellena el título, la descripción, la categoría, el estado y un precio sugerido a partir de tus fotos, como hace Marktplaats. Tú lo revisas antes de publicar. Usa tu propia clave de API de Anthropic (los creadores de Claude); otros proveedores de IA no son compatibles. Solo pagas a Anthropic lo que uses, unos céntimos por anuncio.')}</p>
-      <ul class="small">
-        <li>{T('Create a separate key in a separate workspace at console.anthropic.com and set a low monthly spend limit there. API keys cannot be limited to certain actions, so the spend limit is your safety net.', 'Crea una clave aparte en un espacio de trabajo aparte en console.anthropic.com y pon allí un límite de gasto mensual bajo. Las claves de API no se pueden limitar a ciertas acciones, así que el límite de gasto es tu red de seguridad.')}</li>
-        <li>{T('The key is stored encrypted with your Nostr key on this device only and is sent only to api.anthropic.com. It is never published.', 'La clave se guarda cifrada con tu clave Nostr, solo en este dispositivo, y solo se envía a api.anthropic.com. Nunca se publica.')}</li>
-        <li>{T('Your photos are sent to Anthropic to be described. You can revoke the key at any time in the console.', 'Tus fotos se envían a Anthropic para describirlas. Puedes revocar la clave cuando quieras en la consola.')}</li>
-      </ul>
-      {on ? (
-        <div class="row"><span class="badge ok">✓ {T('Key saved', 'Clave guardada')}</span><Action class="small danger ghost" onClick={async () => saveAiKey(null)}>{T('Remove', 'Quitar')}</Action></div>
+      <p class="hint">{T('Fills in the title, description, category, condition and a price suggestion from your photos. You check and adjust everything before publishing.', 'Rellena el título, la descripción, la categoría, el estado y un precio sugerido a partir de tus fotos. Tú lo revisas y ajustas todo antes de publicar.')}</p>
+      {conn ? (
+        <>
+          <p><span class="badge ok">✓ {T('Connected', 'Conectado')}</span> <span class="small">{conn.model || T('default model', 'modelo por defecto')} · {aiHost(conn)}</span></p>
+          <p class="hint">{T(`Your photos and the key go only to ${aiHost(conn)}, straight from this browser.`, `Tus fotos y la clave solo van a ${aiHost(conn)}, directamente desde este navegador.`)}</p>
+          <Action class="small danger ghost" onClick={async () => saveAi(null)}>{T('Disconnect', 'Desconectar')}</Action>
+        </>
       ) : (
-        <div class="row">
-          <input type="password" value={key} onInput={(e) => setKey(e.target.value)} placeholder="sk-ant-…" autocomplete="off" />
-          <Action class="primary" disabled={!key.startsWith('sk-ant-')} onClick={async () => { saveAiKey(key); setKey(''); toast(T('Saved', 'Guardado'), 'ok'); }}>{T('Save', 'Guardar')}</Action>
-        </div>
+        <>
+          <p class="small">{T('Works with any AI service that can read photos: one you have an account with, or a model on your own computer. You pay your service directly, usually a few cents per listing.', 'Funciona con cualquier servicio de IA que pueda leer fotos: uno en el que tengas cuenta o un modelo en tu propio ordenador. Pagas directamente a tu servicio, normalmente unos céntimos por anuncio.')}</p>
+          <ol class="small">
+            <li>{T('In your AI service\'s account, create an API key. Set a low monthly spending limit there: a key cannot be limited otherwise.', 'En la cuenta de tu servicio de IA, crea una clave de API. Pon allí un límite de gasto mensual bajo: una clave no se puede limitar de otra forma.')}</li>
+            <li>{T('Paste it below, with the API address and model your service gives (in its documentation, often under "OpenAI-compatible API").', 'Pégala abajo, con la dirección de la API y el modelo que indica tu servicio (en su documentación, a menudo en "API compatible con OpenAI").')}</li>
+          </ol>
+          <Field label={T('API key', 'Clave de API')} hint={anthropic ? T('✓ Recognised: everything else is filled in for you.', '✓ Reconocida: lo demás se rellena solo.') : T('Not needed for a model on your own computer.', 'No hace falta para un modelo en tu propio ordenador.')}>
+            <input type="password" value={key} onInput={(e) => setKey(e.target.value)} autocomplete="off" aria-label={T('API key', 'Clave de API')} />
+          </Field>
+          {!anthropic && <>
+            <Field label={T('API address', 'Dirección de la API')} hint={base && !validBase(base) ? T('Starts with https:// (or http://localhost for your own computer).', 'Empieza por https:// (o http://localhost para tu propio ordenador).') : T('Usually ends in /v1.', 'Suele terminar en /v1.')}>
+              <input value={base} onInput={(e) => { setBase(e.target.value); setModels(null); }} placeholder="https://…/v1" class={base && !validBase(base) ? 'invalid' : ''} />
+            </Field>
+            <Field label={T('Model', 'Modelo')} hint={T('Pick one that can read photos (vision).', 'Elige uno que pueda leer fotos (visión).')}>
+              {models?.length
+                ? <select value={model} onChange={(e) => setModel(e.target.value)}><option value="">{T('Choose…', 'Elige…')}</option>{models.map((m) => <option key={m} value={m}>{m}</option>)}</select>
+                : <input value={model} onInput={(e) => setModel(e.target.value)} />}
+            </Field>
+            <Action class="small ghost" disabled={!validBase(base)} onClick={async () => { const list = await listModels({ base, key }); setModels(list); if (!list.length) toast(T('The service lists no models: type the name yourself.', 'El servicio no muestra modelos: escribe el nombre tú.')); }}>{T('Show the available models', 'Ver los modelos disponibles')}</Action>
+          </>}
+          <p class="hint">{T('Stored encrypted on this device only, never published. Your photos go only to the service you connect.', 'Se guarda cifrado solo en este dispositivo y nunca se publica. Tus fotos solo van al servicio que conectes.')}</p>
+          <Action class="primary" disabled={!ready} onClick={async () => { saveAi({ key, base: anthropic ? '' : base, model: anthropic ? '' : model }); setKey(''); toast(T('Connected', 'Conectado'), 'ok'); }}>{T('Connect AI service', 'Conectar servicio de IA')}</Action>
+        </>
       )}
     </>
   );
@@ -413,14 +441,14 @@ export function Settings({ query }) {
         <LightningWallet />
       </Section>
 
-      <Section icon="✨" title={T('AI listing assistant', 'Asistente de anuncios con IA')} summary={aiConfigured() ? `✓ ${T('key saved', 'clave guardada')}` : T('write listings from your photos', 'escribe anuncios a partir de tus fotos')} open={openSet.has('ai')}>
+      <Section icon="✨" title={T('AI listing assistant', 'Asistente de anuncios con IA')} summary={aiConfigured() ? `✓ ${T('connected', 'conectado')}` : T('write listings from your photos', 'escribe anuncios a partir de tus fotos')} open={openSet.has('ai')}>
         <AiKey />
       </Section>
 
       <Section icon="🛡" title={T('Trusted arbiters', 'Árbitros de confianza')} summary={T('in addition to the community list', 'además de la lista de la comunidad')} open={openSet.has('arbiters')}>
         <p class="hint">{T('In addition to the community list. Only add people you know.', 'Además de la lista de la comunidad. Añade solo a personas que conozcas.')}</p>
-        {DEFAULT_ARBITERS.map((pk) => <div class="row" key={pk}><Name pk={pk} avatar={false} /> <span class="badge">{T('default', 'por defecto')}</span></div>)}
-        {(s.trustedArbiters || []).filter((pk) => !DEFAULT_ARBITERS.includes(pk)).map((pk) => <div class="row" key={pk}><code class="small">{npub(pk).slice(0, 24)}…</code><button class="btn small ghost" onClick={() => { updateSettings({ trustedArbiters: s.trustedArbiters.filter((x) => x !== pk) }); loadDirectory(); }}>×</button></div>)}
+        {DEFAULT_ARBITERS.map((pk) => <div class="row" key={pk}><ArbiterName pk={pk} /> <span class="badge">{T('default', 'por defecto')}</span></div>)}
+        {(s.trustedArbiters || []).filter((pk) => !DEFAULT_ARBITERS.includes(pk)).map((pk) => <div class="row" key={pk}><ArbiterName pk={pk} /> <code class="small muted">{npub(pk).slice(0, 16)}…</code><button class="btn small ghost" onClick={() => { updateSettings({ trustedArbiters: s.trustedArbiters.filter((x) => x !== pk) }); loadDirectory(); }}>×</button></div>)}
         <div class="row">
           <input value={arb} onInput={(e) => setArb(e.target.value)} placeholder="npub1…" />
           <button class="btn" onClick={() => { try { const pk = toPubkey(arb); updateSettings({ trustedArbiters: [...new Set([...(s.trustedArbiters || []), pk])] }); setArb(''); loadDirectory(); } catch (e) { toastError(e); } }}>{T('Add', 'Añadir')}</button>

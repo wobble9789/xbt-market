@@ -96,9 +96,10 @@ try {
   await fillPh('nostr+walletconnect://…', walletUri('seller'));
   await click('Connect');
   await waitText('✓ Connected', 30000);
-  await fillPh('sk-ant-…', 'sk-ant-test-key-123');
-  await click('Save');
-  await waitText('Key saved');
+  await fill('API key', 'sk-ant-test-key-123');
+  await waitText('Recognised: everything else is filled in for you');
+  await click('Connect AI service');
+  await waitText('default model · api.anthropic.com');
   const stored = await page.evaluate((pk) => localStorage.getItem(`xbt:secrets:${pk}`), me.pk);
   if (!stored || stored.includes('walletconnect') || stored.includes('sk-ant-test')) throw new Error('secrets are not encrypted: ' + stored);
   console.log('  stored secrets (encrypted):', stored.slice(0, 90) + '…');

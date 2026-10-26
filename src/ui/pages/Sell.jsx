@@ -15,10 +15,10 @@ import { secretNames } from '../../lib/secrets.js';
 import { payLabel } from './Listing.jsx';
 import { uploadImage } from '../../lib/nostr/blossom.js';
 import { settings } from '../../lib/settings.js';
-import { directory, refreshDirectory, arbiterFeeLabel } from '../../lib/nostr/directory.js';
+import { directory, refreshDirectory, arbiterDetails } from '../../lib/nostr/directory.js';
 import { navigate } from '../router.js';
 import { T, CONDITION_LABELS, PRICE_UNIT_LABELS, label } from '../i18n.js';
-import { Action, Field, Img, Empty, toast, toastError, Spinner, Name } from '../components.jsx';
+import { Action, Field, Img, Empty, toast, toastError, Spinner, Name, ArbiterName } from '../components.jsx';
 import { CountrySelect, ShipsToPicker } from '../countries.jsx';
 import { CategoryPicker, useCategoryTree, modelsFor } from '../categories.jsx';
 import { ListingCard } from './Browse.jsx';
@@ -202,7 +202,7 @@ export function EditListing({ d }) {
       <div class="row">
         {aiConfigured()
           ? <button type="button" class="btn" disabled={aiBusy || !f.images.length} onClick={runAi}>{aiBusy ? <Spinner /> : '✨'} {T('Write listing from photos', 'Escribir anuncio a partir de las fotos')}</button>
-          : <a class="btn ghost" href="#/settings">✨ {T('Set up the AI assistant', 'Configurar el asistente de IA')}</a>}
+          : <a class="btn ghost" href="#/settings?open=ai">✨ {T('Set up the AI assistant', 'Configurar el asistente de IA')}</a>}
       </div>
       {aiNote && <p class="notice small">💡 {aiNote}</p>}
       <Field label={T('Title', 'Título')}><input value={f.title} onInput={set('title')} maxLength={200} /></Field>
@@ -274,7 +274,7 @@ export function EditListing({ d }) {
               {trusted.map((pk) => (
                 <label key={pk} class={`choice ${chosenArbiters.includes(pk) ? 'on' : ''}`}>
                   <input type="checkbox" checked={chosenArbiters.includes(pk)} onChange={() => setF((cur) => { const now = cur.arbiters?.length ? cur.arbiters : trusted; return { ...cur, arbiters: now.includes(pk) ? now.filter((x) => x !== pk) : [...now, pk] }; })} />
-                  <span><Name pk={pk} link={false} avatar={false} /> <span class="muted small">{arbiterFeeLabel(dir.announcements.get(pk))}</span></span>
+                  <span><ArbiterName pk={pk} /> <span class="muted small">{arbiterDetails(dir.announcements.get(pk))}</span></span>
                 </label>
               ))}
             </div>

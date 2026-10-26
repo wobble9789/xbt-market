@@ -45,13 +45,18 @@ export function addressesInTrades(trades, me) {
   return out;
 }
 
+// Whether the address ever received anything, even if spent since. Throws
+// when the blockchain server cannot tell: an address is never taken as
+// unused without that check.
 async function usedOnChain(address) {
+  let a;
   try {
-    const a = await esplora().get(`/address/${address}`);
-    return (a.chain_stats?.tx_count || 0) + (a.mempool_stats?.tx_count || 0) > 0;
-  } catch {
-    return false; // server unreachable: the trade list and the counter still prevent reuse
+    a = await esplora().get(`/address/${address}`);
+  } catch (e) {
+    throw new Error(`Could not check your addresses on the blockchain server (${e.message}). Check Account → Network.`);
   }
+  const s = (x) => (x?.tx_count || 0) + (x?.funded_txo_count || 0);
+  return s(a.chain_stats) + s(a.mempool_stats) > 0;
 }
 
 // The next fresh address: { address, index } or null without a wallet key.
@@ -89,5 +94,5 @@ export function markPayoutUsed(pick, sent) {
   saveJSON(counterKey(), Math.max(loadJSON(counterKey(), 0), pick.index + 1));
 }
 
-// Whether an address someone typed has been used before (on chain).
-export const addressSeenBefore = (address) => usedOnChain(address);
+// Whether an address someone typed has been used before (on chain); unknown counts as no.
+export const addressSeenBefore = (address) => usedOnChain(address).catch(() => false);
