@@ -244,7 +244,7 @@ test('v2: shipping labels come from the seller only', () => {
 // ---- deadlines ---------------------------------------------------------------
 
 
-test('deadlines: ship within 5 days of paying (7 abroad), confirm within 14 days or 2 after delivery', () => {
+test('deadlines: ship within 5 days of paying (7 abroad); then 10 days to arrive and 4 to confirm or dispute, or 4 after a delivery', () => {
   assert.equal(shipDaysFor('NL', { country: 'NL' }), 5);
   assert.equal(shipDaysFor('NL', { country: 'DE' }), 7);
   assert.equal(shipDaysFor('NL', null), 5);
@@ -257,13 +257,18 @@ test('deadlines: ship within 5 days of paying (7 abroad), confirm within 14 days
   assert.equal(deadlines(s, { fundedAt: T0 + DAY }).remindAt, T0 + 4 * DAY);
   log.push(msg('seller', 'shipped', { carrier: 'postnl', tracking: 'X' }, T0 + 2 * DAY));
   s = reduceTrade(TID, log, { arbiters });
+  assert.equal(deadlines(s).arriveBy, T0 + 12 * DAY);
   assert.equal(deadlines(s).confirmBy, T0 + 16 * DAY);
-  // Only the seller reports the delivery, and only once shipped; the buyer then has 2 days.
+  // Only the seller reports the delivery, and only once shipped; the buyer then has 4 days.
   log.push(msg('buyer', 'delivered', {}, T0 + 3 * DAY), msg('seller', 'delivered', {}, T0 + 4 * DAY));
   s = reduceTrade(TID, log, { arbiters });
   assert.equal(s.delivered.at, T0 + 4 * DAY);
-  assert.equal(deadlines(s).confirmBy, T0 + 6 * DAY);
+  assert.equal(deadlines(s).arriveBy, T0 + 4 * DAY);
+  assert.equal(deadlines(s).confirmBy, T0 + 8 * DAY);
   assert.ok(s.errors.some((e) => e.includes('only the seller reports the delivery')));
+  // A hand-over at pick-up starts the 4 days at once.
+  const pick = reduceTrade(TID, [open2(), offer2({ confirmDays: 14 }), accept2(), details2(), msg('seller', 'shipped', { carrier: 'pickup' }, T0)], { arbiters });
+  assert.equal(deadlines(pick).confirmBy, T0 + 4 * DAY);
   // Shipped and delivered in the same second still count, whatever their ids.
   const same = reduceTrade(TID, [open2(), offer2(), accept2(), msg('seller', 'delivered', {}, T0), msg('seller', 'shipped', { carrier: 'postnl' }, T0)], { arbiters });
   assert.equal(same.delivered?.at, T0);

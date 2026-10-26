@@ -647,6 +647,38 @@ try {
     if (!/min=5/.test(await c.evaluate(() => location.hash))) throw new Error('filters lost after back');
     return 'search, price range, country, delivery; sort low–high and high–low; filters survive "back"';
   });
+  await step('SRCH-1', 'Saved search: save it, new listings show as new, manage it', async () => {
+    let c = await go('C', '#/?q=zoekopdrachttest');
+    await click(c, '🔔 Save search');
+    await waitText(c, '✓ Saved search');
+    // Someone else lists a matching item.
+    await newListing(await as('B'), { title: 'Zoekopdrachttest lamp', price: 12 });
+    // Account → Saved searches: the search with "1 new".
+    c = await go('C', '#/settings?open=searches');
+    await waitText(c, '“zoekopdrachttest”', 30000);
+    await c.waitForFunction(() => document.querySelector('.saved-search .badge.ok')?.textContent.includes('1 new'), { timeout: 40000 });
+    // Browse shows it as new for the saved search, too.
+    c = await go('C', '#/');
+    await waitText(c, 'New for your saved searches:', 30000);
+    // A tap on "1 new" (as from a notification): only the new listing.
+    c = await go('C', '#/settings?open=searches');
+    await (await c.waitForSelector('.saved-search a.badge.ok')).click();
+    await waitText(c, '1 new since', 30000);
+    await waitText(c, 'Zoekopdrachttest lamp');
+    await proof(c, 'plan', 'SRCH-1 · Opgeslagen zoekopdracht: alleen de nieuwe advertentie, met "Alle advertenties voor deze zoekopdracht"');
+    // Seen now: no longer new. From the manage list, the name opens all listings of the search.
+    c = await go('C', '#/settings?open=searches');
+    await waitText(c, '“zoekopdrachttest”');
+    if (await exists(c, '//*[contains(@class,"saved-search")]//a[contains(@class,"badge")]')) throw new Error('still new after seeing it');
+    await (await el(c, '//*[contains(@class,"saved-search")]//a[b]')).click();
+    await waitText(c, 'saved search', 30000);
+    await waitText(c, 'Zoekopdrachttest lamp');
+    // Delete it.
+    c = await go('C', '#/settings?open=searches');
+    await (await el(c, '//*[contains(@class,"saved-search")]//button[@title="Delete"]')).click();
+    await waitText(c, 'No saved searches yet.', 15000);
+    return 'saved from Browse; after a matching new listing: "1 new" in Account → Saved searches and on Browse; that opens only the new listing; then seen; the name opens all listings; deleted';
+  });
   await step('LST-7', 'Prices in many currencies', async () => {
     const c = await go('C', '#/settings?open=language');
     await select(c, 'Show prices in', 'USD');
@@ -970,28 +1002,32 @@ try {
     const p = await B(`#/trade/${tid}`);
     await waitText(p, 'Ship the item', 40000);
     await waitText(p, 'Kerkstraat 1');
+    await waitText(p, 'Before you ship: take a photo of the item in the box with the label visible');
     await fill(p, 'Tracking code', '3SXBT0001');
     await click(p, 'Mark as shipped');
     await waitText(p, 'Shipped with PostNL');
+    await waitText(p, 'Delivery time until');
+    await waitText(p, 'You signed the release in advance', 40000);
+    if ((await p.$$('.timer-bar')).length !== 2) throw new Error('expected two timer bars (delivery, then dispute window)');
     const c = await go('C', `#/trade/${tid}`);
     await waitText(c, 'Shipped with PostNL', 30000);
     const track = await c.$eval('a.btn.small[target=_blank]', (a) => a.href);
     if (!track.includes('postnl.nl/tracktrace/?B=3SXBT0001')) throw new Error('tracking link ' + track);
-    return 'buyer sees carrier, code and a Track link to postnl.nl';
+    await waitText(c, 'for your package to arrive');
+    return 'photo warning before shipping; two timer bars (10 days delivery, 4 days to confirm or dispute); release signed in advance; buyer sees carrier, code and a Track link to postnl.nl';
   });
-  await step('TRD-6', 'Release', async () => {
+  await step('TRD-6', 'Release in one step', async () => {
     const c = await as('C');
     await click(c, 'Everything OK: release payment');
-    await waitText(c, 'Release to seller', 30000);
-    await waitText(c, 'Buyer signed');
-    return 'proposal "Release to seller", signed by the buyer';
+    await waitText(c, 'Broadcast:', 40000);
+    return 'one tap: the buyer signs the release the seller signed when shipping, and it is broadcast at once';
   });
-  await step('TRD-7', 'Co-sign and broadcast', async () => {
+  await step('TRD-7', 'Paid out without a step for the seller', async () => {
     const p = await B(`#/trade/${tid}`);
-    await waitText(p, 'Release to seller', 30000);
-    await click(p, 'Agree and sign');
     await waitText(p, 'Broadcast:', 40000);
-    return '"✅ Broadcast: <txid>", status Paid out';
+    if (await exists(p, '//button[normalize-space(.)="Agree and sign"]')) throw new Error('seller still asked to sign');
+    await waitText(p, 'Leave a review for your trading partner', 30000);
+    return '"✅ Broadcast: <txid>" for the seller too, nothing left to sign; "Leave a review for your trading partner"';
   });
   await step('TRD-8', 'Money received', async () => {
     mine(1);
@@ -1076,12 +1112,18 @@ try {
     tid2 = await fundedTrade('Sorteertest duur');
     const c = await as('C');
     await click(c, 'Open a dispute');
-    await fillPh(c, 'What went wrong?', 'Verkoper reageert niet en verzendt niet.');
+    await choose(c, 'Not as described');
+    await waitText(c, 'Add photos of the item and the packaging');
+    await fillPh(c, 'Explain in your own words', 'Verkoper reageert niet en verzendt niet.');
+    // Not as described needs a photo.
+    if (!(await (await el(c, btnX('Open dispute'))).evaluate((b) => b.disabled))) throw new Error('dispute without the photo it asks for');
+    await choose(c, 'Something else');
     await click(c, 'Open dispute');
     await waitText(c, 'Dispute opened by the buyer');
     const p = await B(`#/trade/${tid2}`);
     await waitText(p, 'Dispute opened by the buyer', 30000);
-    return 'red notice for buyer and seller';
+    await waitText(p, 'Answer the dispute');
+    return 'a reason with the proof it needs (photos required for "not as described"); red notice for both; the seller is asked for their side and proof';
   });
   await step('DSP-2', 'Arbiter sees the dispute', async () => {
     const p = await go('A', '#/arbiter');
@@ -1183,8 +1225,18 @@ try {
   await step('EDG-3', 'Cancel before paying', async () => {
     const p = await B(`#/trade/${people.C.edgTrade}`);
     await click(p, 'Cancel trade (nothing paid yet)');
-    await waitText(p, 'Cancelled', 30000);
-    return 'status Cancelled';
+    // Nothing was paid into the escrow: simply cancelled, no refund needed.
+    await p.waitForFunction(() => document.querySelector('.page-head .badge.status, .badge.status')?.textContent.trim() === 'Cancelled', { timeout: 30000 });
+    if ((await text(p)).includes('refund needed')) throw new Error('"refund needed" for an empty escrow');
+    // Messages: under Finished, and it can be deleted from the list.
+    await go('B', '#/trades');
+    await waitText(p, 'Finished');
+    const row = `//a[contains(@class,"trade-row")][.//*[contains(@class,"badge") and normalize-space(.)="Cancelled"]]`;
+    const before = (await p.$$(`::-p-xpath(${row})`)).length;
+    if (!before) throw new Error('cancelled trade not listed as Cancelled');
+    await (await el(p, `(${row})[1]//button[contains(@class,"delete-trade")]`)).click();
+    await p.waitForFunction((x, n) => document.evaluate(`count(${x})`, document, null, XPathResult.NUMBER_TYPE).numberValue < n, { timeout: 15000 }, row, before);
+    return 'status Cancelled (no "refund needed" with an empty escrow); listed under Finished and deleted from the list with 🗑';
   });
 
   // ---- Lightning and direct payments ----
@@ -1511,13 +1563,18 @@ try {
   });
   await step('NODE-2', 'Own node', async () => {
     const p = await B('#/settings?open=network');
-    // Pasted as Start9 shows it, without /api: the app adds it.
+    if (/Start9/.test(await text(p))) throw new Error('names a company');
+    if (await exists(p, '//label[span[normalize-space(.)="Chain"]]//select')) throw new Error('chain choice still there');
+    // Pasted as Mempool shows it, without /api: the app adds it. First test, then use.
     await fillPh(p, 'https://mempool-xxxx.local', 'http://localhost:3006/');
-    await click(p, 'Use');
+    if (!(await p.$eval('::-p-xpath(//button[normalize-space(.)="Use"])', (b) => b.disabled))) throw new Error('Use enabled before a test');
+    await click(p, 'Test connection');
     await waitText(p, '✓ block');
+    await click(p, 'Use');
+    await waitText(p, 'in use');
     if (await p.$eval('::-p-xpath(//input[@placeholder="https://mempool-xxxx.local"])', (i) => i.value) !== 'http://localhost:3006/api') throw new Error('/api not added');
     await choose(p, 'Local (npm run shim)');
-    return 'own node address without /api accepted (/api added) and tested';
+    return 'generic steps, no chain choice; own node without /api: tested first (/api added), then put in use';
   });
 
   // ---- the service ----

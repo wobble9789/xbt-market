@@ -348,3 +348,20 @@ fieldset.delivery legend { font-weight: 600; padding: 0 4px; }
 .backbar { margin: 0 0 8px; }
 .rejected-box { background: var(--warn-soft); border-left: 4px solid var(--danger); }
 .rejected-box b { color: var(--danger); }
+
+.row.between { justify-content: space-between; align-items: center; }
+.trade-row .delete-trade { margin-top: 4px; padding: 2px 8px; }
+.timers { display: grid; gap: 8px; margin-top: 10px; }
+.timer { font-size: 0.85rem; }
+.timer-head { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
+.timer-bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 4px 0 2px; }
+.timer-bar > div { height: 100%; background: var(--accent, #c9a227); transition: width 0.3s; }
+.timer.late .timer-bar > div { background: var(--warn, #d08a00); }
+.timer.over .timer-bar > div { background: var(--danger); }
+.timer.waiting { opacity: 0.6; }
+.notice > .timer { margin-top: 10px; }
+.small-photos { margin: 6px 0; align-items: center; }
+.small-photos .photo { width: 64px; height: 64px; }
+.photo-picker label.btn { cursor: pointer; }
+.chat form.row .photo-picker .photos { margin: 0; }
+.refreshed { align-self: center; }

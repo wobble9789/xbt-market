@@ -86,8 +86,10 @@ try {
   await scrollTo('Network');
   await shot(page, 'Instellingen: blockchain-server gekozen uit de lijst; "Verbinding testen" haalt de blokhoogte op bij de node', { fullPage: false });
   await fillPh('https://mempool-xxxx.local', 'http://127.0.0.1:9');
-  await click('Use');
+  await click('Test connection');
   await waitText('✗ Could not reach it. Open http://127.0.0.1:9/api/blocks/tip/height in this browser');
+  // A server that failed the test cannot be put in use.
+  if (!(await page.$eval('::-p-xpath(//button[normalize-space(.)="Use"])', (b) => b.disabled))) throw new Error('Use enabled for a server that failed');
   await scrollTo('Network');
   await shot(page, 'Instellingen: een eigen node die niet bereikbaar is geeft een duidelijke fout', { fullPage: false });
   await choose('Local (npm run shim)');

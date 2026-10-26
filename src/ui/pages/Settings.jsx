@@ -21,6 +21,7 @@ import { blocks, unblock } from '../../lib/nostr/moderation.js';
 import { BugReport } from '../report.jsx';
 import { saveWalletKey, walletKeyConfigured, unusedOnChain } from '../../lib/payout.js';
 import { usePayoutPick } from '../payout.jsx';
+import { SavedSearches } from '../searches.jsx';
 
 function AccountHead() {
   const acc = useStore(account);
@@ -212,8 +213,8 @@ function nodeError(e, url) {
   if (status === 404) return T('Not found (404): check the address; it usually ends in /api.', 'No encontrado (404): revisa la dirección; suele terminar en /api.');
   if (status >= 500) return T(`The server answered ${status}: it is still starting or indexing. Try again in a few minutes.`, `El servidor respondió ${status}: aún está arrancando o indexando. Prueba de nuevo en unos minutos.`);
   if (status) return `${status}: ${e.message}`;
-  return T(`Could not reach it. Open ${probe} in this browser: a certificate warning means this browser does not trust your node yet (Start9: import its Root CA); a page that does not load means a wrong address, or you are not on your home network; a number means the server refuses other websites (CORS).`,
-    `No se puede conectar. Abre ${probe} en este navegador: un aviso de certificado significa que este navegador aún no confía en tu nodo (Start9: importa su Root CA); si la página no carga, la dirección es incorrecta o no estás en tu red de casa; si ves un número, el servidor rechaza otros sitios web (CORS).`);
+  return T(`Could not reach it. Open ${probe} in this browser: a certificate warning means this browser does not trust your node's certificate yet; a page that does not load means a wrong address, or you are not on your home network; a number means the server refuses other websites (CORS).`,
+    `No se puede conectar. Abre ${probe} en este navegador: un aviso de certificado significa que este navegador aún no confía en el certificado de tu nodo; si la página no carga, la dirección es incorrecta o no estás en tu red de casa; si ves un número, el servidor rechaza otros sitios web (CORS).`);
 }
 
 // The wallet's public key, so every trade gets a new payout address.
@@ -300,36 +301,42 @@ function NodePicker() {
   const presets = ESPLORA_PRESETS[s.network] || [];
   const isPreset = presets.some((p) => p.url === cur);
   const [custom, setCustom] = useState(isPreset ? '' : cur);
-  const [status, setStatus] = useState(null);
-  const use = (url) => { updateSettings({ esploraOverride: { ...(s.esploraOverride || {}), [s.network]: url } }); setStatus(null); };
-  const test = async (url) => {
-    setStatus('…');
-    try { const h = await new Esplora(url).tipHeight(); setStatus(`✓ ${T('block', 'bloque')} ${h.toLocaleString()}`); } catch (e) { setStatus(`✗ ${nodeError(e, url)}`); }
+  // The last test: { url, ok, text }. "Use" is only possible for an address that just passed.
+  const [tested, setTested] = useState(null);
+  const use = (url) => { updateSettings({ esploraOverride: { ...(s.esploraOverride || {}), [s.network]: url } }); };
+  const typed = /^https?:\/\//.test(custom.trim()) ? normalizeNodeUrl(custom) : '';
+  const test = async () => {
+    const url = typed || cur;
+    setTested({ url, text: '…' });
+    try { const h = await new Esplora(url).tipHeight(); setTested({ url, ok: true, text: `✓ ${T('block', 'bloque')} ${h.toLocaleString()}` }); } catch (e) { setTested({ url, ok: false, text: `✗ ${nodeError(e, url)}` }); }
   };
+  const canUse = typed && tested?.ok && tested.url === typed && typed !== cur;
   return (
     <Field group label={T('Blockchain server', 'Servidor de blockchain')} hint={T('Pick a known server or use your own node, which must follow the BLAKE2b chain.', 'Elige un servidor conocido o usa tu propio nodo, que debe seguir la cadena BLAKE2b.')}>
       <div class="choices">
         {presets.map((p) => (
           <label key={p.url} class={`choice ${cur === p.url ? 'on' : ''}`}>
-            <input type="radio" name="node" checked={cur === p.url} onChange={() => use(p.url)} /><span>{p.name}</span><span class="muted small">{p.url}</span>
+            <input type="radio" name="node" checked={cur === p.url} onChange={() => { use(p.url); setTested(null); }} /><span>{p.name}</span><span class="muted small">{p.url}</span>
           </label>
         ))}
         <label class={`choice ${!isPreset ? 'on' : ''}`}>
-          <input type="radio" name="node" checked={!isPreset} onChange={() => custom && use(custom)} /><span>{T('My own node', 'Mi propio nodo')}</span>
+          <input type="radio" name="node" checked={!isPreset} onChange={() => custom && tested?.ok && tested.url === typed && use(typed)} /><span>{T('My own node', 'Mi propio nodo')}</span>{!isPreset && <span class="muted small">{cur}</span>}
         </label>
       </div>
       <ol class="small hint">
-        <li>{T('Your own node: install Mempool on it (on Start9 with a BLAKE2b node: Mempool Pruned, set to knots-blake2b and electrs-pruned). Electrs alone does not work: browsers cannot talk to Electrum servers.', 'Tu propio nodo: instala Mempool en él (en Start9 con un nodo BLAKE2b: Mempool Pruned, con knots-blake2b y electrs-pruned). Electrs solo no sirve: los navegadores no hablan con servidores Electrum.')}</li>
-        <li>{T('Copy Mempool\'s address (Start9: Mempool → Interfaces → LAN, https://….local) and paste it below. The app adds /api itself.', 'Copia la dirección de Mempool (Start9: Mempool → Interfaces → LAN, https://….local) y pégala abajo. La app añade /api sola.')}</li>
-        <li>{T('Start9: this browser must trust your Start9 certificate first (System → Root CA → download, then import it in the browser).', 'Start9: este navegador debe confiar antes en el certificado de tu Start9 (Sistema → Root CA → descargar, e importarlo en el navegador).')}</li>
-        <li>{T('Use, then Test connection. Does the browser ask to "access other devices on your local network"? Allow it (always): that is your node. The block must match mempool.guide. A .local address only works at home; a .onion address only in Tor Browser.', 'Usar y luego Probar conexión. ¿El navegador pide «acceder a otros dispositivos de tu red local»? Permítelo (siempre): es tu nodo. El bloque debe coincidir con mempool.guide. Una dirección .local solo funciona en casa; una .onion solo en Tor Browser.')}</li>
+        <li>{T('Install Mempool on your node and set it to your BLAKE2b node (knots-blake2b) and its Electrum server (electrs, which points to knots-blake2b). Electrs alone does not work: browsers cannot talk to Electrum servers.', 'Instala Mempool en tu nodo y configúralo con tu nodo BLAKE2b (knots-blake2b) y su servidor Electrum (electrs, que apunta a knots-blake2b). Electrs solo no sirve: los navegadores no hablan con servidores Electrum.')}</li>
+        <li>{T('Paste the address of your Mempool below. The app adds /api itself.', 'Pega abajo la dirección de tu Mempool. La app añade /api sola.')}</li>
+        <li>{T('This browser, or your phone, must trust the certificate of your node or of Mempool\'s site.', 'Este navegador, o tu móvil, debe confiar en el certificado de tu nodo o del sitio de Mempool.')}</li>
+        <li>{T('Tap Test connection. If it works, tap Use.', 'Toca Probar conexión. Si funciona, toca Usar.')}</li>
+        <li>{T('Does the browser ask to "access other devices on your local network"? Allow it (always): that is your node.', '¿El navegador pide «acceder a otros dispositivos de tu red local»? Permítelo (siempre): es tu nodo.')}</li>
+        <li>{T('Check the block height: it must match mempool.guide. A .local address only works on your home network.', 'Comprueba la altura de bloque: debe coincidir con mempool.guide. Una dirección .local solo funciona en tu red de casa.')}</li>
       </ol>
       <div class="row">
-        <input value={custom} onInput={(e) => setCustom(e.target.value)} placeholder="https://mempool-xxxx.local" />
-        <button type="button" class="btn" disabled={!/^https?:\/\//.test(custom.trim())} onClick={() => { const url = normalizeNodeUrl(custom); setCustom(url); use(url); test(url); }}>{T('Use', 'Usar')}</button>
-        <button type="button" class="btn ghost" onClick={() => test(cur)}>{T('Test connection', 'Probar conexión')}</button>
+        <input value={custom} onInput={(e) => setCustom(e.target.value)} placeholder="https://mempool-xxxx.local" aria-label={T('Address of your Mempool', 'Dirección de tu Mempool')} />
+        <button type="button" class="btn" onClick={test}>{T('Test connection', 'Probar conexión')}</button>
+        <button type="button" class="btn primary" disabled={!canUse} onClick={() => { setCustom(typed); use(typed); toast(T('Your node is in use', 'Tu nodo está en uso'), 'ok'); }}>{T('Use', 'Usar')}</button>
       </div>
-      {status && <span class="small">{status}</span>}
+      {tested && <span class={`small ${tested.ok ? 'ok-text' : tested.ok === false ? 'error' : ''}`}>{tested.text}{tested.ok && tested.url === cur ? ` · ${T('in use', 'en uso')}` : ''}</span>}
     </Field>
   );
 }
@@ -432,6 +439,10 @@ export function Settings({ query }) {
         <FixedAddress />
       </Section>
 
+      <Section icon="🔔" title={T('Saved searches', 'Búsquedas guardadas')} summary={T('notifications for new listings', 'avisos de anuncios nuevos')} open={openSet.has('searches')}>
+        <SavedSearches />
+      </Section>
+
       <Section icon="📦" title={T('Shipping address', 'Dirección de envío')} summary={addressComplete(s.address) ? T('✓ filled in', '✓ rellenada') : T('needed to have things shipped', 'necesaria para recibir envíos')} open={openSet.has('address')}>
         <p class="hint">{T('Where sellers ship your orders, and the sender address on your own shipping labels. It goes, encrypted, only to the other side of a trade.', 'Donde los vendedores envían tus pedidos, y el remitente de tus propias etiquetas. Solo va, cifrada, a la otra parte de una compra.')}</p>
         <AddressForm value={s.address} onChange={(address) => updateSettings({ address })} />
@@ -456,9 +467,7 @@ export function Settings({ query }) {
       </Section>
 
       <Section icon="🌐" title={T('Network', 'Red')} summary={T('blockchain server, relays, photo server', 'servidor de blockchain, relays, servidor de fotos')} open={openSet.has('network')}>
-        <Field label={T('Chain', 'Cadena')}>
-          <select value={s.network} onChange={set('network')}><option value="mainnet">BLAKE2b mainnet</option><option value="testnet4">BLAKE2b testnet4</option><option value="regtest">regtest</option></select>
-        </Field>
+        <p class="small">{T('Chain', 'Cadena')}: <b>{s.network === 'mainnet' ? 'BLAKE2b mainnet' : s.network === 'testnet4' ? 'BLAKE2b testnet4' : s.network}</b></p>
         <NodePicker />
         <Field label={T('Minimum confirmations before shipping', 'Confirmaciones mínimas antes de enviar')}>
           <input type="number" min="1" max="100" value={s.minConfirmations} onInput={(e) => updateSettings({ minConfirmations: Math.max(1, Number(e.target.value) || 1) })} />

@@ -292,30 +292,28 @@ try {
   await shot(await as('seller'), 'Verkoper: escrow volledig betaald en bevestigd door de node, verzendformulier met het adres van de koper');
 
   step('seller ships');
+  await waitText(await as('seller'), 'Before you ship: take a photo of the item in the box with the label visible');
   await fill(await as('seller'), 'Tracking code', '3SXBT123');
   await click(await as('seller'), 'Mark as shipped');
   await waitText(await as('seller'), 'Shipped with PostNL');
-  await waitText(await as('seller'), 'Waiting for the buyer to confirm, until');
-  await shot(await as('seller'), 'Verkoper: verzonden met PostNL, trackingcode met Volgen-knop');
+  // 10 days to arrive, then 4 to confirm or open a dispute, as bars.
+  await waitText(await as('seller'), 'Delivery time until');
+  await waitText(await as('seller'), 'Time to confirm or open a dispute');
+  // The release is signed in advance: the buyer's "Everything OK" pays out at once.
+  await waitText(await as('seller'), 'You signed the release in advance', 40000);
+  await shot(await as('seller'), 'Verkoper: verzonden met PostNL; balken voor levertijd (10 dagen) en tijd om te bevestigen of een geschil te openen (4 dagen); uitbetaling vooraf getekend');
   await click(await as('seller'), '📬 Delivered, per the tracking');
   await waitNoText(await as('seller'), '📬 Delivered, per the tracking', 30000);
 
-  step('buyer releases');
+  step('buyer releases: paid out in one step');
   await click(await as('buyer'), 'Refresh');
   await waitText(await as('buyer'), 'Received the item?', 40000);
   await waitText(await as('buyer'), 'The seller says the tracking shows it was delivered', 30000);
-  await waitText(await as('buyer'), 'Check it and confirm below, or open a dispute, before');
-  await shot(await as('buyer'), 'Koper: geleverd volgens de verkoper; 2 dagen om te bevestigen of te klagen');
+  await waitText(await as('buyer'), 'Check it: tap "Everything OK" below, or open a dispute before');
+  await shot(await as('buyer'), 'Koper: geleverd volgens de verkoper; 4 dagen om te bevestigen of een geschil te openen, met balk');
   await click(await as('buyer'), 'Everything OK: release payment');
-  await waitText(await as('buyer'), 'Payout proposals', 30000);
-
-  step('seller co-signs and broadcasts');
-  await waitText(await as('seller'), 'Release to seller', 30000);
-  await shot(await as('seller'), 'Verkoper: vrijgave-voorstel, getekend door de koper, klaar om mee te tekenen');
-  await waitText(await as('seller'), 'Release to seller', 30000);
-  await click(await as('seller'), 'Agree and sign');
-  await waitText(await as('seller'), 'Broadcast:', 40000);
-  await shot(await as('seller'), 'Verkoper: meegetekend en verzonden, uitbetalings-txid zichtbaar');
+  await waitText(await as('buyer'), 'Broadcast:', 40000);
+  await shot(await as('buyer'), 'Koper: één tik op "Alles in orde" en de escrow is uitbetaald (de verkoper had vooraf getekend)');
   mine(1);
   const got = Number(cli('getreceivedbyaddress', sellerAddr, '1'));
   const back = Number(cli('getreceivedbyaddress', buyerAddr, '1'));
@@ -377,10 +375,25 @@ try {
   await click(await as('buyer'), 'Refresh');
   await waitText(await as('buyer'), 'Fully paid', 40000);
   await click(await as('buyer'), 'Open a dispute');
-  await fillPh(await as('buyer'), 'What went wrong?', 'Seller does not ship and does not answer.');
+  // A reason, and the app says what proof helps.
+  await choose(await as('buyer'), 'Something else');
+  await waitText(await as('buyer'), 'Explain what happened; add photos if they help.');
+  await fillPh(await as('buyer'), 'Explain in your own words', 'Seller does not ship and does not answer.');
   await click(await as('buyer'), 'Open dispute');
   await waitText(await as('buyer'), 'Dispute opened by the buyer');
-  await shot(await as('buyer'), 'Koper: geschil geopend na betalen, rode melding en chat-tijdlijn');
+  await shot(await as('buyer'), 'Koper: geschil geopend na betalen, met reden, rode melding en chat-tijdlijn');
+
+  // The seller is asked for their side and proof, with photos.
+  await go(await as('seller'), `#/trade/${tid2}`);
+  await waitText(await as('seller'), 'Answer the dispute', 30000);
+  await waitText(await as('seller'), 'your photo of the item in the box with the label');
+  const pick = await (await as('seller')).waitForSelector('.card.attention .photo-picker input[type=file]');
+  await pick.uploadFile(new URL('../../public/icon-192.png', import.meta.url).pathname);
+  await (await as('seller')).waitForSelector('.card.attention .photo-picker .photo img', { timeout: 30000 });
+  await fillPh(await as('seller'), 'Your side of the story', 'Sorry, I was ill. Here is the item, still unpacked.');
+  await click(await as('seller'), 'Send answer');
+  await (await as('seller')).waitForSelector('.chat .msg .photo img', { timeout: 30000 });
+  await shot(await as('seller'), 'Verkoper: gevraagd om bewijs bij het geschil; antwoord met foto in de chat');
 
   await go(await as('arbiter'), '#/arbiter');
   await waitText(await as('arbiter'), 'Open disputes');
@@ -490,17 +503,18 @@ try {
   await waitText(await as('seller'), 'Shipped with PostNL');
   await click(await as('seller'), '📬 Delivered, per the tracking');
   await waitNoText(await as('seller'), '📬 Delivered, per the tracking', 30000);
-  await shiftClock('seller', 3);
+  await shiftClock('seller', 5);
   await go(await as('seller'), `#/trade/${quiet.id}`);
   await waitText(await as('seller'), 'The buyer did not confirm in time', 40000);
   await click(await as('seller'), 'Ask the arbiter to pay out');
   await waitText(await as('seller'), 'Dispute opened by the seller', 30000);
   await waitText(await as('seller'), 'Release to seller', 30000);
-  await shiftClock('buyer', 3);
+  await shiftClock('buyer', 5);
   await go(await as('buyer'), `#/trade/${quiet.id}`);
   await waitText(await as('buyer'), 'Answer in the chat before', 30000);
+  await waitText(await as('buyer'), 'Answer the dispute');
   if ((await text(await as('buyer'))).includes('Open a dispute')) throw new Error('the buyer can still complain after the deadline');
-  await shiftClock('arbiter', 7);
+  await shiftClock('arbiter', 9);
   await go(await as('arbiter'), `#/trade/${quiet.id}`);
   await waitText(await as('arbiter'), 'The buyer did not answer within 3 days. You may rule for the seller.', 40000);
   await escrowShown(await as('arbiter'));

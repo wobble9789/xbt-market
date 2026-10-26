@@ -8,8 +8,8 @@ import { searchCachedProfiles } from '../../lib/nostr/profiles.js';
 import { blocks, blockCounts, loadBlockCounts, suspension } from '../../lib/nostr/moderation.js';
 import { directory, sharedArbiters } from '../../lib/nostr/directory.js';
 import { CONDITIONS } from '../../lib/nostr/listings.js';
-import { offersPickup, shipCarriers } from '../../lib/shipping.js';
-import { shipsToCountry } from '../../lib/countries.js';
+import { FILTER_KEYS, matchesSearch } from '../../lib/search.js';
+import { SaveSearchButton, useNewSince, NewSinceBanner, NewForYou } from '../searches.jsx';
 import { settings } from '../../lib/settings.js';
 import { T, CONDITION_LABELS, label, timeAgo, countryName } from '../i18n.js';
 import { ListingPrice, Name, Img, Empty, Spinner, Avatar, useRates } from '../components.jsx';
@@ -32,7 +32,6 @@ export function ListingCard({ l }) {
 }
 
 const SORTS = [['new', ['Newest first', 'Más recientes']], ['old', ['Oldest first', 'Más antiguos']], ['price', ['Price: low to high', 'Precio: de menor a mayor']], ['-price', ['Price: high to low', 'Precio: de mayor a menor']]];
-const FILTER_KEYS = ['c', 'sub', 'model', 'country', 'to', 'min', 'max', 'cond', 'del', 'pay', 'arb'];
 
 function UserResults({ q }) {
   const [list, setList] = useState(null);
@@ -72,6 +71,8 @@ export function Browse({ query }) {
   const [tab, setTab] = useState(query.tab || 'all');
   const [open, setOpen] = useState(false);
   const setF = (patch) => setFlt((cur) => ({ ...cur, ...patch }));
+  // Opened from a saved search (a notification, or Account → Saved searches).
+  const { search: saved, since } = useNewSince(query.saved, query.new === '1');
   const active = FILTER_KEYS.filter((k) => flt[k]).length;
 
   // Keep the filters in the address, so "back" from a listing restores them.
@@ -81,6 +82,8 @@ export function Browse({ query }) {
     for (const k of FILTER_KEYS) if (flt[k]) p.set(k, flt[k]);
     if (sort !== 'new') p.set('sort', sort);
     if (tab !== 'all') p.set('tab', tab);
+    if (query.saved) p.set('saved', query.saved);
+    if (query.new === '1') p.set('new', '1');
     const h = '#/' + (p.toString() ? '?' + p : '');
     if (location.hash !== h && (location.hash || '#/').startsWith('#/') && !location.hash.slice(2).split('?')[0]) history.replaceState(null, '', h);
   }, [q, flt, sort, tab]);
@@ -98,33 +101,15 @@ export function Browse({ query }) {
   };
 
   const shown = useMemo(() => {
-    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
     let list = all;
     if (tab === 'following') list = list.filter((l) => f.set.has(l.pubkey));
-    if (flt.c) list = list.filter((l) => l.category === flt.c);
-    if (flt.sub) list = list.filter((l) => l.subcategory === flt.sub);
-    if (flt.model) list = list.filter((l) => l.model === flt.model);
-    if (flt.country) list = list.filter((l) => l.country === flt.country);
-    if (flt.cond) list = list.filter((l) => l.condition === flt.cond);
-    if (flt.del === 'pickup') list = list.filter((l) => offersPickup(l));
-    if (flt.del === 'ship') list = list.filter((l) => shipCarriers(l).length);
-    if (flt.pay) list = list.filter((l) => l.payments.includes(flt.pay));
-    // Escrow with an arbiter both sides trust.
-    if (flt.arb) list = list.filter((l) => l.payments.includes('escrow') && sharedArbiters(l, dir, me).length);
-    if (flt.to) list = list.filter((l) => shipCarriers(l).length && shipsToCountry(l.shipsTo, flt.to, l.country));
-    const min = Number(flt.min) || 0;
-    const max = Number(flt.max) || 0;
-    if (min || max) list = list.filter((l) => { const v = inDisplay(l); return v != null && (!min || v >= min) && (!max || v <= max); });
-    if (words.length) {
-      list = list.filter((l) => {
-        const hay = `${l.title} ${l.summary} ${l.content} ${l.location}`.toLowerCase();
-        return words.every((w) => hay.includes(w));
-      });
-    }
+    if (since) list = list.filter((l) => l.createdAt > since);
+    const search = { q, ...flt };
+    list = list.filter((l) => matchesSearch(l, search, { priceIn: inDisplay, sharedArbiters: (x) => sharedArbiters(x, dir, me) }));
     const price = (l) => inDisplay(l) ?? Infinity;
     const cmp = { new: (a, b) => b.createdAt - a.createdAt, old: (a, b) => a.createdAt - b.createdAt, price: (a, b) => price(a) - price(b), '-price': (a, b) => price(b) - price(a) }[sort];
     return [...list].sort(cmp);
-  }, [listings, q, flt, sort, tab, f, rates, blocked, dir, counts]);
+  }, [listings, q, flt, sort, tab, f, rates, blocked, dir, counts, since]);
 
   // "@name" searches people; anything else searches listings.
   const userSearch = q.trim().startsWith('@');
@@ -144,6 +129,10 @@ export function Browse({ query }) {
         </select>
         <button class={`btn ${active ? 'primary' : ''}`} onClick={() => setOpen(!open)}>⚙ {T('Filters', 'Filtros')}{active ? ` (${active})` : ''}</button>
       </div>
+      <div class="row search-actions">
+        <SaveSearchButton query={{ q, ...flt, cur: display }} />
+      </div>
+      {saved ? <NewSinceBanner search={saved} since={since} count={shown.length} /> : <NewForYou />}
       {open && (
         <div class="card filters">
           <div class="cols">

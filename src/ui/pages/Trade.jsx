@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { useStore } from '../../lib/store.js';
+import { useStore, createStore } from '../../lib/store.js';
 import { inbox, rumorsFor } from '../../lib/nostr/inbox.js';
 import { market } from '../../lib/market.js';
 import { account } from '../../lib/nostr/account.js';
 import { directory, refreshDirectory, arbiterFeePct, arbiterDetails } from '../../lib/nostr/directory.js';
 import { publishReview, reviewsAbout, tradeLimitFor } from '../../lib/nostr/reviews.js';
 import { settings, updateSettings } from '../../lib/settings.js';
-import { reduceTrade, expectedTotal, presetAllocations, deadlines, disputeClocks, paymentProof, methodOf, DAY, RESPOND_DAYS, CONFIRM_AFTER_DELIVERY_DAYS } from '../../lib/trade/protocol.js';
+import { reduceTrade, expectedTotal, presetAllocations, presignedRelease, deadlines, disputeClocks, paymentProof, methodOf, DAY, RESPOND_DAYS, COMPLAIN_DAYS } from '../../lib/trade/protocol.js';
 import {
   acceptOffer, rejectOffer, cancelTrade, markShipped, markDelivered, markReceived, openDispute, sendChat, sendFundedHint,
   loadFunding, proposePayout, signProposal, broadcastProposal, myEscrowKey, esploraFor,
   requestLightning, requestOnchain, payWithWallet, reportPaid, confirmPaid, checkOnchainPayment,
-  sendDetails, pendingDetails, sendPendingDetails, requestChange, answerChange, sendLabel, openConversation,
+  sendDetails, pendingDetails, sendPendingDetails, presignRelease, requestChange, answerChange, sendLabel, openConversation,
 } from '../../lib/trade/actions.js';
 import { walletConnected, walletLud16, lookupInvoice, payInvoice } from '../../lib/ln/wallet.js';
 import { secretNames } from '../../lib/secrets.js';
@@ -24,10 +24,11 @@ import { explorerFor } from '../../config.js';
 import { loadJSON, saveJSON } from '../../lib/store.js';
 import { navigate } from '../router.js';
 import { T, fmtDate, timeAgo, countryName } from '../i18n.js';
-import { Action, Field, Name, ArbiterName, Coin, QR, Copy, Img, Empty, Spinner, AddressForm, addressComplete, formatAddress, toast } from '../components.jsx';
+import { Action, Field, Name, ArbiterName, Coin, QR, Copy, Img, Empty, Spinner, AddressForm, addressComplete, formatAddress, toast, toastError } from '../components.jsx';
+import { uploadImage } from '../../lib/nostr/blossom.js';
 import { Reputation, payLabel, payShort, useListing } from './Listing.jsx';
 import { OrderForm } from './Order.jsx';
-import { useMyTrades } from './Trades.jsx';
+import { useMyTrades, canDelete, hideTrade } from './Trades.jsx';
 import { publishListing } from './Sell.jsx';
 import { depositSats } from '../../config.js';
 import { depositPctOf } from '../../lib/nostr/listings.js';
@@ -62,11 +63,23 @@ export function useTrade(tradeId) {
   return useMemo(() => reduceTrade(tradeId, rumorsFor(tradeId, rumors), { arbiters: dir.arbiters, me, lightningNetwork }), [tradeId, rumors, dir, me, lightningNetwork]);
 }
 
+// Escrow balances seen, per escrow address, so the Messages list knows too.
+export const escrowTotals = createStore({});
+// A cancelled escrow trade only needs a refund while coins are in the escrow.
+export const shownStatus = (state, total) => (state.status === 'cancelling' && total === 0 ? 'cancelled' : state.status);
+
 function useFunding(state) {
   const [f, setF] = useState(null);
   const [err, setErr] = useState(null);
+  const [checkedAt, setCheckedAt] = useState(null);
   const refresh = async () => {
-    try { setF(await loadFunding(state)); setErr(null); } catch (e) { setErr(e.message); }
+    try {
+      const got = await loadFunding(state);
+      setF(got);
+      setErr(null);
+      setCheckedAt(Date.now());
+      escrowTotals.set((t) => ({ ...t, [state.escrow.address]: got.total }));
+    } catch (e) { setErr(e.message); }
   };
   useEffect(() => {
     if (!state.escrow) return;
@@ -74,7 +87,7 @@ function useFunding(state) {
     const t = setInterval(refresh, 30_000);
     return () => clearInterval(t);
   }, [state.escrow?.address]);
-  return { funding: f, error: err, refresh };
+  return { funding: f, error: err, refresh, checkedAt };
 }
 
 function Steps({ state, funded }) {
@@ -94,7 +107,7 @@ function Steps({ state, funded }) {
   return <ol class="steps">{steps.map(([k, l, done]) => <li key={k} class={done ? 'done' : ''}>{l}</li>)}</ol>;
 }
 
-function EscrowBox({ state, funding, fundErr, refresh, role, done }) {
+function EscrowBox({ state, funding, fundErr, refresh, checkedAt, role, done }) {
   const o = state.offer;
   const tm = state.terms;
   const need = expectedTotal(state);
@@ -122,7 +135,8 @@ function EscrowBox({ state, funding, fundErr, refresh, role, done }) {
           </table>
           {myPart > 0 && !done && <p class="notice">{T(`Your part: send ${formatCoin(myPart)} to the address above from your own XBT wallet. Use coins received after the chain split, or a wallet that signs with the unified sighash, so the payment cannot be repeated on the other chain.`, `Tu parte: envía ${formatCoin(myPart)} a la dirección de arriba desde tu propia cartera XBT. Usa monedas recibidas después de la división de la cadena, o una cartera que firme con el sighash unificado, para que el pago no se pueda repetir en la otra cadena.`)}</p>}
           <div class="row">
-            <button class="btn small" onClick={refresh}>{T('Refresh', 'Actualizar')}</button>
+            <Action class="small" onClick={refresh}>{T('Refresh', 'Actualizar')}</Action>
+            {checkedAt && <span class="muted small refreshed">✓ {T('Checked', 'Comprobado')} {new Date(checkedAt).toLocaleTimeString()}</span>}
             <a class="btn small ghost" href={`${explorer}/address/${state.escrow.address}`} target="_blank" rel="noopener noreferrer">{T('View on explorer', 'Ver en el explorador')}</a>
           </div>
           {myPart > 0 && !done && (
@@ -263,7 +277,7 @@ function ReviewBox({ state, role }) {
   const txid = paymentProof(state);
   return (
     <div class="card">
-      <h3>{T('Leave a review', 'Deja una valoración')}</h3>
+      <h3>⭐ {T('Leave a review for your trading partner', 'Deja una valoración a la otra parte')}</h3>
       <div class="row stars-input">{[1, 2, 3, 4, 5].map((n) => <button key={n} class={`star ${n <= rating ? 'on' : ''}`} onClick={() => setRating(n)}>★</button>)}</div>
       <textarea rows="2" value={text} onInput={(e) => setText(e.target.value)} placeholder={T('How did it go?', '¿Qué tal fue?')} />
       <Action class="primary" onClick={async () => { await publishReview({ about, tradeId: state.tradeId, txid, rating, text, role }); saveJSON(key, true); setDone(true); reviewsAbout(about, { fresh: true }); toast(T('Thanks!', '¡Gracias!'), 'ok'); }}>{T('Publish review', 'Publicar valoración')}</Action>
@@ -368,19 +382,81 @@ function PaymentBox({ state, role }) {
   );
 }
 
-function DisputeBox({ state, role }) {
-  const [reason, setReason] = useState('');
-  const [open, setOpen] = useState(false);
-  if (!open) return <button class="btn ghost danger" onClick={() => setOpen(true)}>{T('Open a dispute', 'Abrir una disputa')}</button>;
+// Photos as proof: picked here, uploaded to the photo server.
+function PhotoPicker({ value, onChange, label }) {
+  const [busy, setBusy] = useState(false);
+  const add = async (e) => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    setBusy(true);
+    try { for (const f of files) { const url = await uploadImage(f); onChange((cur) => [...cur, url].slice(0, 6)); } } catch (err) { toastError(err); } finally { setBusy(false); }
+  };
   return (
-    <div class="card">
-      <h3>{T('Open a dispute', 'Abrir una disputa')}</h3>
-      <p class="hint">{T('The arbiter will read the chat and may ask for photos or videos. Try to solve it together first: you can always propose a split yourselves.', 'El árbitro leerá el chat y puede pedir fotos o vídeos. Intentad resolverlo juntos primero: siempre podéis proponer un reparto vosotros mismos.')}</p>
-      <textarea rows="3" value={reason} onInput={(e) => setReason(e.target.value)} placeholder={T('What went wrong?', '¿Qué ha salido mal?')} />
+    <div class="photo-picker">
+      <div class="photos small-photos">
+        {value.map((u) => <span key={u} class="photo"><img src={u} alt="" /><button type="button" class="x" aria-label={T('Remove', 'Quitar')} onClick={() => onChange((cur) => cur.filter((x) => x !== u))}>×</button></span>)}
+        {value.length < 6 && <label class="btn small ghost">{busy ? <span class="spinner" /> : '📷'} {label || T('Add photos', 'Añadir fotos')}<input type="file" accept="image/*" multiple hidden onChange={add} /></label>}
+      </div>
+    </div>
+  );
+}
+
+const Photos = ({ list }) => (list?.length ? <div class="photos small-photos">{list.map((u) => <a key={u} href={u} target="_blank" rel="noopener noreferrer" class="photo"><img src={u} alt="" loading="lazy" /></a>)}</div> : null);
+
+const PHOTO_PRIVACY = () => T('Photos go to the photo server under a hard-to-guess address; only the people in this trade get the link.', 'Las fotos van al servidor de fotos con una dirección difícil de adivinar; solo las personas de esta compra reciben el enlace.');
+
+// Opening a dispute: what went wrong, in words and with proof.
+function DisputeBox({ state, role }) {
+  const reasons = role === 'buyer'
+    ? [['not-arrived', T('Not arrived', 'No ha llegado'), T('Say when you last checked the tracking and your mailbox. Photos are not needed.', 'Di cuándo miraste por última vez el seguimiento y tu buzón. No hacen falta fotos.'), false],
+      ['not-as-described', T('Not as described', 'No es como se describía'), T('Add photos of the item and the packaging, and say what differs from the listing.', 'Añade fotos del artículo y del embalaje, y di en qué difiere del anuncio.'), true],
+      ['damaged', T('Damaged', 'Dañado'), T('Add photos of the damage, the item and the packaging.', 'Añade fotos del daño, del artículo y del embalaje.'), true],
+      ['other', T('Something else', 'Otra cosa'), T('Explain what happened; add photos if they help.', 'Explica qué pasó; añade fotos si ayudan.'), false]]
+    : [['no-confirm', T('The buyer does not confirm', 'El comprador no confirma'), T('Add your photo of the item in the box with the label, and the tracking code.', 'Añade tu foto del artículo en la caja con la etiqueta, y el código de seguimiento.'), false],
+      ['other', T('Something else', 'Otra cosa'), T('Explain what happened, with your photo of the item in the box with the label if you have it.', 'Explica qué pasó, con tu foto del artículo en la caja con la etiqueta si la tienes.'), false]];
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState('');
+  const [text, setText] = useState('');
+  const [photos, setPhotos] = useState([]);
+  if (!open) return <button class="btn ghost danger" onClick={() => setOpen(true)}>{T('Open a dispute', 'Abrir una disputa')}</button>;
+  const r = reasons.find((x) => x[0] === kind);
+  const ready = r && text.trim() && (!r[3] || photos.length > 0);
+  return (
+    <div class="card dispute-form">
+      <h3>⚖️ {T('Open a dispute', 'Abrir una disputa')}</h3>
+      <p class="hint">{T('The arbiter decides on what you both show. Try to solve it together first: you can always propose a split yourselves.', 'El árbitro decide según lo que mostréis los dos. Intentad resolverlo juntos primero: siempre podéis proponer un reparto vosotros mismos.')}</p>
+      <Field group label={T('What went wrong?', '¿Qué ha salido mal?')}>
+        <div class="choices">{reasons.map(([id, label]) => <label key={id} class={`choice ${kind === id ? 'on' : ''}`}><input type="radio" name="why" checked={kind === id} onChange={() => setKind(id)} /><span>{label}</span></label>)}</div>
+      </Field>
+      {r && <>
+        <p class="notice small">📎 {r[2]}</p>
+        <textarea rows="3" value={text} onInput={(e) => setText(e.target.value)} placeholder={T('Explain in your own words', 'Explícalo con tus palabras')} aria-label={T('Explanation', 'Explicación')} />
+        <PhotoPicker value={photos} onChange={setPhotos} />
+        <p class="hint">{PHOTO_PRIVACY()}</p>
+      </>}
       <div class="row">
-        <Action class="danger" disabled={!reason.trim()} onClick={async () => { await openDispute(state, reason.trim()); setOpen(false); }}>{T('Open dispute', 'Abrir disputa')}</Action>
+        <Action class="danger" disabled={!ready} onClick={async () => { await openDispute(state, `${r[1]}: ${text.trim()}`, photos); setOpen(false); }}>{T('Open dispute', 'Abrir disputa')}</Action>
         <button class="btn ghost" onClick={() => setOpen(false)}>{T('Cancel', 'Cancelar')}</button>
       </div>
+    </div>
+  );
+}
+
+// The other side of a dispute: asked for their side and proof, in the chat.
+function AnswerDispute({ state, d }) {
+  const [text, setText] = useState('');
+  const [photos, setPhotos] = useState([]);
+  const ask = d.other === 'seller'
+    ? T('Show what you sent: your photo of the item in the box with the label, and the tracking code.', 'Muestra lo que enviaste: tu foto del artículo en la caja con la etiqueta, y el código de seguimiento.')
+    : T('Show what you received: photos of the item and the packaging, or say that nothing arrived.', 'Muestra lo que recibiste: fotos del artículo y del embalaje, o di que no llegó nada.');
+  return (
+    <div class="card attention">
+      <h3>📎 {T('Answer the dispute', 'Responde a la disputa')}</h3>
+      <p class="small">{ask} {T(`Answer before ${fmtDate(d.respondBy)}, or the arbiter may decide without you.`, `Responde antes del ${fmtDate(d.respondBy)} o el árbitro puede decidir sin ti.`)}</p>
+      <textarea rows="3" value={text} onInput={(e) => setText(e.target.value)} placeholder={T('Your side of the story', 'Tu versión')} aria-label={T('Your answer', 'Tu respuesta')} />
+      <PhotoPicker value={photos} onChange={setPhotos} />
+      <p class="hint">{PHOTO_PRIVACY()}</p>
+      <Action class="primary" disabled={!text.trim() && !photos.length} onClick={async () => { await sendChat(state, text.trim(), photos); setText(''); setPhotos([]); }}>{T('Send answer', 'Enviar respuesta')}</Action>
     </div>
   );
 }
@@ -401,7 +477,7 @@ function eventText(state, e) {
     case 'request': return `💳 ${T('Payment request', 'Solicitud de pago')}: ${formatCoin(state.terms?.priceSats)}`;
     case 'paid': return `💸 ${T('Buyer paid', 'El comprador ha pagado')}`;
     case 'confirm_paid': return `✅ ${T('Seller received the payment', 'El vendedor ha recibido el pago')}`;
-    case 'funded': return `💸 ${T('Paid into escrow', 'Pagado al escrow')}`;
+    case 'funded': return <>💸 {T('Paid into escrow', 'Pagado al escrow')}{b.txid && <> · <a href={`${explorerFor(esploraFor(state.offer.network).base)}/tx/${b.txid}`} target="_blank" rel="noopener noreferrer" title={T('Check this payment on the explorer', 'Comprueba este pago en el explorador')}>txid <code>{b.txid.slice(0, 10)}…</code> ↗</a></>}</>;
     case 'label': return `🏷 ${T('Shipping label ready', 'Etiqueta de envío lista')}: ${carrier(b.carrier).name}${b.tracking ? ` · ${b.tracking}` : ''}`;
     case 'shipped': return isServiceTrade(state) ? `✅ ${T('Job done', 'Trabajo hecho')}` : `📦 ${T('Shipped', 'Enviado')}`;
     case 'received': return `🎉 ${T('Received', 'Recibido')}`;
@@ -414,6 +490,7 @@ function eventText(state, e) {
 
 function Chat({ state }) {
   const [text, setText] = useState('');
+  const [photos, setPhotos] = useState([]);
   const me = useStore(account, (a) => a.pubkey);
   const end = useRef();
   const items = useMemo(() => {
@@ -432,14 +509,17 @@ function Chat({ state }) {
         ) : (
           <div key={m.id} class={`msg ${m.from === me ? 'mine' : ''} ${m.role}`}>
             <div class="who">{m.from === me ? T('You', 'Tú') : <>{m.role === 'arbiter' ? <ArbiterName pk={m.from} /> : <Name pk={m.from} avatar={false} />} · {roleLabel(m.role)}</>} · {timeAgo(m.at)}</div>
-            <div class="text">{m.text}</div>
+            {m.text && <div class="text">{m.text}</div>}
+            <Photos list={m.photos} />
           </div>
         ))}
         <div ref={end} />
       </div>
+      {photos.length > 0 && <PhotoPicker value={photos} onChange={setPhotos} />}
       <form class="row" onSubmit={(e) => e.preventDefault()}>
         <input value={text} onInput={(e) => setText(e.target.value)} placeholder={T('Write a message…', 'Escribe un mensaje…')} />
-        <Action class="primary" disabled={!text.trim()} onClick={async () => { await sendChat(state, text.trim()); setText(''); }}>{T('Send', 'Enviar')}</Action>
+        {!photos.length && <PhotoPicker value={photos} onChange={setPhotos} label={T('Photo', 'Foto')} />}
+        <Action class="primary" disabled={!text.trim() && !photos.length} onClick={async () => { await sendChat(state, text.trim(), photos); setText(''); setPhotos([]); }}>{T('Send', 'Enviar')}</Action>
       </form>
     </div>
   );
@@ -771,6 +851,13 @@ function LabelMaker({ state }) {
   );
 }
 
+// With escrow the seller also signs the release right away: the buyer's
+// "Everything OK" then completes the payout in one step.
+async function shipAndPresign(state, info) {
+  await markShipped(state, info);
+  await presignRelease(state).catch(() => {});
+}
+
 function ShipForm({ state }) {
   const label = state.labels[state.labels.length - 1];
   const [carrierId, setCarrier] = useState(label?.carrier || shipCarrierOf(state) || '');
@@ -783,7 +870,7 @@ function ShipForm({ state }) {
         <h3>{T('Job done?', '¿Trabajo hecho?')}</h3>
         <p class="hint">{T('Let the buyer know when the work is finished. They then confirm and the payment is released.', 'Avisa al comprador cuando termines. Él lo confirma y se libera el pago.')}</p>
         <Field label={T('Note', 'Nota')}><input value={note} onInput={(e) => setNote(e.target.value)} /></Field>
-        <Action class="primary" onClick={() => markShipped(state, { carrier: 'service', tracking: '', note })}>{T('Mark as done', 'Marcar como hecho')}</Action>
+        <Action class="primary" onClick={() => shipAndPresign(state, { carrier: 'service', tracking: '', note })}>{T('Mark as done', 'Marcar como hecho')}</Action>
       </div>
     );
   }
@@ -792,7 +879,7 @@ function ShipForm({ state }) {
       <div class="card">
         <h3>🤝 {T('Pick-up', 'Recogida')}</h3>
         <p class="hint">{T('Agree a time in the chat. Mark it once the buyer has it.', 'Acordad una hora en el chat. Márcalo cuando el comprador lo tenga.')}</p>
-        <Action class="primary" onClick={() => markShipped(state, { carrier: 'pickup', tracking: '', note })}>{T('Handed over', 'Entregado')}</Action>
+        <Action class="primary" onClick={() => shipAndPresign(state, { carrier: 'pickup', tracking: '', note })}>{T('Handed over', 'Entregado')}</Action>
       </div>
     );
   }
@@ -800,7 +887,7 @@ function ShipForm({ state }) {
   return (
     <div class="card">
       <h3>📦 {T('Ship the item', 'Envía el artículo')}</h3>
-      <p class="hint">{T('Tip: film yourself packing it with the label visible. It makes any dispute easy to settle.', 'Consejo: grábate empaquetándolo con la etiqueta visible. Así cualquier disputa se resuelve fácil.')}</p>
+      <p class="notice warn">📸 {T('Before you ship: take a photo of the item in the box with the label visible. If there is a dispute, it is your proof.', 'Antes de enviarlo: haz una foto del artículo en la caja con la etiqueta visible. Si hay una disputa, es tu prueba.')}</p>
       {to ? <pre class="address">{formatAddress(to)}</pre> : <p class="notice small">{T('Waiting for the buyer\'s address: their app sends it by itself after your accept.', 'Esperando la dirección del comprador: su app la envía sola después de que aceptes.')}</p>}
       {state.servicePointId && <p class="small">{T('To pick-up point', 'Al punto de recogida')} #{state.servicePointId}</p>}
       {labelsEnabled() && !label && to && <LabelMaker state={state} />}
@@ -815,7 +902,7 @@ function ShipForm({ state }) {
         <Field label={T('Tracking code', 'Código de seguimiento')}><input value={tracking} onInput={(e) => setTracking(e.target.value)} /></Field>
       </div>
       <Field label={T('Note', 'Nota')}><input value={note} onInput={(e) => setNote(e.target.value)} /></Field>
-      <Action class="primary" disabled={!carrierId} onClick={() => markShipped(state, { carrier: carrierId, tracking, note })}>{T('Mark as shipped', 'Marcar como enviado')}</Action>
+      <Action class="primary" disabled={!carrierId} onClick={() => shipAndPresign(state, { carrier: carrierId, tracking, note })}>{T('Mark as shipped', 'Marcar como enviado')}</Action>
     </div>
   );
 }
@@ -872,15 +959,16 @@ function Deadlines({ state, role, dl, paid, balance, now }) {
     const late = now > dl.shipBy;
     if (role === 'seller') {
       return (
-        <p class={`notice ${late ? 'danger' : now > dl.remindAt ? 'warn' : ''}`}>⏰ {late
+        <div class={`notice ${late ? 'danger' : now > dl.remindAt ? 'warn' : ''}`}>⏰ {late
           ? T(`The shipping deadline (${date(dl.shipBy)}) has passed. The buyer may now cancel and get a refund. Ship today, or explain in the chat.`, `El plazo de envío (${date(dl.shipBy)}) ha pasado. El comprador ya puede cancelar y recuperar su dinero. Envíalo hoy o explícalo en el chat.`)
           : now > dl.remindAt
             ? T(`Reminder: ship by ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}). After that the buyer can cancel and get a refund.`, `Recordatorio: envíalo antes del ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}). Después el comprador puede cancelar y recuperar su dinero.`)
             : T(`Paid. Ship by ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}).`, `Pagado. Envíalo antes del ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}).`)}
-        </p>
+          {dl.paidAt && <TimerBar from={dl.paidAt} to={dl.shipBy} now={now} label={T('Time to ship', 'Tiempo para enviar')} />}
+        </div>
       );
     }
-    if (!late) return <p class="notice">⏰ {direct ? T('Paid.', 'Pagado.') : T('Fully paid.', 'Pagado del todo.')} {T(`The seller ships by ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}).`, `El vendedor lo envía antes del ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}).`)}</p>;
+    if (!late) return <div class="notice">⏰ {direct ? T('Paid.', 'Pagado.') : T('Fully paid.', 'Pagado del todo.')} {T(`The seller ships by ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}).`, `El vendedor lo envía antes del ${date(dl.shipBy)} (${inDays(dl.shipBy, now)}).`)}{dl.paidAt && <TimerBar from={dl.paidAt} to={dl.shipBy} now={now} label={T('Time to ship', 'Tiempo para enviar')} />}</div>;
     if (disputed) return null;
     const reason = T(`The seller did not ship by ${date(dl.shipBy)}.`, `El vendedor no lo envió antes del ${date(dl.shipBy)}.`);
     return (
@@ -909,21 +997,32 @@ function Deadlines({ state, role, dl, paid, balance, now }) {
   if (role === 'seller' && needsAddress(state) && !state.delivered && !disputed) {
     out.push(
       <div class="card" key="delivered">
-        <p class="hint">{T(`Does the tracking show it was delivered? Let the buyer know: they then have ${CONFIRM_AFTER_DELIVERY_DAYS} days to confirm or complain.`, `¿El seguimiento dice que se ha entregado? Avisa al comprador: entonces tiene ${CONFIRM_AFTER_DELIVERY_DAYS} días para confirmar o reclamar.`)}</p>
+        <p class="hint">{T(`Does the tracking show it was delivered? Let the buyer know: they then have ${COMPLAIN_DAYS} days to confirm or open a dispute.`, `¿El seguimiento dice que se ha entregado? Avisa al comprador: entonces tiene ${COMPLAIN_DAYS} días para confirmar o abrir una disputa.`)}</p>
         <Action class="small" onClick={() => markDelivered(state, '')}>📬 {T('Delivered, per the tracking', 'Entregado, según el seguimiento')}</Action>
       </div>,
     );
   }
-  if (state.delivered && role === 'buyer') out.push(<p key="dlv" class="notice">📬 {T('The seller says the tracking shows it was delivered.', 'El vendedor dice que el seguimiento lo da por entregado.')}</p>);
   if (!direct && !disputed) {
     const over = now > dl.confirmBy;
+    const arriving = now < dl.arriveBy;
     const buyerReleased = state.proposalOrder.some((id) => state.proposals[id].purpose === 'release' && state.proposals[id].signedBy.includes('buyer'));
+    // Bisq-style: one bar for the delivery time, one for the time to confirm or open a dispute.
+    const bars = (
+      <div key="bars" class="timers">
+        {dl.arriveBy > dl.shippedAt && <TimerBar from={dl.shippedAt} to={dl.arriveBy} now={now} label={T('Delivery time', 'Tiempo de entrega')} />}
+        <TimerBar from={dl.arriveBy} to={dl.confirmBy} now={now} label={T('Time to confirm or open a dispute', 'Tiempo para confirmar o abrir una disputa')} />
+      </div>
+    );
     if (role === 'buyer') {
-      out.push(<p key="cb" class={`notice ${over ? '' : 'warn'}`}>⏰ {over
-        ? T(`The time to report a problem ended on ${date(dl.confirmBy)}. The seller can now ask the arbiter to pay out.`, `El plazo para reclamar terminó el ${date(dl.confirmBy)}. El vendedor ya puede pedir al árbitro que le pague.`)
-        : T(`Check it and confirm below, or open a dispute, before ${date(dl.confirmBy)} (${inDays(dl.confirmBy, now)}). After that the seller can ask the arbiter to pay out.`, `Revísalo y confírmalo abajo, o abre una disputa, antes del ${date(dl.confirmBy)} (${inDays(dl.confirmBy, now)}). Después el vendedor puede pedir al árbitro que le pague.`)}</p>);
+      out.push(<div key="cb" class={`notice ${over ? '' : 'warn'}`}>⏰ {over
+        ? T(`The time to open a dispute ended on ${date(dl.confirmBy)}. The seller can now ask the arbiter to pay out.`, `El plazo para abrir una disputa terminó el ${date(dl.confirmBy)}. El vendedor ya puede pedir al árbitro que le pague.`)
+        : arriving
+          ? T(`Wait until ${date(dl.arriveBy)} for your package to arrive. Received it and all is well? Tap "Everything OK" below. Not arrived by then, or not as described? Open a dispute before ${date(dl.confirmBy)}. After that the seller can ask the arbiter to pay out.`, `Espera hasta el ${date(dl.arriveBy)} a que llegue tu paquete. ¿Lo has recibido y todo está bien? Toca «Todo bien» abajo. ¿No ha llegado para entonces, o no es como se describía? Abre una disputa antes del ${date(dl.confirmBy)}. Después el vendedor puede pedir al árbitro que le pague.`)
+          : <>{state.delivered && <>📬 {T('The seller says the tracking shows it was delivered.', 'El vendedor dice que el seguimiento lo da por entregado.')} </>}{T(`Check it: tap "Everything OK" below, or open a dispute before ${date(dl.confirmBy)} (${inDays(dl.confirmBy, now)}) if it did not arrive or is not as described. After that the seller can ask the arbiter to pay out.`, `Revísalo: toca «Todo bien» abajo, o abre una disputa antes del ${date(dl.confirmBy)} (${inDays(dl.confirmBy, now)}) si no ha llegado o no es como se describía. Después el vendedor puede pedir al árbitro que le pague.`)}</>}
+        {!over && bars}
+      </div>);
     } else if (!buyerReleased) {
-      const reason = T(`The buyer did not confirm or complain by ${date(dl.confirmBy)}.`, `El comprador no confirmó ni reclamó antes del ${date(dl.confirmBy)}.`);
+      const reason = T(`The buyer did not confirm or open a dispute by ${date(dl.confirmBy)}.`, `El comprador no confirmó ni abrió una disputa antes del ${date(dl.confirmBy)}.`);
       out.push(over ? (
         <div class="card attention" key="cb">
           <h3>⏰ {T('The buyer did not confirm in time', 'El comprador no confirmó a tiempo')}</h3>
@@ -934,10 +1033,29 @@ function Deadlines({ state, role, dl, paid, balance, now }) {
             toast(T('Sent to the arbiter', 'Enviado al árbitro'), 'ok');
           }}>{T('Ask the arbiter to pay out', 'Pedir al árbitro que pague')}</Action>
         </div>
-      ) : <p key="cb" class="notice">⏰ {T(`Waiting for the buyer to confirm, until ${date(dl.confirmBy)} (${inDays(dl.confirmBy, now)}). After that you can ask the arbiter to pay you.`, `Esperando a que el comprador confirme, hasta el ${date(dl.confirmBy)} (${inDays(dl.confirmBy, now)}). Después puedes pedir al árbitro que te pague.`)}</p>);
+      ) : (
+        <div key="cb" class="notice">⏰ {arriving
+          ? T(`Delivery time until ${date(dl.arriveBy)}. Then the buyer has ${COMPLAIN_DAYS} more days, until ${date(dl.confirmBy)}, to confirm or open a dispute. You are paid as soon as the buyer confirms.`, `Tiempo de entrega hasta el ${date(dl.arriveBy)}. Después el comprador tiene ${COMPLAIN_DAYS} días más, hasta el ${date(dl.confirmBy)}, para confirmar o abrir una disputa. Cobras en cuanto el comprador confirme.`)
+          : T(`Waiting for the buyer to confirm or open a dispute, until ${date(dl.confirmBy)} (${inDays(dl.confirmBy, now)}). After that you can ask the arbiter to pay you.`, `Esperando a que el comprador confirme o abra una disputa, hasta el ${date(dl.confirmBy)} (${inDays(dl.confirmBy, now)}). Después puedes pedir al árbitro que te pague.`)}
+          {bars}
+        </div>
+      ));
     }
   }
   return out.length ? <>{out}</> : null;
+}
+
+// A deadline as a bar that fills up, with the time left (as in Bisq).
+function TimerBar({ from, to, now, label }) {
+  const pct = to > from ? Math.min(100, Math.max(0, ((now - from) / (to - from)) * 100)) : 100;
+  const state = now >= to ? 'over' : now < from ? 'waiting' : pct > 75 ? 'late' : 'running';
+  return (
+    <div class={`timer ${state}`}>
+      <div class="timer-head"><span>{label}</span><span>{now >= to ? T('ended', 'terminado') : now < from ? T(`from ${fmtDate(from)}`, `desde el ${fmtDate(from)}`) : inDays(to, now)}</span></div>
+      <div class="timer-bar" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin="0" aria-valuemax="100"><div style={{ width: `${pct}%` }} /></div>
+      <div class="muted small">{T('until', 'hasta el')} {fmtDate(to)}</div>
+    </div>
+  );
 }
 
 // A dispute, with how long the other side has to answer it.
@@ -948,6 +1066,7 @@ function DisputeLine({ d, role, now }) {
   return (
     <div class="notice danger">
       ⚖️ {T('Dispute opened by the', 'Disputa abierta por el')} {by} ({timeAgo(d.at)}): {d.reason}
+      <Photos list={d.photos} />
       {d.late && <div class="small">{T('Opened after the deadline to complain.', 'Abierta después del plazo para reclamar.')}</div>}
       {!d.answered && (
         <div class="small">{now < d.respondBy
@@ -997,7 +1116,7 @@ export function TradePage({ tradeId, query = {} }) {
   const state = useTrade(tradeId);
   const { syncing } = useStore(inbox);
   const role = state.role;
-  const { funding, error: fundErr, refresh } = useFunding(state);
+  const { funding, error: fundErr, refresh, checkedAt } = useFunding(state);
   const [proposing, setProposing] = useState(null);
   // Buyer: right after the accept, the addresses kept with the order go out.
   useEffect(() => { if (role === 'buyer' && state.accept) sendPendingDetails(state).catch(() => {}); }, [role, !!state.accept, state.shipTo ? 1 : 0, state.payout?.buyer]);
@@ -1013,11 +1132,17 @@ export function TradePage({ tradeId, query = {} }) {
   const fullyFunded = !!funding && funding.confirmedTotal >= need;
   const balance = funding?.confirmedTotal || 0;
   const paidOut = state.escrow && funding && funding.total === 0 && state.broadcasts.length > 0;
-  const status = state.status === 'accepted' && fullyFunded ? 'funded' : state.status;
+  // Cancelled with nothing (ever) in the escrow: simply cancelled, no refund needed.
+  const emptyCancelled = !!state.cancelled && !!funding && funding.total === 0;
+  const status = state.status === 'accepted' && fullyFunded ? 'funded' : shownStatus(state, funding?.total);
   const dl = o ? deadlines(state, { fundedAt: fundedTime(funding, need) }) : null;
   const now = Date.now() / 1000;
   const paid = direct ? !!(state.paid || state.paymentConfirmed) : fullyFunded;
   const openProposals = state.proposalOrder.map((id) => state.proposals[id]).reverse();
+  // The seller's release signed in advance waits for the buyer's "Everything OK";
+  // buyer and seller do not need to see it as a proposal (the arbiter does).
+  const presigned = !direct && funding ? presignedRelease(state, funding.confirmedUtxos) : null;
+  const shownProposals = role === 'arbiter' ? openProposals : openProposals.filter((p) => !(p.purpose === 'release' && p.role === 'seller' && p.signedBy.length === 1 && !state.disputes.length));
   const canPropose = !direct && role && state.escrow && balance > 0 && state.status !== 'closed';
   const label = state.labels[state.labels.length - 1];
 
@@ -1050,8 +1175,8 @@ export function TradePage({ tradeId, query = {} }) {
       )}
       {state.cancelled && <p class="notice">{T('Cancelled by the', 'Cancelado por el')} {roleLabel(state.cancelled.by).toLowerCase()}. {state.cancelled.reason}</p>}
       {state.cancelled?.late && role === 'seller' && <p class="notice danger">{T('The buyer had already paid you. Pay them back, or agree something in the chat.', 'El comprador ya te había pagado. Devuélvele el dinero o acordad algo en el chat.')}</p>}
-      {(state.rejected || (state.cancelled && !state.escrow)) && role === 'buyer' && <NewOffer state={state} />}
-      {o && disputeClocks(state, { fundedAt: dl.paidAt }).map((d, i) => <DisputeLine key={i} d={d} role={role} now={now} />)}
+      {(state.rejected || (state.cancelled && (!state.escrow || emptyCancelled))) && role === 'buyer' && <NewOffer state={state} />}
+      {o && disputeClocks(state, { fundedAt: dl.paidAt }).map((d, i) => <div key={i}><DisputeLine d={d} role={role} now={now} />{role === d.other && !d.answered && now < d.respondBy && <AnswerDispute state={state} d={d} />}</div>)}
       {o && <ChangeBox state={state} role={role} funded={fullyFunded} />}
       {o && <DetailsForm state={state} role={role} />}
       {state.arbiter && !state.checks.arbiterTrusted && role === 'seller' && !state.broadcasts.length && <p class="notice danger">{T('The buyer chose an arbiter who is not on your trusted list. Do not pay your deposit; cancel the trade or ask in the chat.', 'El comprador eligió un árbitro que no está en tu lista de confianza. No pagues tu depósito; cancela la compra o pregunta en el chat.')}</p>}
@@ -1066,7 +1191,7 @@ export function TradePage({ tradeId, query = {} }) {
 
       {o && direct && <DirectFlow state={state} role={role} />}
 
-      {state.escrow && state.status !== 'rejected' && <EscrowBox state={state} funding={funding} fundErr={fundErr} refresh={refresh} role={role} done={fullyFunded || state.status === 'closed' || !!state.cancelled} />}
+      {state.escrow && state.status !== 'rejected' && !emptyCancelled && <EscrowBox state={state} funding={funding} fundErr={fundErr} refresh={refresh} checkedAt={checkedAt} role={role} done={fullyFunded || state.status === 'closed' || !!state.cancelled} />}
       {!direct && o && state.accept && !state.escrow && !state.cancelled && role === 'seller' && <p class="notice small">{T('Waiting for the buyer to choose an arbiter; then the escrow address appears.', 'Esperando a que el comprador elija árbitro; luego aparece la dirección del escrow.')}</p>}
 
       {/* Funding stage */}
@@ -1082,6 +1207,12 @@ export function TradePage({ tradeId, query = {} }) {
           <p>{T('If it is as described, release the payment. You get your deposit back in the same transaction.', 'Si es como se describía, libera el pago. Recuperas tu depósito en la misma transacción.')}</p>
           <Action class="primary" confirm={T('Release the payment to the seller? This cannot be undone.', '¿Liberar el pago al vendedor? No se puede deshacer.')} onClick={async () => {
             await markReceived(state, '');
+            // The seller signed the release when shipping: one signature pays out now.
+            const pre = presignedRelease(state, funding?.confirmedUtxos);
+            if (pre && await signProposal(state, pre)) {
+              toast(T('Paid out: the seller has the payment and you get your deposit back.', 'Pagado: el vendedor tiene el pago y tú recuperas tu depósito.'), 'ok');
+              return;
+            }
             await proposePayout(state, { purpose: 'release', allocations: presetAllocations(state, 'release', balance), note: '' });
             toast(T('Release signed. The seller will co-sign and broadcast.', 'Liberación firmada. El vendedor la firmará y la enviará.'), 'ok');
           }}>{T('Everything OK: release payment', 'Todo bien: liberar el pago')}</Action>
@@ -1089,8 +1220,9 @@ export function TradePage({ tradeId, query = {} }) {
       )}
 
       {/* Proposals */}
-      {openProposals.length > 0 && <h3>{T('Payout proposals', 'Propuestas de pago')}</h3>}
-      {openProposals.map((p) => <Proposal key={p.id} state={state} p={p} role={role} funding={funding} />)}
+      {role === 'seller' && presigned && !state.received && <p class="notice ok small">✍️ {T('You signed the release in advance: you are paid as soon as the buyer taps "Everything OK".', 'Firmaste la liberación por adelantado: cobras en cuanto el comprador toque «Todo bien».')}</p>}
+      {shownProposals.length > 0 && <h3>{T('Payout proposals', 'Propuestas de pago')}</h3>}
+      {shownProposals.map((p) => <Proposal key={p.id} state={state} p={p} role={role} funding={funding} />)}
 
       {canPropose && (proposing
         ? <SplitEditor state={state} balance={balance} purpose={proposing} role={role} onDone={() => setProposing(null)} />
@@ -1104,6 +1236,9 @@ export function TradePage({ tradeId, query = {} }) {
 
       {(state.status === 'closed' || state.status === 'completed') && <ReviewBox state={state} role={role} />}
       {role && <Chat state={state} />}
+      {['buyer', 'seller'].includes(role) && canDelete(status) && (
+        <div class="row"><Action class="small ghost" confirm={T('Delete this conversation from your list? The other side keeps their copy. It comes back if they write again.', '¿Borrar esta conversación de tu lista? La otra parte conserva la suya. Vuelve si te escribe de nuevo.')} onClick={async () => { hideTrade(tradeId); navigate('/trades'); }}>🗑 {T('Delete conversation', 'Borrar conversación')}</Action></div>
+      )}
     </div>
   );
 }
