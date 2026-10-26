@@ -214,7 +214,7 @@ async function newListing(p, { title, price, cat = 'diversen', sub, escrow = fal
   await setCategory(p, cat, sub);
   await fill(p, 'Price', String(price));
   if (currency) await select(p, 'Currency', currency);
-  if (escrow) { await setChoice(p, '🛡 Escrow', true); await waitText(p, 'Arbiters you accept for escrow'); }
+  if (escrow) { await setChoice(p, '🛡 Escrow', true); await waitText(p, 'Select from your trusted arbiters'); }
   if (onchain) await setChoice(p, 'On-chain', true);
   await click(p, 'Publish');
   // A tap during a late layout shift can miss; publishing twice only replaces the listing.
@@ -524,10 +524,13 @@ try {
     const p = await as('B');
     const pays = await p.evaluate(() => [...document.querySelectorAll('label.choice')].filter((l) => /Lightning \(|On-chain \(|Escrow \(/.test(l.textContent)).map((l) => [l.textContent.trim().slice(0, 12), l.querySelector('input').checked]));
     if (JSON.stringify(pays.map((x) => x[1])) !== '[true,false,false]' || !pays[2][0].includes('Escrow')) throw new Error(JSON.stringify(pays));
-    if ((await text(p)).includes('Arbiters you accept for escrow')) throw new Error('arbiter choice without escrow');
+    if ((await text(p)).includes('Select from your trusted arbiters')) throw new Error('arbiter choice without escrow');
     await choose(p, '🛡 Escrow');
-    await waitText(p, 'Arbiters you accept for escrow');
-    return 'Lightning ✓, On-chain ✗, Escrow ✗ (last); arbiter choice only after ticking escrow';
+    await waitText(p, 'Select from your trusted arbiters');
+    await waitText(p, 'Escrow deposit (%)');
+    const dep = await p.$eval('input[type=number][min="5"][max="50"]', (e) => e.value);
+    if (dep !== '15') throw new Error(`deposit starts at ${dep}`);
+    return 'Lightning ✓, On-chain ✗, Escrow ✗ (last); arbiter choice and the deposit (15%, for both) only after ticking escrow';
   });
   await step('LST-1e', 'Publish with photos', async () => {
     const p = await as('B');
@@ -904,6 +907,7 @@ try {
     await waitText(p, 'Order from');
     await waitText(p, '(the buyer)');
     if ((await text(p)).includes('Why do you reject it?')) throw new Error('reason field shown before Reject');
+    for (const secret of ['Kerkstraat', buyerAddr]) if ((await text(p)).includes(secret)) throw new Error(`the seller sees ${secret} before accepting`);
     await click(p, 'Reject');
     await waitText(p, 'Why do you reject it?');
     await proof(p, 'plan', 'TRD-2 · Verkoper: "You are selling to …", "Order from … (the buyer)", reden pas na Reject');
@@ -936,7 +940,9 @@ try {
     const c = await go('C', `#/trade/${tid}`);
     await waitText(c, 'Total needed', 30000);
     if ((await text(c)).includes('A few details for the seller')) throw new Error('the buyer is still asked for details');
-    return 'the seller sees the chosen arbiter as trusted, accepts, and the escrow address is there for both; no details step';
+    await go('B', `#/trade/${tid}`);
+    await waitText(await as('B'), 'Kerkstraat 1', 30000);
+    return 'the seller sees the chosen arbiter as trusted, accepts, and the escrow address is there for both; the buyer\'s address arrives by itself only now; no details step';
   });
   await step('TRD-4', 'Fund the escrow (3 confirmations)', async () => {
     const c = await as('C');

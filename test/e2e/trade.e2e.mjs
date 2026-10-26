@@ -194,7 +194,9 @@ try {
   await pickSubcategory(await as('seller'));
   await fill(await as('seller'), 'Price', '25');
   await choose(await as('seller'), '🛡 Escrow');
-  await waitText(await as('seller'), 'Arbiters you accept for escrow');
+  await waitText(await as('seller'), 'Select from your trusted arbiters');
+  // The seller chooses the deposit; buyer and seller both put in that share.
+  await fill(await as('seller'), 'Escrow deposit (%)', '20');
   await shot(await as('seller'), 'Verkoper: nieuwe advertentie met categorie + subcategorie, land, vervoerders zonder prijs, Lightning standaard aan en escrow aangevinkt (borgveld verschijnt)');
   await click(await as('seller'), 'Publish');
   await waitText(await as('seller'), 'Trezor Model One, sealed');
@@ -232,6 +234,8 @@ try {
   // the delivery address from the account: nothing to send after the accept.
   await (await as('buyer')).waitForFunction(() => [...document.querySelectorAll('.order-form select')].some((s) => s.textContent.includes('Alice Arbiter')), { timeout: 30000 });
   await waitText(await as('buyer'), 'Kerkstraat 1');
+  await waitText(await as('buyer'), 'Your deposit (20%), paid back when the trade completes');
+  await waitText(await as('buyer'), 'The seller puts in the same deposit (20%)');
   const buyerAddr = cli('getnewaddress', 'buyer', 'bech32');
   await fillPh(await as('buyer'), 'bc1q…', buyerAddr);
   await shot(await as('buyer'), 'Koper: bestellen: betaalmethode, vervoerder, bod, arbiter van de verkoper, terugbetaaladres en verzendadres uit het account; overzicht met bod, verzending, borg en totaal');
@@ -243,7 +247,10 @@ try {
   step('seller accepts');
   await waitText(await as('seller'), 'Order from', 30000);
   await waitText(await as('seller'), 'the buyer');
-  await shot(await as('seller'), 'Verkoper: "Bestelling van … (de koper)" met prijs, verzending en betaalmethode; Afwijzen-reden pas na tikken');
+  await waitText(await as('seller'), 'Deposits (20% each)');
+  // Privacy: the buyer's address and refund address only come after the accept.
+  for (const secret of ['Kerkstraat', buyerAddr]) if ((await text(await as('seller'))).includes(secret)) throw new Error(`the seller sees ${secret} before accepting`);
+  await shot(await as('seller'), 'Verkoper: "Bestelling van … (de koper)" met prijs, verzending, betaalmethode en borg (20% elk); nog geen adres van de koper');
   const sellerAddr = await prefilledPayout(await as('seller'));
   console.log('fresh payout address', sellerAddr);
   await click(await as('seller'), '✓ Accept');
@@ -251,6 +258,8 @@ try {
   await waitText(await as('seller'), 'Total needed', 30000);
   await waitText(await as('buyer'), 'Total needed', 30000);
   if ((await text(await as('buyer'))).includes('A few details for the seller')) throw new Error('the buyer is still asked for details');
+  // The buyer's app sends the address by itself once the seller accepted.
+  await waitText(await as('seller'), 'Kerkstraat 1', 30000);
 
   step('both fund the escrow');
   await waitText(await as('buyer'), 'Total needed');
@@ -260,14 +269,15 @@ try {
   console.log('escrow', esc);
   await shot(await as('buyer'), 'Koper: escrow-adres met QR-code en bedragen na accepteren (zelfde adres als de verkoper)');
   await shot(await as('buyer'), 'Koper: escrow-betaalscherm op een telefoon', true);
-  // amounts: buyer price+15%, seller 15%
+  // amounts: buyer price+20%, seller 20%
   const amounts = await (await as('buyer')).$$eval('table.amounts tr td:last-child', (tds) => tds.map((t) => t.innerText));
   console.log('amount table', amounts);
-  // Pay exactly what the page asks: price incl. shipping + 15% from the buyer, 15% from the seller.
+  // Pay exactly what the page asks: price incl. shipping + 20% from the buyer, 20% from the seller.
   const coin = (t) => Number(t.match(/([\d.]+) XBT/)[1]);
   const buyerPart = coin(amounts[0]);
   const sellerPart = coin(amounts[1]);
-  const price = Math.round((buyerPart / 1.15) * 1e8) / 1e8;
+  const price = Math.round((buyerPart / 1.2) * 1e8) / 1e8;
+  if (Math.abs(sellerPart - price * 0.2) > 0.00000002) throw new Error(`seller deposit ${sellerPart} is not 20% of ${price}`);
   console.log('buyer pays', buyerPart, 'seller pays', sellerPart, 'price', price);
   cli('sendtoaddress', esc, buyerPart.toFixed(8));
   cli('sendtoaddress', esc, sellerPart.toFixed(8));

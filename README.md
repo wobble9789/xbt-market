@@ -26,7 +26,7 @@ A peer-to-peer marketplace paid in **Bitcoin BLAKE2b** (XBT / BTCB2), the chain 
 
 1. **Message and order.** The buyer starts a conversation about a listing, and orders from the chat: an XBT amount (suggested from the SafeTrade XBT/USDT rate, item + shipping), the payment method and the delivery. Everything is NIP-17 encrypted.
 2. **Accept, then details.** The seller accepts. The buyer then sends the delivery address and, with escrow, picks an approved arbiter and a refund address. The arbiter receives the trade so far, and all three derive the same escrow address. The seller's app warns not to pay into an escrow whose arbiter is not approved.
-3. **Fund.** The buyer pays price + a 15% deposit; the seller pays the same 15% deposit. The app waits for the configured number of confirmations.
+3. **Fund.** The buyer pays price + the deposit; the seller pays the same deposit. The seller sets it on the listing (5–50% of the price, default 15%). The app waits for the configured number of confirmations.
 4. **Ship.** The seller ships and adds the carrier and tracking code.
 5. **Release.** The buyer signs a payout (seller: price + deposit, buyer: deposit back). The seller co-signs and broadcasts. The network fee is shared in proportion.
 6. **Dispute.** Either side opens a dispute. The arbiter reads the chat and proposes a split, and one party co-signs it. Buyer and seller can also agree on any split themselves at any time.

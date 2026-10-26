@@ -11,7 +11,7 @@ import {
   acceptOffer, rejectOffer, cancelTrade, markShipped, markDelivered, markReceived, openDispute, sendChat, sendFundedHint,
   loadFunding, proposePayout, signProposal, broadcastProposal, myEscrowKey, esploraFor,
   requestLightning, requestOnchain, payWithWallet, reportPaid, confirmPaid, checkOnchainPayment,
-  sendDetails, requestChange, answerChange, sendLabel, openConversation,
+  sendDetails, pendingDetails, requestChange, answerChange, sendLabel, openConversation,
 } from '../../lib/trade/actions.js';
 import { walletConnected, walletLud16, lookupInvoice, payInvoice } from '../../lib/ln/wallet.js';
 import { secretNames } from '../../lib/secrets.js';
@@ -29,7 +29,8 @@ import { Reputation, payLabel, payShort, useListing } from './Listing.jsx';
 import { OrderForm } from './Order.jsx';
 import { useMyTrades } from './Trades.jsx';
 import { publishListing } from './Sell.jsx';
-import { DEPOSIT_PCT } from '../../config.js';
+import { depositSats } from '../../config.js';
+import { depositPctOf } from '../../lib/nostr/listings.js';
 import { usePayoutPick, PayoutInput } from '../payout.jsx';
 import { markPayoutUsed } from '../../lib/payout.js';
 
@@ -466,7 +467,13 @@ function ArbiterBadge({ state, ok }) {
   return ok ? <span class="badge ok">✓ {T('you trust this arbiter', 'confías en este árbitro')}</span> : <span class="badge danger">⚠ {T('not one of your trusted arbiters', 'no es uno de tus árbitros de confianza')}</span>;
 }
 
+// The escrow deposit for this trade: the share on the seller's listing as it
+// is now, else as the order quoted it. Buyer and seller always put in the same.
+const tradeDepositPct = (state, listingNow) => depositPctOf({ depositPct: listingNow?.depositPct ?? state.offer?.listing?.depositPct });
+const fairDeposits = (priceSats, buyer, seller, pct) => buyer === seller && buyer === depositSats(priceSats, pct);
+
 // The order, as both sides see it, with the seller's accept / reject.
+
 function OfferCard({ state, role }) {
   const s = settings.get();
   const dir = useStore(directory);
@@ -487,8 +494,9 @@ function OfferCard({ state, role }) {
   // when the buyer picked one of the listing's arbiters).
   const offerArbiter = escrow && !state.accept ? state.arbiter : null;
   const arbiterOk = !offerArbiter || (state.checks.arbiterTrusted && (!listingNow?.arbiters?.length || listingNow.arbiters.includes(offerArbiter.pubkey)));
-  // Both deposits are the fixed share of the price; an order that lowers the buyer's or raises the seller's is refused.
-  const depositOk = !escrow || (tm.buyerDepositSats >= Math.floor((tm.priceSats * DEPOSIT_PCT) / 100) && tm.sellerDepositSats <= Math.ceil((tm.priceSats * DEPOSIT_PCT) / 100));
+  // Both deposits are the listing's share of the price: an order with any other deposits cannot be accepted.
+  const pct = tradeDepositPct(state, listingNow);
+  const depositOk = !escrow || fairDeposits(tm.priceSats, tm.buyerDepositSats, tm.sellerDepositSats, pct);
   // Other orders for the same listing this seller already accepted and that are still running.
   const busy = useMyTrades().filter((t) => t.id !== state.tradeId && t.state.role === 'seller' && t.state.listing?.coord && t.state.listing.coord === state.listing?.coord
     && t.state.accept && !['rejected', 'cancelled', 'closed', 'completed'].includes(t.state.status)).length;
@@ -504,11 +512,11 @@ function OfferCard({ state, role }) {
         <div><span>{T('Payment', 'Pago')}</span><b>{payShort(methodOf(state))}</b></div>
         {o.shipping?.sats > 0 && o.shipping.sats < tm.priceSats && <div><span>{role === 'seller' ? T('Offer for the item', 'Oferta por el artículo') : T('Your offer for the item', 'Tu oferta por el artículo')}</span><b><Coin sats={tm.priceSats - o.shipping.sats} /></b></div>}
         <div class="total"><span>{o.shipping?.sats > 0 ? T('Total with shipping', 'Total con envío') : role === 'seller' ? T('The buyer offers', 'El comprador ofrece') : T('You offer', 'Ofreces')}</span><b><Coin sats={tm.priceSats} /></b></div>
-        {escrow && <div class="muted small"><span>{T('Deposits', 'Depósitos')}: {T('buyer', 'comprador')} {formatCoin(tm.buyerDepositSats)} · {T('seller', 'vendedor')} {formatCoin(tm.sellerDepositSats)}</span></div>}
+        {escrow && <div class="muted small"><span>{T(`Deposits (${pct}% each)`, `Depósitos (${pct}% cada uno)`)}: {T('buyer', 'comprador')} {formatCoin(tm.buyerDepositSats)} · {T('seller', 'vendedor')} {formatCoin(tm.sellerDepositSats)}</span></div>}
       </div>
       {o.note && <p class="quote">{o.note}</p>}
       {offerArbiter && <p>{T('Arbiter', 'Árbitro')}: <Name pk={offerArbiter.pubkey} /> <ArbiterBadge state={state} ok={arbiterOk} /></p>}
-      {role === 'seller' && !depositOk && state.status === 'offered' && <p class="notice danger">{T(`The deposits in this order are not ${DEPOSIT_PCT}% each. Do not accept; ask the buyer to order again.`, `Los depósitos de este pedido no son del ${DEPOSIT_PCT}% cada uno. No aceptes; pide al comprador que vuelva a pedir.`)}</p>}
+      {role === 'seller' && !depositOk && state.status === 'offered' && <p class="notice danger">{T(`The deposits in this order are not ${pct}% each, as on your listing. You cannot accept it; ask the buyer to order again.`, `Los depósitos de este pedido no son del ${pct}% cada uno, como en tu anuncio. No puedes aceptarlo; pide al comprador que vuelva a pedir.`)}</p>}
       {role === 'seller' && limit != null && escrow && tm.priceSats > limit && <p class="notice warn">{T(`This buyer has few verified trades; the community limit for them is ${formatCoin(limit)}.`, `Este comprador tiene pocas compras verificadas; el límite de la comunidad para él es ${formatCoin(limit)}.`)}</p>}
       {state.status === 'offered' && role === 'seller' && (
         <>
@@ -586,6 +594,8 @@ function DetailsForm({ state, role }) {
   useEffect(() => { refreshDirectory().catch(() => {}); }, []);
   useEffect(() => { if (!arbiter && arbiters[0]) setArbiter(arbiters[0].pubkey); }, [arbiters.length]);
   if (!state.accept || state.cancelled || state.rejected || !(needShip || needPoint || needArbiter || needPayout)) return null;
+  // The addresses chosen with the order go out by themselves (from this device).
+  if (role === 'buyer' && pendingDetails(state.tradeId) && !needPoint && !needArbiter) return <p class="notice small">{T('Sending your address to the seller…', 'Enviando tu dirección al vendedor…')}</p>;
   const addrOk = !needShip || (addressComplete(address) && address.country === sh.country);
   const payoutOk = !needPayout || isValidAddress(payout, state.offer.network);
   const ready = addrOk && payoutOk && (!needArbiter || (dir.arbiters.has(arbiter) && arbiters.some((a) => a.pubkey === arbiter))) && (!needPoint || point);
@@ -625,6 +635,8 @@ function ChangeBox({ state, role, funded }) {
   const s = settings.get();
   const [open, setOpen] = useState(false);
   const [method, setMethod] = useState('');
+  const { listings } = useStore(market);
+  const listingNow = [...listings.values()].find((l) => l.coord === state.listing?.coord);
   if (!state.offer || !['buyer', 'seller'].includes(role) || state.rejected || state.cancelled || state.paid || state.paymentConfirmed || state.escrow || funded) return null;
   const current = methodOf(state);
   const allowed = (state.offer.listing.payments?.length ? state.offer.listing.payments : ['lightning', 'onchain', 'escrow']).filter((m) => m !== current);
@@ -633,14 +645,18 @@ function ChangeBox({ state, role, funded }) {
   const mine = pending.find((c) => c.role === role);
   const canEscrow = !!state.escrowKeys?.buyer && (!state.accept || state.accept.seller?.escrowPubkey);
   const options = allowed.filter((m) => m !== 'escrow' || canEscrow);
+  const pct = tradeDepositPct(state, listingNow);
+  const p = state.terms.priceSats;
   if (theirs) {
+    const fair = theirs.method !== 'escrow' || fairDeposits(p, theirs.buyerDepositSats, theirs.sellerDepositSats, pct);
     return (
       <div class="card attention change-box">
         <h4>🔁 {role === 'buyer' ? T('The seller', 'El vendedor') : T('The buyer', 'El comprador')} {T('asks to pay with', 'pide pagar con')} <b>{payShort(theirs.method)}</b> {T('instead of', 'en vez de')} {payShort(current)}</h4>
         {theirs.method === 'escrow' && <p class="small">{T('Deposits', 'Depósitos')}: {T('buyer', 'comprador')} {formatCoin(theirs.buyerDepositSats)} · {T('seller', 'vendedor')} {formatCoin(theirs.sellerDepositSats)}</p>}
+        {!fair && <p class="notice danger small">{T(`These deposits are not ${pct}% each. Decline, and ask again with equal deposits.`, `Estos depósitos no son del ${pct}% cada uno. Rechaza y pide de nuevo con depósitos iguales.`)}</p>}
         {theirs.note && <p class="quote">{theirs.note}</p>}
         <div class="row">
-          <Action class="primary" onClick={() => answerChange(state, theirs, true)}>✓ {T('Agree', 'Aceptar')}</Action>
+          <Action class="primary" disabled={!fair} onClick={() => answerChange(state, theirs, true)}>✓ {T('Agree', 'Aceptar')}</Action>
           <Action class="ghost danger" onClick={() => answerChange(state, theirs, false)}>{T('Decline', 'Rechazar')}</Action>
         </div>
       </div>
@@ -649,7 +665,6 @@ function ChangeBox({ state, role, funded }) {
   if (mine) return <p class="notice small">🔁 {T(`You asked to pay with ${payShort(mine.method)}. Waiting for an answer.`, `Pediste pagar con ${payShort(mine.method)}. Esperando respuesta.`)}</p>;
   if (!options.length) return null;
   if (!open) return <button class="btn ghost small" onClick={() => { setOpen(true); setMethod(options[0]); }}>🔁 {T('Change payment method', 'Cambiar método de pago')}</button>;
-  const p = state.terms.priceSats;
 
   return (
     <div class="card change-box">
@@ -657,7 +672,7 @@ function ChangeBox({ state, role, funded }) {
       <p class="small">{T('Now', 'Ahora')}: <b>{payShort(current)}</b>. {T('The other side has to agree.', 'La otra parte tiene que aceptar.')}</p>
       <div class="choices">{options.map((m) => <label key={m} class={`choice ${method === m ? 'on' : ''}`}><input type="radio" name="chg" checked={method === m} onChange={() => setMethod(m)} /><span>{payLabel(m)}</span></label>)}</div>
       <div class="row">
-        <Action class="primary" disabled={!method} onClick={async () => { await requestChange(state, { method, buyerDepositSats: Math.round((p * DEPOSIT_PCT) / 100), sellerDepositSats: Math.round((p * DEPOSIT_PCT) / 100) }); setOpen(false); }}>{T('Ask', 'Pedir')}</Action>
+        <Action class="primary" disabled={!method} onClick={async () => { await requestChange(state, { method, buyerDepositSats: depositSats(p, pct), sellerDepositSats: depositSats(p, pct) }); setOpen(false); }}>{T('Ask', 'Pedir')}</Action>
         <button class="btn ghost" onClick={() => setOpen(false)}>{T('Cancel', 'Cancelar')}</button>
       </div>
     </div>
@@ -712,7 +727,7 @@ function LabelMaker({ state }) {
     const t = setInterval(() => poll().catch(() => {}), 5000);
     return () => clearInterval(t);
   }, [job?.id]);
-  if (!to) return <p class="notice small">{T('Waiting for the buyer\'s address.', 'Esperando la dirección del comprador.')}</p>;
+  if (!to) return <p class="notice small">{T('Waiting for the buyer\'s address: their app sends it by itself after your accept.', 'Esperando la dirección del comprador: su app la envía sola después de que aceptes.')}</p>;
   if (!addressComplete(from)) {
     return (
       <div class="card form">
@@ -786,7 +801,7 @@ function ShipForm({ state }) {
     <div class="card">
       <h3>📦 {T('Ship the item', 'Envía el artículo')}</h3>
       <p class="hint">{T('Tip: film yourself packing it with the label visible. It makes any dispute easy to settle.', 'Consejo: grábate empaquetándolo con la etiqueta visible. Así cualquier disputa se resuelve fácil.')}</p>
-      {to ? <pre class="address">{formatAddress(to)}</pre> : <p class="notice small">{T('Waiting for the buyer\'s address.', 'Esperando la dirección del comprador.')}</p>}
+      {to ? <pre class="address">{formatAddress(to)}</pre> : <p class="notice small">{T('Waiting for the buyer\'s address: their app sends it by itself after your accept.', 'Esperando la dirección del comprador: su app la envía sola después de que aceptes.')}</p>}
       {state.servicePointId && <p class="small">{T('To pick-up point', 'Al punto de recogida')} #{state.servicePointId}</p>}
       {labelsEnabled() && !label && to && <LabelMaker state={state} />}
       {!labelsEnabled() && !label && carrier(carrierId).label && <p class="muted small">{T('Buy the label at', 'Compra la etiqueta en')} <a href={carrier(carrierId).label} target="_blank" rel="noopener noreferrer">{carrier(carrierId).name}</a></p>}

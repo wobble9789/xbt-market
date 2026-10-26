@@ -8,7 +8,8 @@ import { listingTemplate, parseListing, newListingId, CONDITIONS, PAYMENT_METHOD
 import { SHIP_CARRIERS, DEFAULT_CARRIERS, optionsFor } from '../../lib/shipping.js';
 import { isService, normalizeCategory, PRICE_UNITS, DEFAULT_CATEGORY, loadCategoryTree } from '../../lib/categories.js';
 import { CURRENCIES } from '../../lib/countries.js';
-import { DEPOSIT_PCT } from '../../config.js';
+import { MIN_DEPOSIT_PCT, MAX_DEPOSIT_PCT } from '../../config.js';
+import { depositPctOf } from '../../lib/nostr/listings.js';
 import { aiConfigured, draftListing } from '../../lib/ai/listing.js';
 import { secretNames } from '../../lib/secrets.js';
 import { payLabel } from './Listing.jsx';
@@ -158,10 +159,12 @@ export function EditListing({ d }) {
     if (!f.payments?.length) throw new Error(T('Choose at least one payment method', 'Elige al menos un método de pago'));
     if (!service && !f.pickup && !f.carriers.length) throw new Error(T('Offer pick-up or at least one carrier', 'Ofrece recogida o al menos un transportista'));
     if (escrow && !chosenArbiters.length) throw new Error(T('Escrow needs at least one arbiter you trust', 'El escrow necesita al menos un árbitro de tu confianza'));
+    const dep = Number(f.depositPct ?? depositPctOf(f));
+    if (escrow && !(Number.isInteger(dep) && dep >= MIN_DEPOSIT_PCT && dep <= MAX_DEPOSIT_PCT)) throw new Error(T(`The deposit must be a whole number from ${MIN_DEPOSIT_PCT} to ${MAX_DEPOSIT_PCT}%`, `El depósito debe ser un número entero de ${MIN_DEPOSIT_PCT} a ${MAX_DEPOSIT_PCT}%`));
     const shippingOptions = service ? [] : [...(f.pickup ? [{ id: 'pickup', price: 0 }] : []), ...f.carriers.map((id) => ({ id }))];
     await publishListing({
       ...f, title: f.title.trim(), price, shippingOptions, shippingCost: null, location: '', status,
-      arbiters: escrow ? chosenArbiters : [],
+      arbiters: escrow ? chosenArbiters : [], depositPct: escrow ? dep : null,
       // A service has no condition or delivery; goods have no price per hour.
       condition: service ? '' : f.condition, shipsTo: service || !f.carriers.length ? [] : f.shipsTo, packageSize: service || !f.carriers.length ? '' : f.packageSize,
       priceUnit: service ? f.priceUnit || '' : '',
@@ -261,7 +264,11 @@ export function EditListing({ d }) {
         </div>
       </Field>
       {escrow && (
-        <Field group label={T('Arbiters you accept for escrow', 'Árbitros que aceptas para el escrow')} hint={T('If something goes wrong, one of them decides. The buyer picks one from this list when ordering.', 'Si algo sale mal, uno de ellos decide. El comprador elige uno de esta lista al pedir.')}>
+        <>
+        <Field label={T('Escrow deposit (%)', 'Depósito del escrow (%)')} hint={T(`You and the buyer both put this share of the price into the escrow (${MIN_DEPOSIT_PCT}–${MAX_DEPOSIT_PCT}%). Both get it back when the trade completes; whoever cheats can lose it.`, `Tú y el comprador ponéis los dos este porcentaje del precio en el escrow (${MIN_DEPOSIT_PCT}–${MAX_DEPOSIT_PCT}%). Ambos lo recuperáis al terminar la compra; quien haga trampa puede perderlo.`)}>
+          <input type="number" min={MIN_DEPOSIT_PCT} max={MAX_DEPOSIT_PCT} step="1" inputMode="numeric" value={f.depositPct ?? depositPctOf(f)} onInput={set('depositPct')} />
+        </Field>
+        <Field group label={T('Select from your trusted arbiters', 'Elige entre tus árbitros de confianza')} hint={T('If something goes wrong, one of them decides. The buyer picks one from this list when ordering.', 'Si algo sale mal, uno de ellos decide. El comprador elige uno de esta lista al pedir.')}>
           {!dir.loaded ? <Spinner /> : !trusted.length ? <p class="notice warn small">{T('You trust no arbiters yet. Add one under Account → Trusted arbiters.', 'Aún no confías en ningún árbitro. Añade uno en Cuenta → Árbitros de confianza.')}</p> : (
             <div class="choices">
               {trusted.map((pk) => (
@@ -272,8 +279,8 @@ export function EditListing({ d }) {
               ))}
             </div>
           )}
-          <p class="hint">{T(`Both you and the buyer put a ${DEPOSIT_PCT}% deposit into the escrow; both get it back when the trade completes.`, `Tú y el comprador ponéis un depósito del ${DEPOSIT_PCT}% en el escrow; ambos lo recuperáis al terminar la compra.`)}</p>
         </Field>
+        </>
       )}
       <div class="row">
         <Action class="primary" onClick={() => save(existing && f.status !== 'deleted' ? f.status : 'active')}>{existing ? T('Save', 'Guardar') : T('Publish', 'Publicar')}</Action>

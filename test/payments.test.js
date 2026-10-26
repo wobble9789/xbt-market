@@ -10,6 +10,7 @@ import { invoiceFromAddress, lnurlpUrl, isLightningAddress } from '../src/lib/ln
 import { parseNwcUri, buildRequest, readResponse, pickEncryption, clientPubkey, NWC_RESPONSE } from '../src/lib/ln/nwc.js';
 import { trackingUrl, parseShippingOptions, optionsFor } from '../src/lib/shipping.js';
 import { listingTemplate, parseListing } from '../src/lib/nostr/listings.js';
+import { DEFAULT_DEPOSIT_PCT, MIN_DEPOSIT_PCT, MAX_DEPOSIT_PCT, depositSats } from '../src/config.js';
 import { bytesToHex } from '../src/lib/btc/bytes.js';
 import { fakeInvoice } from '../dev/fake-invoice.mjs';
 
@@ -197,4 +198,18 @@ test('shipping: options round-trip through a listing, tracking links are safe', 
   assert.deepEqual(n.shipsTo, ['EU', 'GB']);
   // Old listings without payment tags accept escrow only.
   assert.deepEqual(parseListing({ id: 'y', pubkey: pk.seller, created_at: 1, ...listingTemplate({ d: 'l2', title: 'x', content: '', price: 1, currency: 'EUR' }) }).payments, ['escrow']);
+});
+
+test('escrow deposit: the seller sets one share on the listing, the same for both sides, never zero', () => {
+  const arb = 'a'.repeat(64);
+  const parse = (extra) => parseListing({ id: 'd', pubkey: pk.seller, created_at: 1, ...listingTemplate({ d: 'l4', title: 'Fiets', content: '', price: 100, currency: 'EUR', payments: ['escrow'], arbiters: [arb], ...extra }) });
+  assert.equal(parse({ depositPct: 20 }).depositPct, 20);
+  assert.equal(parse({}).depositPct, DEFAULT_DEPOSIT_PCT);
+  // Out of range is clamped: nobody trades escrow without risk.
+  assert.equal(parse({ depositPct: 0 }).depositPct, MIN_DEPOSIT_PCT);
+  assert.equal(parse({ depositPct: 99 }).depositPct, MAX_DEPOSIT_PCT);
+  // Old listings with only a seller deposit fall back to the default for both.
+  const old = parseListing({ id: 'o', pubkey: pk.seller, created_at: 1, kind: 30402, content: '', tags: [['d', 'l5'], ['title', 'x'], ['price', '10', 'EUR'], ['t', 'xbt-market'], ['payment', 'escrow'], ['seller_deposit_pct', '0']] });
+  assert.equal(old.depositPct, DEFAULT_DEPOSIT_PCT);
+  assert.equal(depositSats(100_000, 20), 20_000);
 });
