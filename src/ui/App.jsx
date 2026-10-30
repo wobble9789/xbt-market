@@ -8,6 +8,7 @@ import { loadBlocks, loadBlockCounts, blockCounts, suspension } from '../lib/nos
 import { autoForward } from '../lib/trade/forward.js';
 import { loadPrivate, privateData } from '../lib/nostr/private.js';
 import { SavedSearchWatcher } from './searches.jsx';
+import { SWITCHED } from '../lib/session.js';
 import { startInbox, stopInbox, inbox, tradeIds } from '../lib/nostr/inbox.js';
 import { startMarket } from '../lib/market.js';
 import { loadDirectory, refreshDirectory, directory } from '../lib/nostr/directory.js';
@@ -15,7 +16,7 @@ import { settings } from '../lib/settings.js';
 import { APP_NAME } from '../config.js';
 import { useRoute } from './router.js';
 import { T } from './i18n.js';
-import { Toasts, Action, Field, Avatar, Spinner, toastError } from './components.jsx';
+import { Toasts, Action, Field, Avatar, Spinner, toast, toastError } from './components.jsx';
 import { Browse } from './pages/Browse.jsx';
 import { ListingPage } from './pages/Listing.jsx';
 import { Sell, EditListing } from './pages/Sell.jsx';
@@ -144,6 +145,12 @@ export function App() {
   const { rumors } = useStore(inbox);
   const dir = useStore(directory);
 
+  // This tab followed a login or logout in another tab (lib/session.js).
+  useEffect(() => {
+    let why = null;
+    try { why = sessionStorage.getItem(SWITCHED); sessionStorage.removeItem(SWITCHED); } catch { /* ignore */ }
+    if (why) toast(why === 'out' ? T('You logged out in another tab, so here too.', 'Cerraste sesión en otra pestaña, así que aquí también.') : T('Another tab logged in with a different account, so this one now uses it too. This browser uses one account at a time; for a second account, use a private window or another browser.', 'Otra pestaña inició sesión con otra cuenta, así que esta también la usa ahora. Este navegador usa una cuenta a la vez; para una segunda cuenta, usa una ventana privada u otro navegador.'), 'info', 12000);
+  }, []);
   useEffect(() => {
     startMarket();
     loadDirectory().catch(toastError);

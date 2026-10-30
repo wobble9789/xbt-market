@@ -544,6 +544,8 @@ try {
     await select(p, 'Condition', 'like-new');
     await fill(p, 'Pick-up town (optional)', 'Utrecht');
     await click(p, 'Publish');
+    // A tap during a late layout shift can miss; publishing twice only replaces the listing.
+    await p.waitForFunction(() => location.hash === '#/sell', { timeout: 15000 }).catch(async () => { console.log('   (retrying Publish)'); await click(p, 'Publish'); });
     await waitText(p, 'Your listings');
     await waitText(p, 'Wollen sjaal, rood');
     const c = await openListing('C', 'Wollen sjaal, rood');
@@ -1262,7 +1264,7 @@ try {
     await fill(p, 'Lightning address for receiving (optional)', 'bea@wallet.example');
     await p.keyboard.press('Tab');
     await sleep(300);
-    const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('xbt:settings')).lightningAddress);
+    const saved = await p.evaluate((pk) => JSON.parse(localStorage.getItem(`xbt:settings:${pk}`)).lightningAddress, people.B.pk);
     if (saved !== 'bea@wallet.example') throw new Error('not saved: ' + saved);
     return 'saved; used for payment requests when no wallet is connected';
   });

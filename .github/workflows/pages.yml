@@ -1,8 +1,8 @@
 # Pull requests: unit tests and the full end-to-end suite against a real
 # Bitcoin Knots (BLAKE2b) regtest node, in three browsers, split in parallel
 # shards. A main push whose exact source tree already passed all of that in a
-# pull request goes straight to build and deploy; any other push runs the
-# full suite first.
+# pull request goes straight to build and deploy (also when started by hand
+# with "Run workflow", e.g. after adding secrets); otherwise the full suite runs first.
 #
 # Set the repository variable VITE_ADMIN_NPUB (Settings → Secrets and variables
 # → Actions → Variables) to the npub that approves arbiters.
@@ -43,7 +43,8 @@ jobs:
           tree=$(git rev-parse HEAD^{tree})
           echo "tree=$tree" >> $GITHUB_OUTPUT
           skip=false
-          if [ "${{ github.event_name }}" = push ]; then
+          # A push to main, or a run started by hand (to deploy after adding secrets).
+          if [ "${{ github.event_name }}" != pull_request ]; then
             n=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=tested-$tree" --jq '[.artifacts[]|select(.expired|not)]|length')
             [ "$n" -gt 0 ] && skip=true
           fi

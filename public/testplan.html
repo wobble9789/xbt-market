@@ -71,6 +71,23 @@
 </main>
 <script>
 const PLAN = [
+  ['XBT Market-dienst (Cloudflare) — eerst doen', 'Admin, op je computer', [
+    ['SVC-1', 'XBT Market-dienst staat live', [
+      'Heb je in Cloudflare je GitHub-repo gekoppeld? Dat is niet nodig: de deploy gaat via GitHub. Verwijder dat project: dash.cloudflare.com → links "Workers & Pages" → klik het project → "Settings" → helemaal onderaan "Delete". Anders probeert Cloudflare bij elke wijziging zelf te bouwen, en dat mislukt.',
+      'Je workers.dev-adres: Cloudflare geeft elk account een gratis webadres dat eindigt op .workers.dev, bijvoorbeeld jouwnaam.workers.dev. Je vult het nergens in; de deploy vindt het zelf. Kijk alleen of je er een hebt: "Workers & Pages" → rechts in de kolom staat "Subdomain: ….workers.dev". Vraagt Cloudflare je er een te kiezen, kies dan een naam.',
+      'Token maken: rechtsboven op je profielicoon → "Profile" → links "API Tokens" → "Create Token" → bij "Edit Cloudflare Workers" op "Use template" → bij Account Resources: Include + jouw account; bij Zone Resources: Include + All zones → "Continue to summary" → "Create Token" → kopieer de token (je ziet hem maar één keer).',
+      'Account ID: "Workers & Pages" → rechts in de kolom "Account ID" → kopieer.',
+      'Ga naar github.com/wobble9789/xbt-market/settings/secrets/actions → "New repository secret" → Name: CLOUDFLARE_API_TOKEN, Secret: de token → "Add secret". Nog een keer: Name: CLOUDFLARE_ACCOUNT_ID, Secret: het Account ID.',
+      'Ga naar github.com/wobble9789/xbt-market/actions → links "Test and deploy" → rechts "Run workflow" → branch main → groene "Run workflow". Wacht tot alles groen is (±2 min: de tests zijn al gedaan en worden overgeslagen). Wordt iets rood: screenshot van die stap.',
+      'Klik in die run op "build" → open de stap "Deploy the XBT Market service" → onderaan staat https://xbt-market.<jouw-naam>.workers.dev → open die link.',
+    ], 'De link toont {"service":"xbt-market","usernames":true,…,"push":true}. In XBT Market (ververs met Ctrl+Shift+R): Sell → Import toont "Paste a link"; Account → "🔔 Saved searches" zegt na het aanzetten van meldingen "…also when XBT Market is closed".'],
+    ['SVC-2', 'Verzending aan', ['Secrets SENDCLOUD_PUBLIC_KEY, SENDCLOUD_SECRET_KEY en PLATFORM_LN_ADDRESS, opnieuw deployen.'], '"shipping":true.'],
+    ['SVC-3', 'Bugmeldingen per mail', ['resend.com: gratis account met steenh819@gmail.com → API Keys → Create. Secrets RESEND_API_KEY en BUG_REPORT_EMAIL, opnieuw deployen.'], '"bugReports":true.'],
+    ['SVC-4', 'Bugs naar GitHub (+ Claude)', ['Fine-grained token (alleen deze repo, Issues: Read and write) → secret ISSUES_TOKEN. Voor Claude: in Claude Code /install-github-app. Opnieuw deployen.'], '"issues":true.'],
+    ['BUG-2', 'Echte bugmelding', ['Seller: Account → Report a problem met screenshot. Admin: Bug reports → Publish as GitHub issue.'], 'Mail met bijlage in je inbox; issue op GitHub zonder naam van de melder.'],
+    ['IMP-9', 'Link plakken', ['Marktplaats-app: één advertentie → Delen → Link kopiëren. Import → "Paste a link" → Read. Ook met het adres van je profiel uit de browser.'], 'Advertentie(s) met foto\'s verschijnen.'],
+    ['SHP-2', 'Echt verzendlabel', ['Na betaling: Seller → Get the label price → Buy label → betaal.'], 'Echte PostNL/DHL-QR en label in de chat.'],
+  ], 'SVC-1 kan nu al: de site staat al live, de dienst komt ernaast. De rest wanneer je die accounts hebt: SHP-2 Sendcloud + een Lightning-adres, BUG-2 Resend en een GitHub-token.'],
   ['Echt geld: on-chain met Shrike (hertest)', 'Drie browsers: [Buyer], [Seller] en [Arbiter]. Shrike: #0 = buyer, #1 = seller. Ververs eerst met Ctrl+Shift+R. Wat je goedkeurde en niet veranderd is, staat hier niet meer. Bij een fout: screenshot + txid in je notitie.', [
     ['CNL-1', 'Annuleren zonder betaling en gesprek verwijderen', [
       '[Buyer] open "Test escrow" → "🛒 Order now" → "Send order". [Seller] "✓ Accept". [Seller] "Cancel trade (nothing paid yet)".',
@@ -92,23 +109,13 @@ const PLAN = [
       '[Buyer] betaal vanuit Shrike #0 naar dat adres, precies dat bedrag. Kopieer in Shrike → Transactions de txid, plak bij "Payment txid" → "I paid".',
     ], '[Seller] ziet "✓ …, N confirmations"; het geld staat in Shrike #1 op weer een nieuw adres.'],
   ]],
-  ['XBT Market-dienst (Cloudflare, kan nu al)', 'Admin, op je computer', [
-    ['SVC-1', 'XBT Market-dienst staat live', [
-      'Heb je in Cloudflare je GitHub-repo gekoppeld? Dat is niet nodig: de deploy gaat via GitHub. Verwijder dat project: dash.cloudflare.com → links "Workers & Pages" → klik het project → "Settings" → helemaal onderaan "Delete". Anders probeert Cloudflare bij elke wijziging zelf te bouwen, en dat mislukt.',
-      'Je workers.dev-adres: Cloudflare geeft elk account een gratis webadres dat eindigt op .workers.dev, bijvoorbeeld jouwnaam.workers.dev. Je vult het nergens in; de deploy vindt het zelf. Kijk alleen of je er een hebt: "Workers & Pages" → rechts in de kolom staat "Subdomain: ….workers.dev". Vraagt Cloudflare je er een te kiezen, kies dan een naam.',
-      'Token maken: rechtsboven op je profielicoon → "Profile" → links "API Tokens" → "Create Token" → bij "Edit Cloudflare Workers" op "Use template" → bij Account Resources: Include + jouw account; bij Zone Resources: Include + All zones → "Continue to summary" → "Create Token" → kopieer de token (je ziet hem maar één keer).',
-      'Account ID: "Workers & Pages" → rechts in de kolom "Account ID" → kopieer.',
-      'Ga naar github.com/wobble9789/xbt-market/settings/secrets/actions → "New repository secret" → Name: CLOUDFLARE_API_TOKEN, Secret: de token → "Add secret". Nog een keer: Name: CLOUDFLARE_ACCOUNT_ID, Secret: het Account ID.',
-      'Ga naar github.com/wobble9789/xbt-market/actions → klik de bovenste "Test and deploy" → rechtsboven "Re-run all jobs" → bevestigen. Wacht tot alles groen is (±3 min).',
-      'Klik in die run op "build" → open de stap "Deploy the XBT Market service" → onderaan staat https://xbt-market.<jouw-naam>.workers.dev → open die link.',
-    ], 'De link toont {"service":"xbt-market","usernames":true,…,"push":true}. In XBT Market (ververs met Ctrl+Shift+R): Sell → Import toont "Paste a link"; Account → "🔔 Saved searches" zegt na het aanzetten van meldingen "…also when XBT Market is closed".'],
-    ['SVC-2', 'Verzending aan', ['Secrets SENDCLOUD_PUBLIC_KEY, SENDCLOUD_SECRET_KEY en PLATFORM_LN_ADDRESS, opnieuw deployen.'], '"shipping":true.'],
-    ['SVC-3', 'Bugmeldingen per mail', ['resend.com: gratis account met steenh819@gmail.com → API Keys → Create. Secrets RESEND_API_KEY en BUG_REPORT_EMAIL, opnieuw deployen.'], '"bugReports":true.'],
-    ['SVC-4', 'Bugs naar GitHub (+ Claude)', ['Fine-grained token (alleen deze repo, Issues: Read and write) → secret ISSUES_TOKEN. Voor Claude: in Claude Code /install-github-app. Opnieuw deployen.'], '"issues":true.'],
-    ['BUG-2', 'Echte bugmelding', ['Seller: Account → Report a problem met screenshot. Admin: Bug reports → Publish as GitHub issue.'], 'Mail met bijlage in je inbox; issue op GitHub zonder naam van de melder.'],
-    ['IMP-9', 'Link plakken', ['Marktplaats-app: één advertentie → Delen → Link kopiëren. Import → "Paste a link" → Read. Ook met het adres van je profiel uit de browser.'], 'Advertentie(s) met foto\'s verschijnen.'],
-    ['SHP-2', 'Echt verzendlabel', ['Na betaling: Seller → Get the label price → Buy label → betaal.'], 'Echte PostNL/DHL-QR en label in de chat.'],
-  ], 'SVC-1 kan nu al: de site staat al live, de dienst komt ernaast. De rest wanneer je die accounts hebt: SHP-2 Sendcloud + een Lightning-adres, BUG-2 Resend en een GitHub-token.'],
+  ['Eén account per browser', '[Buyer] en [Seller] in dezelfde Firefox, twee tabbladen (niet privé)', [
+    ['ACC-8', 'Inloggen in een tweede tabblad', [
+      'Tabblad 1: log in als Buyer. Tabblad 2 (zelfde browser): log in als Seller.',
+      'Ga terug naar tabblad 1.',
+      'Account → "📦 Shipping address" in beide accounts: elk ziet alleen zijn eigen adres.',
+    ], 'Tabblad 1 wisselt meteen mee naar Seller en zegt "Another tab logged in with a different account…". Er lopen nooit twee accounts door elkaar. Voor twee accounts tegelijk: een privévenster of een andere browser.'],
+  ]],
   ['Opgeslagen zoekopdrachten met meldingen', '[Buyer] op je telefoon (de app op je beginscherm), [Seller] op je computer. Eerst SVC-1, anders komen meldingen alleen als de app open is.', [
     ['SRCH-1', 'Melding bij een nieuwe advertentie', [
       '[Buyer] Zoek op "fiets" → "🔔 Save search" → sta meldingen toe.',
@@ -117,7 +124,15 @@ const PLAN = [
       '[Buyer] Wacht op de melding (binnen ±10 minuten) en tik erop.',
       '[Buyer] Account → "🔔 Saved searches" → tik op de naam van de zoekopdracht. Verwijder hem daarna met 🗑.',
     ], 'Stap 2: "✓ Notifications are on for this device, also when XBT Market is closed." Stap 4: melding "New for “fiets”: Test fiets"; die opent XBT Market met alleen de nieuwe advertentie ("1 new since …"). Stap 5: alle advertenties voor "fiets"; daarna is de zoekopdracht weg.'],
-  ], 'Op een iPhone werken meldingen alleen in de app op je beginscherm.'],
+  ], 'Eerst SVC-1: zonder de dienst komt een melding alleen als XBT Market open is (dat zag je). Op een iPhone werken meldingen alleen in de app op je beginscherm.'],
+  ['AI-assistent', '[Seller]', [
+    ['AI-1', 'Een AI-dienst naar keuze koppelen', [
+      'Account → "✨ AI listing assistant" → "Disconnect" (als er nog een staat).',
+      'Plak je API-sleutel, en (als de app hem niet herkent) het "API address" en het model van je dienst → "Test".',
+      'Werkt het: "Connect AI service". Daarna nog eens "Test".',
+    ], '"✓ Works." of "✓ Works. Your AI service refuses requests from websites, so XBT Market sends them through its service." (dat laatste kan pas na SVC-1). Een fout zegt nu precies wat er mis is (sleutel, adres, model of tegoed): stuur me die tekst en welke AI-dienst je gebruikt.'],
+    ['AI-2', 'Kwaliteit van de AI', ['Nieuwe advertentie → 2–3 foto\'s → "✨ Write listing from photos". Doe het voor een paar verschillende spullen.'], 'Titel, beschrijving, categorie en prijs zijn bruikbaar.'],
+  ], 'Nodig: een API-sleutel van een AI-dienst naar keuze, of een model op je eigen computer.'],
   ['Later: met XBT-Lightning', 'Seller verkoopt, Buyer koopt', [
     ['WAL-2', 'Lightning Fork', ['Marketplace → Change registry → start9.paulscode.com → installeer Lightning Fork. Select Node → knots-blake2b. Initialize Wallet → Start Fresh; seed op papier. Configure Channel Backups.'], 'Lightning Fork draait.'],
     ['WAL-3', 'Laguz Hub + kanaal', ['Registry start9.pyblock.xyz → Laguz Hub. Kanaal openen (peers: forum paulscode.com). Twee NWC-koppelingen: "seller" en "buyer".'], 'Twee connection strings.'],
@@ -126,17 +141,9 @@ const PLAN = [
     ['LN-8', 'Andere wallet', ['Buyer scant de QR met een andere XBT-Lightning-wallet → "I have paid".'], 'Status Paid.'],
     ['LN-3', 'Lightning-adres', ['Seller: vul je echte Lightning-adres in, ontkoppel de wallet en laat een factuur maken.'], 'Factuur komt van je Lightning-adres.'],
   ], 'Nodig: Lightning Fork + Laguz Hub met een kanaal (WAL-2, WAL-3), en voor LN-3 een Lightning-adres. Overslaan tot je dat hebt.'],
-  ['AI-assistent', '[Seller]', [
-    ['AI-1', 'Een AI-dienst naar keuze koppelen', [
-      'Maak bij je AI-dienst een API-sleutel en zet daar een lage maandlimiet.',
-      'Account → "✨ AI listing assistant": lees de uitleg. Plak je sleutel. Een sleutel die de app herkent heeft verder niets nodig; anders vul je het "API address" van je dienst in → "Show the available models" → kies een model dat foto\'s kan lezen.',
-      '"Connect AI service".',
-    ], 'De uitleg noemt geen andere bedrijven en is duidelijk. Daarna staat er "✓ Connected · [model] · [adres van je dienst]".'],
-    ['AI-2', 'Kwaliteit van de AI', ['Nieuwe advertentie → 2–3 foto\'s → "✨ Write listing from photos". Doe het voor een paar verschillende spullen.'], 'Titel, beschrijving, categorie en prijs zijn bruikbaar.'],
-  ], 'Nodig: een API-sleutel van een AI-dienst naar keuze, of een model op je eigen computer.'],
 ];
 
-const KEY = 'xbt-testplan-v14';
+const KEY = 'xbt-testplan-v15';
 let state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { state = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} render(); };
