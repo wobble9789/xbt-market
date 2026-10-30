@@ -94,12 +94,14 @@ const PLAN = [
   ]],
   ['XBT Market-dienst (Cloudflare, kan nu al)', 'Admin, op je computer', [
     ['SVC-1', 'XBT Market-dienst staat live', [
-      'dash.cloudflare.com, inloggen. Eerste keer Workers: links "Workers & Pages" → kies je workers.dev-subdomein.',
-      'Rechtsboven je profiel → "My Profile" → "API Tokens" → "Create Token" → sjabloon "Edit Cloudflare Workers" → "Use template". Bij Account Resources je account, bij Zone Resources "All zones" → "Continue to summary" → "Create Token" → kopieer de token.',
-      'Je Account ID: "Workers & Pages" → rechts in de kolom "Account ID" → kopieer.',
-      'GitHub → wobble9789/xbt-market → Settings → Secrets and variables → Actions → "New repository secret": CLOUDFLARE_API_TOKEN (de token) en CLOUDFLARE_ACCOUNT_ID (het ID).',
-      'GitHub → Actions → de bovenste run op main → "Re-run all jobs". Klaar na ±2 min: open de stap "Deploy the XBT Market service" in de job build en open de workers.dev-link die daar staat.',
-    ], 'Je ziet {"service":"xbt-market","usernames":true,…}. In de app is onder Import nu "Paste a link" te zien.'],
+      'Heb je in Cloudflare je GitHub-repo gekoppeld? Dat is niet nodig: de deploy gaat via GitHub. Verwijder dat project: dash.cloudflare.com → links "Workers & Pages" → klik het project → "Settings" → helemaal onderaan "Delete". Anders probeert Cloudflare bij elke wijziging zelf te bouwen, en dat mislukt.',
+      'Je workers.dev-adres: Cloudflare geeft elk account een gratis webadres dat eindigt op .workers.dev, bijvoorbeeld jouwnaam.workers.dev. Je vult het nergens in; de deploy vindt het zelf. Kijk alleen of je er een hebt: "Workers & Pages" → rechts in de kolom staat "Subdomain: ….workers.dev". Vraagt Cloudflare je er een te kiezen, kies dan een naam.',
+      'Token maken: rechtsboven op je profielicoon → "Profile" → links "API Tokens" → "Create Token" → bij "Edit Cloudflare Workers" op "Use template" → bij Account Resources: Include + jouw account; bij Zone Resources: Include + All zones → "Continue to summary" → "Create Token" → kopieer de token (je ziet hem maar één keer).',
+      'Account ID: "Workers & Pages" → rechts in de kolom "Account ID" → kopieer.',
+      'Ga naar github.com/wobble9789/xbt-market/settings/secrets/actions → "New repository secret" → Name: CLOUDFLARE_API_TOKEN, Secret: de token → "Add secret". Nog een keer: Name: CLOUDFLARE_ACCOUNT_ID, Secret: het Account ID.',
+      'Ga naar github.com/wobble9789/xbt-market/actions → klik de bovenste "Test and deploy" → rechtsboven "Re-run all jobs" → bevestigen. Wacht tot alles groen is (±3 min).',
+      'Klik in die run op "build" → open de stap "Deploy the XBT Market service" → onderaan staat https://xbt-market.<jouw-naam>.workers.dev → open die link.',
+    ], 'De link toont {"service":"xbt-market","usernames":true,…,"push":true}. In XBT Market (ververs met Ctrl+Shift+R): Sell → Import toont "Paste a link"; Account → "🔔 Saved searches" zegt na het aanzetten van meldingen "…also when XBT Market is closed".'],
     ['SVC-2', 'Verzending aan', ['Secrets SENDCLOUD_PUBLIC_KEY, SENDCLOUD_SECRET_KEY en PLATFORM_LN_ADDRESS, opnieuw deployen.'], '"shipping":true.'],
     ['SVC-3', 'Bugmeldingen per mail', ['resend.com: gratis account met steenh819@gmail.com → API Keys → Create. Secrets RESEND_API_KEY en BUG_REPORT_EMAIL, opnieuw deployen.'], '"bugReports":true.'],
     ['SVC-4', 'Bugs naar GitHub (+ Claude)', ['Fine-grained token (alleen deze repo, Issues: Read and write) → secret ISSUES_TOKEN. Voor Claude: in Claude Code /install-github-app. Opnieuw deployen.'], '"issues":true.'],
@@ -134,7 +136,7 @@ const PLAN = [
   ], 'Nodig: een API-sleutel van een AI-dienst naar keuze, of een model op je eigen computer.'],
 ];
 
-const KEY = 'xbt-testplan-v13';
+const KEY = 'xbt-testplan-v14';
 let state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { state = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} render(); };
