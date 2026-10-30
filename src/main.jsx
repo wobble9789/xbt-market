@@ -1,4 +1,5 @@
 import { render } from 'preact';
+import './lib/session.js';
 import { App } from './ui/App.jsx';
 import { settings } from './lib/settings.js';
 import { inbox } from './lib/nostr/inbox.js';

@@ -5,6 +5,7 @@
 //   - import: read a public Marktplaats / Vinted page from a pasted link
 //   - bug reports: e-mailed to the maintainer (with screenshots or a video)
 //   - push notifications for saved searches (new listings), see push.js
+//   - a relay for AI services that refuse requests from websites, see ai.js
 // It holds no user keys and no listings. Every request that acts for a user is
 // signed with their Nostr key (NIP-98).
 //
@@ -30,6 +31,7 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import { lnurlpUrl } from '../src/lib/ln/lnurl.js';
 import { decodeInvoice } from '../src/lib/ln/bolt11.js';
 import { vapidKeys, subscribe as pushSubscribe, runPush } from './push.js';
+import { relayAi } from './ai.js';
 import { nextDataFromHtml, mpResults, fromMp, fromVinted, flattenJsonLd, productsFromJsonLd, findMpListings, dedupeItems, imagesFromHtml, isLogo, BOOKMARKLET_VERSION } from '../src/bookmarklet/extract.js';
 
 export const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
@@ -466,7 +468,7 @@ async function route(request, url, env, store, fetchImpl) {
     try { data = text ? JSON.parse(text) : {}; } catch { throw Object.assign(new Error('Bad JSON'), { status: 400 }); }
     return { text, data };
   };
-  if (p === '/' && m === 'GET') return json({ service: 'xbt-market', usernames: true, shipping: !!env.SENDCLOUD_PUBLIC_KEY, labelPayments: env.LABELS_FREE === '1' ? 'free' : !!env.PLATFORM_LN_ADDRESS, bugReports: !!(env.RESEND_API_KEY && env.BUG_REPORT_EMAIL), issues: !!(env.ISSUES_TOKEN && env.ISSUES_REPO), push: true });
+  if (p === '/' && m === 'GET') return json({ service: 'xbt-market', usernames: true, shipping: !!env.SENDCLOUD_PUBLIC_KEY, labelPayments: env.LABELS_FREE === '1' ? 'free' : !!env.PLATFORM_LN_ADDRESS, bugReports: !!(env.RESEND_API_KEY && env.BUG_REPORT_EMAIL), issues: !!(env.ISSUES_TOKEN && env.ISSUES_REPO), push: true, ai: true });
   if (p === '/api/issues' && m === 'POST') { const b = await body(); return publishIssue(await authPubkey(request, b.text), b.data, env, fetchImpl); }
   if (p === '/api/bug' && m === 'POST') {
     if (Number(request.headers.get('content-length') || 0) > BUG_MAX_BYTES) return fail(413, 'Attachments are too large (15 MB at most)');
@@ -485,6 +487,8 @@ async function route(request, url, env, store, fetchImpl) {
   if ((mm = p.match(/^\/api\/shipping\/labels\/(lb[0-9a-f]{32})$/)) && m === 'GET') return labelStatus(await authPubkey(request), mm[1], env, store, fetchImpl);
   if ((mm = p.match(/^\/api\/shipping\/labels\/(lb[0-9a-f]{32})\/(label\.pdf|qr)$/)) && m === 'GET') return labelDocument(mm[1], mm[2] === 'qr' ? 'qr' : 'label', env, store, fetchImpl);
   if (p === '/api/import' && m === 'POST') { const b = await body(); return json(await importFromUrl(b.data.url, fetchImpl)); }
+  // AI services that refuse requests from websites go through here (server/ai.js).
+  if (p === '/api/ai' && m === 'POST') { const b = await body(); return json(await relayAi(await authPubkey(request, b.text), b.data, store, fetchImpl, b.text.length)); }
   // Push notifications for saved searches (server/push.js).
   if (p === '/api/push/key' && m === 'GET') return json({ publicKey: (await vapidKeys(store)).publicKey });
   if (p === '/api/push/subscribe' && m === 'POST') { const b = await body(); return json(await pushSubscribe(b.data, env, store)); }

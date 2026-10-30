@@ -97,6 +97,7 @@ Users install it via the browser's *Add to Home screen* / *Install app*. No stor
 - `/api/import`: reads a public Marktplaats or Vinted page from a pasted link (for phones and the Marktplaats/Vinted apps);
 - `/api/issues`: the admin (and only the admin, checked against `ADMIN_NPUB`) publishes a reviewed bug report as a GitHub issue with the label `bug-report`;
 - `/api/push/key`, `/api/push/subscribe`: push notifications for saved searches. A device registers its Web Push subscription with the searches that notify (no account, no npub). Every 10 minutes a cron trigger reads new listings from the relays (`RELAYS`, default the app's relays), matches them with the same rules as the app (`src/lib/search.js`) and sends standard Web Push (VAPID, encrypted payload). The VAPID keys are made on first use and kept in the Durable Object: no setup;
+- `/api/ai`: passes a request on to the user's own AI service when that service refuses requests from websites (no CORS). Signed-in accounts only (NIP-98), at most 60 an hour each, https addresses outside private networks only, nothing stored;
 - `/api/bug`: e-mails a bug report with screenshots or a video (images and mp4/mov/webm, 15 MB at most) through **Resend** to the address in the `BUG_REPORT_EMAIL` secret. The address never reaches the app. At most 5 reports per account per hour.
 
 Without it, the app hides usernames and link import, shows estimated shipping prices, lets the seller buy labels on the carrier's site, and notifies about saved searches only while it is open.

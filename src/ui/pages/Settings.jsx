@@ -12,7 +12,7 @@ import { DEFAULTS, ESPLORA_PRESETS, DEFAULT_ARBITERS } from '../../config.js';
 import { Esplora, normalizeNodeUrl } from '../../lib/btc/esplora.js';
 import { secretNames } from '../../lib/secrets.js';
 import { connectWallet, disconnectWallet, walletConnected, walletBalance, walletLud16 } from '../../lib/ln/wallet.js';
-import { aiConfigured, loadAi, saveAi, aiHost, isAnthropicKey, validBase, listModels } from '../../lib/ai/listing.js';
+import { aiConfigured, loadAi, saveAi, aiHost, isAnthropicKey, validBase, normalizeBase, listModels, testAi } from '../../lib/ai/listing.js';
 import { T, LANGS } from '../i18n.js';
 import { Action, Field, Copy, Avatar, Name, ArbiterName, AddressForm, addressComplete, toast, toastError } from '../components.jsx';
 import { InstallGuide } from '../install.jsx';
@@ -348,6 +348,16 @@ function AiKey() {
   const [base, setBase] = useState('');
   const [model, setModel] = useState('');
   const [models, setModels] = useState(null);
+  // The last test: { ok, text }.
+  const [tested, setTested] = useState(null);
+  const runTest = async (c) => {
+    setTested({ text: '…' });
+    try {
+      const r = await testAi(c);
+      setTested({ ok: true, text: r.via === 'service' ? T('✓ Works. Your AI service refuses requests from websites, so XBT Market sends them through its service.', '✓ Funciona. Tu servicio de IA rechaza peticiones de sitios web, así que XBT Market las envía a través de su servicio.') : T('✓ Works.', '✓ Funciona.') });
+    } catch (e) { setTested({ ok: false, text: '✗ ' + e.message }); }
+  };
+  const testLine = tested && <p class={`small ${tested.ok ? 'ok-text' : tested.ok === false ? 'error' : ''}`}>{tested.text}</p>;
   const anthropic = isAnthropicKey(key);
   const ready = anthropic || (validBase(base) && model.trim());
   return (
@@ -357,7 +367,11 @@ function AiKey() {
         <>
           <p><span class="badge ok">✓ {T('Connected', 'Conectado')}</span> <span class="small">{conn.model || T('default model', 'modelo por defecto')} · {aiHost(conn)}</span></p>
           <p class="hint">{T(`Your photos and the key go only to ${aiHost(conn)}, straight from this browser.`, `Tus fotos y la clave solo van a ${aiHost(conn)}, directamente desde este navegador.`)}</p>
-          <Action class="small danger ghost" onClick={async () => saveAi(null)}>{T('Disconnect', 'Desconectar')}</Action>
+          <div class="row">
+            <Action class="small" onClick={() => runTest(conn)}>{T('Test', 'Probar')}</Action>
+            <Action class="small danger ghost" onClick={async () => { saveAi(null); setTested(null); }}>{T('Disconnect', 'Desconectar')}</Action>
+          </div>
+          {testLine}
         </>
       ) : (
         <>
@@ -381,7 +395,11 @@ function AiKey() {
             <Action class="small ghost" disabled={!validBase(base)} onClick={async () => { const list = await listModels({ base, key }); setModels(list); if (!list.length) toast(T('The service lists no models: type the name yourself.', 'El servicio no muestra modelos: escribe el nombre tú.')); }}>{T('Show the available models', 'Ver los modelos disponibles')}</Action>
           </>}
           <p class="hint">{T('Stored encrypted on this device only, never published. Your photos go only to the service you connect.', 'Se guarda cifrado solo en este dispositivo y nunca se publica. Tus fotos solo van al servicio que conectes.')}</p>
-          <Action class="primary" disabled={!ready} onClick={async () => { saveAi({ key, base: anthropic ? '' : base, model: anthropic ? '' : model }); setKey(''); toast(T('Connected', 'Conectado'), 'ok'); }}>{T('Connect AI service', 'Conectar servicio de IA')}</Action>
+          <div class="row">
+            <Action class="small" disabled={!ready} onClick={() => runTest({ key: key.trim(), base: anthropic ? '' : normalizeBase(base), model: anthropic ? '' : model.trim(), anthropic })}>{T('Test', 'Probar')}</Action>
+            <Action class="primary" disabled={!ready} onClick={async () => { saveAi({ key, base: anthropic ? '' : base, model: anthropic ? '' : model }); setKey(''); toast(T('Connected', 'Conectado'), 'ok'); }}>{T('Connect AI service', 'Conectar servicio de IA')}</Action>
+          </div>
+          {testLine}
         </>
       )}
     </>

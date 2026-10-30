@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { useStore } from '../../lib/store.js';
 import { market } from '../../lib/market.js';
 import { account, npub } from '../../lib/nostr/account.js';
@@ -76,7 +76,11 @@ export function Browse({ query }) {
   const active = FILTER_KEYS.filter((k) => flt[k]).length;
 
   // Keep the filters in the address, so "back" from a listing restores them.
+  // Only while the address is still the one this page wrote (or came from):
+  // a navigation elsewhere in the meantime is never overwritten.
+  const lastHash = useRef(location.hash);
   useEffect(() => {
+    if (location.hash !== lastHash.current) return;
     const p = new URLSearchParams();
     if (q) p.set('q', q);
     for (const k of FILTER_KEYS) if (flt[k]) p.set(k, flt[k]);
@@ -86,6 +90,7 @@ export function Browse({ query }) {
     if (query.new === '1') p.set('new', '1');
     const h = '#/' + (p.toString() ? '?' + p : '');
     if (location.hash !== h && (location.hash || '#/').startsWith('#/') && !location.hash.slice(2).split('?')[0]) history.replaceState(null, '', h);
+    lastHash.current = location.hash;
   }, [q, flt, sort, tab]);
 
   const visible = [...listings.values()].filter((l) => l.status === 'active' || l.status === 'reserved');

@@ -11,6 +11,7 @@
 import { CATEGORIES, CONDITIONS } from '../nostr/listings.js';
 import { getSecret, setSecret, hasSecret } from '../secrets.js';
 import { AI_MODEL } from '../../config.js';
+import { api, apiEnabled } from '../api.js';
 
 const NAME = 'ai';
 const OLD_NAME = 'anthropic'; // a bare Anthropic key, from before other services
@@ -58,20 +59,64 @@ export function saveAi(c) {
   setSecret(NAME, JSON.stringify({ key, base: anthropic ? '' : normalizeBase(c.base), model: (c.model || '').trim() }));
 }
 
-// The models an OpenAI-compatible service offers (to pick one). Free to call.
-export async function listModels({ base, key, fetchImpl = fetch }) {
-  if (!validBase(base)) throw new Error('Enter the API address first');
-  let res;
+// ---- talking to an OpenAI-compatible service -------------------------------------
+
+const isLocal = (base) => { try { return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(new URL(base).hostname); } catch { return false; } };
+
+// One request, straight from this browser. Many services refuse requests from
+// websites (no CORS): the request then fails before any answer, and it goes
+// through the XBT Market service instead (server/ai.js), when that is set up.
+// relay is for tests. Returns { status, text, via }.
+export async function aiRequest(c, path, request, { fetchImpl = fetch, relay } = {}) {
+  const headers = { 'content-type': 'application/json', ...(c.key ? { authorization: `Bearer ${c.key}` } : {}) };
   try {
-    res = await fetchImpl(`${normalizeBase(base)}/models`, { headers: key ? { authorization: `Bearer ${key.trim()}` } : {} });
+    const r = await fetchImpl(`${normalizeBase(c.base)}/${path}`, path === 'models' ? { headers } : { method: 'POST', headers, body: JSON.stringify(request) });
+    return { status: r.status, text: await r.text(), via: 'direct' };
   } catch {
-    throw new Error('No answer from that address. Check it, and that the service accepts requests from websites.');
+    const through = relay || (apiEnabled() && !isLocal(c.base) ? (body) => api('/api/ai', { method: 'POST', auth: true, body }) : null);
+    if (!through) {
+      throw new Error(isLocal(c.base)
+        ? 'No answer from the model on this computer. Is it running, and does it allow requests from this site?'
+        : 'Your AI service does not answer requests from websites. It works once the XBT Market service is set up; until then, use a service that allows it.');
+    }
+    const res = await through({ base: normalizeBase(c.base), key: c.key, path, request });
+    if (!res.status) throw new Error(res.error || 'The XBT Market service could not reach your AI service. Check the API address.');
+    return { status: res.status, text: res.body, via: 'service' };
   }
-  if (res.status === 401 || res.status === 403) throw new Error('The service did not accept the API key');
-  if (!res.ok) throw new Error(`The service answered with error ${res.status}`);
-  const body = await res.json().catch(() => ({}));
+}
+
+// What went wrong, in words the user can act on, with the service's own message.
+function aiError(res) {
+  let detail = '';
+  try { const j = JSON.parse(res.text); detail = String(j.error?.message || j.error || j.message || '').slice(0, 200); } catch { detail = String(res.text || '').slice(0, 200); }
+  const tail = detail ? ` (${detail})` : '';
+  if (res.status === 401 || res.status === 403) return new Error(`Your AI service did not accept the API key${tail}.`);
+  if (res.status === 404) return new Error(`Not found at your AI service: check the API address (it usually ends in /v1) and the model${tail}.`);
+  if (res.status === 429) return new Error(`Your AI service says: too many requests or no credit left${tail}.`);
+  return new Error(`Your AI service answered with error ${res.status}${tail}.`);
+}
+
+// The models an OpenAI-compatible service offers (to pick one). Free to call.
+export async function listModels({ base, key, fetchImpl, relay }) {
+  if (!validBase(base)) throw new Error('Enter the API address first');
+  const res = await aiRequest({ base, key: (key || '').trim() }, 'models', null, { fetchImpl, relay });
+  if (res.status < 200 || res.status >= 300) throw aiError(res);
+  let body = {};
+  try { body = JSON.parse(res.text); } catch { /* no list */ }
   const ids = (body.data || body.models || []).map((m) => (typeof m === 'string' ? m : m.id || m.name)).filter(Boolean);
   return [...new Set(ids)].sort();
+}
+
+// A tiny real request, to show whether the key, address and model work.
+export async function testAi(c, { fetchImpl, relay } = {}) {
+  if (c.anthropic) {
+    const client = await anthropicClient(c.key, fetchImpl);
+    await client.models.list({ limit: 1 });
+    return { ok: true, via: 'direct' };
+  }
+  const res = await aiRequest(c, 'chat/completions', { model: c.model, max_tokens: 5, messages: [{ role: 'user', content: 'Reply with: OK' }] }, { fetchImpl, relay });
+  if (res.status < 200 || res.status >= 300) throw aiError(res);
+  return { ok: true, via: res.via };
 }
 
 const SCHEMA = {
@@ -141,28 +186,19 @@ function parseJson(text) {
   try { return m ? JSON.parse(m[0]) : null; } catch { return null; }
 }
 
-async function chatJson(c, { images = [], text, schema, maxTokens, fetchImpl = fetch }) {
+async function chatJson(c, { images = [], text, schema, maxTokens, fetchImpl = fetch, relay }) {
   const content = [...await Promise.all(images.map(async (url) => ({ type: 'image_url', image_url: { url: await asDataUrl(url, fetchImpl) } }))), { type: 'text', text }];
   const messages = [
     { role: 'system', content: `${SYSTEM}\nAnswer with only a JSON object that matches this JSON schema:\n${JSON.stringify(schema)}` },
     { role: 'user', content },
   ];
-  const call = (format) => fetchImpl(`${c.base}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...(c.key ? { authorization: `Bearer ${c.key}` } : {}) },
-    body: JSON.stringify({ model: c.model, max_tokens: maxTokens, messages, ...(format ? { response_format: format } : {}) }),
-  });
-  let res;
-  try {
-    res = await call({ type: 'json_schema', json_schema: { name: 'answer', strict: true, schema } });
-    // Not every service supports a schema; the prompt carries it too.
-    if (res.status === 400 || res.status === 422) res = await call(null);
-  } catch {
-    throw new Error('No answer from your AI service. Check the address under Account → AI listing assistant.');
-  }
-  if (res.status === 401 || res.status === 403) throw new Error('Your AI service did not accept the API key.');
-  if (!res.ok) throw new Error(`Your AI service answered with error ${res.status}. Check the model under Account → AI listing assistant.`);
-  const body = await res.json();
+  const ask = (format) => aiRequest(c, 'chat/completions', { model: c.model, max_tokens: maxTokens, messages, ...(format ? { response_format: format } : {}) }, { fetchImpl, relay });
+  let res = await ask({ type: 'json_schema', json_schema: { name: 'answer', strict: true, schema } });
+  // Not every service supports a schema; the prompt carries it too.
+  if (res.status === 400 || res.status === 422) res = await ask(null);
+  if (res.status < 200 || res.status >= 300) throw aiError(res);
+  let body = {};
+  try { body = JSON.parse(res.text); } catch { /* checked below */ }
   const choice = body.choices?.[0];
   if (choice?.finish_reason === 'content_filter' || choice?.message?.refusal) throw new Error('The AI declined to describe these photos.');
   return parseJson(choice?.message?.content);
@@ -187,14 +223,14 @@ function clean(raw) {
 
 // images: https URLs (already uploaded to the photo server).
 // config and fetchImpl are for tests; the app uses the stored connection.
-export async function draftListing({ images, lang = 'en', currency = 'EUR', hint = '', config, fetchImpl, tree }) {
+export async function draftListing({ images, lang = 'en', currency = 'EUR', hint = '', config, fetchImpl, relay, tree }) {
   if (!images?.length) throw new Error('Add at least one photo first');
   const c = config ?? loadAi();
   if (!c || (c.anthropic && !c.key)) throw new Error('Connect your AI service under Account → AI listing assistant first');
   const ask = c.anthropic ? anthropicJson : chatJson;
   const language = lang === 'es' ? 'Spanish' : 'English';
   const out = clean(await ask(c, {
-    images: images.slice(0, 8), schema: SCHEMA, maxTokens: 4000, fetchImpl,
+    images: images.slice(0, 8), schema: SCHEMA, maxTokens: 4000, fetchImpl, relay,
     text: `Write the listing in ${language}. Price in ${currency}.${hint ? `\nThe seller adds: ${hint}` : ''}`,
   }));
   if (!out?.title) throw new Error('The AI returned no usable listing. Try again.');
@@ -203,7 +239,7 @@ export async function draftListing({ images, lang = 'en', currency = 'EUR', hint
   const subs = tree?.get(out.category) || [];
   if (subs.length) {
     try {
-      const pick = await ask(c, { schema: subcategorySchema(subs), maxTokens: 200, fetchImpl, text: subcategoryPrompt(out, subs) });
+      const pick = await ask(c, { schema: subcategorySchema(subs), maxTokens: 200, fetchImpl, relay, text: subcategoryPrompt(out, subs) });
       if (subs.some((x) => x[0] === pick?.subcategory)) out.subcategory = pick.subcategory;
     } catch { /* the seller picks it */ }
   }

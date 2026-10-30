@@ -101,3 +101,20 @@ test('AI service address: normalized, https only (or this computer), models list
   const fetchImpl = async () => new Response(JSON.stringify({ data: [{ id: 'b' }, { id: 'a' }, { id: 'a' }] }), { status: 200 });
   assert.deepEqual(await listModels({ base: 'https://ai.example/v1', key: 'k', fetchImpl }), ['a', 'b']);
 });
+
+test('AI service that refuses websites: the request goes through the XBT Market service', async () => {
+  const draft = { title: 'Lamp', description: 'x', category: 'huis-en-inrichting', condition: 'good', price: 5, notes: '' };
+  const blocked = async (url) => { if (String(url).startsWith('https://blossom.example/')) return new Response(new Blob([new Uint8Array([1])], { type: 'image/jpeg' })); throw new TypeError('Failed to fetch'); };
+  const relayed = [];
+  const relay = async (body) => { relayed.push(body); return { status: 200, body: JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(draft) } }] }) }; };
+  const res = await draftListing({ images: ['https://blossom.example/a.jpg'], config: OAI, fetchImpl: blocked, relay });
+  assert.equal(res.title, 'Lamp');
+  assert.equal(relayed[0].base, 'https://ai.example/v1');
+  assert.equal(relayed[0].path, 'chat/completions');
+  assert.equal(relayed[0].request.model, 'vision-1');
+  // Without the service: a clear message instead of a vague one.
+  await assert.rejects(draftListing({ images: ['https://blossom.example/a.jpg'], config: OAI, fetchImpl: blocked }), /does not answer requests from websites/);
+  // The service's own error text is shown.
+  const err = async () => ({ status: 404, body: JSON.stringify({ error: { message: 'model vision-9 not found' } }) });
+  await assert.rejects(draftListing({ images: ['https://blossom.example/a.jpg'], config: OAI, fetchImpl: blocked, relay: err }), /model vision-9 not found/);
+});

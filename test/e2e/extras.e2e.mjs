@@ -135,7 +135,8 @@ try {
   const relay = await Relay.connect(RELAY);
   await relay.publish(finalizeEvent({ kind: 30078, created_at: Math.floor(Date.now() / 1000), tags: [['d', 'xbt-market/arbiter'], ['t', 'xbt-market']], content: JSON.stringify({ escrowBase: hex(secp256k1.getPublicKey(generateSecretKey(), true)), name: 'Extra Arbiter', feePct: 0, active: true, v: 2 }) }, arbSk));
   relay.close();
-  await page.evaluate((pk) => { const s = JSON.parse(localStorage.getItem('xbt:settings') || '{}'); s.trustedArbiters = [pk]; localStorage.setItem('xbt:settings', JSON.stringify(s)); }, getPublicKey(arbSk));
+  // Trusted arbiters are a personal setting, kept per account.
+  await page.evaluate((pk, me) => { const k = `xbt:settings:${me}`; const s = JSON.parse(localStorage.getItem(k) || '{}'); s.trustedArbiters = [pk]; localStorage.setItem(k, JSON.stringify(s)); }, getPublicKey(arbSk), me.pk);
   await page.reload({ waitUntil: 'load' });
   await page.evaluate(() => { location.hash = '#/sell/new'; });
   await fill('Title', 'Ledger Nano X');
@@ -162,6 +163,24 @@ try {
   await choose('⚡ Lightning');
   await waitText('we recommend escrow');
   await shot(page, 'Koper: wie boven €50 toch direct kiest, krijgt een waarschuwing');
+
+  step('one account per browser: another tab logs in with a different account');
+  // "Order now" opens the conversation a moment later; let that finish first.
+  await page.waitForFunction(() => location.hash.startsWith('#/trade/'), { timeout: 20000 });
+  await sleep(1000);
+  const buyerPk = getPublicKey(sk2);
+  const sk3 = generateSecretKey();
+  const tab2 = await page.browserContext().newPage();
+  await tab2.goto(APP, { waitUntil: 'load' });
+  await tab2.evaluate((p) => { localStorage.setItem('xbt:account', JSON.stringify({ pubkey: p.pk, sk: p.sk, backedUp: true })); }, { sk: hex(sk3), pk: getPublicKey(sk3) });
+  // The first tab follows at once (it reloads) and says why.
+  await page.waitForSelector('::-p-text(Another tab logged in with a different account)', { timeout: 20000 });
+  const now = await page.evaluate(() => JSON.parse(localStorage.getItem('xbt:account')).pubkey);
+  if (now !== getPublicKey(sk3) || now === buyerPk) throw new Error('the first tab still runs the old account');
+  // Personal settings stay with their account: the new one does not get the seller's.
+  const mine = await page.evaluate((pk) => localStorage.getItem(`xbt:settings:${pk}`), getPublicKey(sk3));
+  if (mine && JSON.parse(mine).trustedArbiters) throw new Error('another account\'s settings carried over');
+  await tab2.close();
 
   console.log('\nEXTRAS E2E PASSED');
 } catch (e) {
