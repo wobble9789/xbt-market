@@ -101,7 +101,8 @@ const toasts = (p) => p.evaluate(() => document.querySelector('.toasts')?.innerT
 async function waitText(p, t, timeout = 30000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) { if ((await text(p)).includes(t)) return; await sleep(300); }
-  throw new Error(`timed out waiting for "${t}"`);
+  const where = await p.evaluate(() => location.hash).catch(() => '?');
+  throw new Error(`timed out waiting for "${t}" (${p.who} at ${where}: ${(await text(p).catch(() => '')).replace(/\s+/g, ' ').slice(0, 240)})`);
 }
 async function waitNoText(p, t, timeout = 30000) {
   const end = Date.now() + timeout;
