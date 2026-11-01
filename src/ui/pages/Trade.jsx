@@ -268,7 +268,9 @@ function Proposal({ state, p, role, funding }) {
 }
 
 function ReviewBox({ state, role }) {
-  const key = `xbt:reviewed:${state.tradeId}`;
+  // Per account: both sides of a trade may use the same browser, one after the other.
+  const me = useStore(account, (a) => a.pubkey);
+  const key = `xbt:reviewed:${me}:${state.tradeId}`;
   const [done, setDone] = useState(() => loadJSON(key, false));
   const [rating, setRating] = useState(5);
   const [text, setText] = useState('');
@@ -482,7 +484,10 @@ function eventText(state, e) {
     case 'shipped': return isServiceTrade(state) ? `✅ ${T('Job done', 'Trabajo hecho')}` : `📦 ${T('Shipped', 'Enviado')}`;
     case 'received': return `🎉 ${T('Received', 'Recibido')}`;
     case 'dispute': return `⚖️ ${T('Dispute opened', 'Disputa abierta')}`;
-    case 'proposal': return `✍️ ${T('Payout proposed', 'Pago propuesto')}`;
+    // The seller's release, signed when shipping: the buyer's "Everything OK" completes it.
+    case 'proposal': return b.purpose === 'release' && e.role === 'seller'
+      ? `✍️ ${T('Release signed in advance by the seller: "Everything OK" pays out at once', 'Liberación firmada por adelantado por el vendedor: «Todo bien» paga al instante')}`
+      : `✍️ ${T('Payout proposed', 'Pago propuesto')}`;
     case 'broadcast': return `✅ ${T('Paid out', 'Pagado')}`;
     default: return null;
   }

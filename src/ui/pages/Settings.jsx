@@ -22,6 +22,7 @@ import { BugReport } from '../report.jsx';
 import { saveWalletKey, walletKeyConfigured, unusedOnChain } from '../../lib/payout.js';
 import { usePayoutPick } from '../payout.jsx';
 import { SavedSearches } from '../searches.jsx';
+import { apiEnabled } from '../../lib/api.js';
 
 function AccountHead() {
   const acc = useStore(account);
@@ -366,7 +367,7 @@ function AiKey() {
       {conn ? (
         <>
           <p><span class="badge ok">✓ {T('Connected', 'Conectado')}</span> <span class="small">{conn.model || T('default model', 'modelo por defecto')} · {aiHost(conn)}</span></p>
-          <p class="hint">{T(`Your photos and the key go only to ${aiHost(conn)}, straight from this browser.`, `Tus fotos y la clave solo van a ${aiHost(conn)}, directamente desde este navegador.`)}</p>
+          <p class="hint">{T(`Your photos and the key go only to ${aiHost(conn)}, straight from this browser.`, `Tus fotos y la clave solo van a ${aiHost(conn)}, directamente desde este navegador.`)}{!conn.anthropic && apiEnabled() && ' ' + T('If that service refuses requests from websites, XBT Market passes them on through its own service, which keeps nothing.', 'Si ese servicio rechaza peticiones de sitios web, XBT Market las pasa a través de su propio servicio, que no guarda nada.')}</p>
           <div class="row">
             <Action class="small" onClick={() => runTest(conn)}>{T('Test', 'Probar')}</Action>
             <Action class="small danger ghost" onClick={async () => { saveAi(null); setTested(null); }}>{T('Disconnect', 'Desconectar')}</Action>

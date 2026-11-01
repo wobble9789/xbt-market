@@ -8,6 +8,13 @@
 
 import { api, apiEnabled } from './api.js';
 import { settings } from './settings.js';
+import { createStore } from './store.js';
+
+// Whether this device is registered with the service for notifications while
+// the app is closed: unknown until tried, then ok or failed. It fails on a
+// browser without a push service (Chrome-like browsers on an Android without
+// Google services); Firefox there, and a phone's home-screen app, do work.
+export const pushState = createStore({ status: 'unknown', error: '' });
 
 export const pushSupported = () => typeof navigator !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 export const notificationsAllowed = () => typeof Notification !== 'undefined' && Notification.permission === 'granted';
@@ -44,10 +51,12 @@ async function pushSubscription() {
 // removes the device there.
 export async function syncPush(searches) {
   if (!apiEnabled() || !pushSupported() || !notificationsAllowed()) return false;
-  const sub = await pushSubscription();
-  if (!sub) return false;
+  const failed = (e) => { pushState.set({ status: 'failed', error: e?.message || String(e) }); throw e; };
+  const sub = await pushSubscription().catch(failed);
+  if (!sub) return false; // no service worker (development): nothing to register
   const list = searches.filter((s) => s.notify).map((s) => ({ id: s.id, name: s.name, query: s.query, since: s.seen || s.at || 0 }));
-  await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), searches: list, lang: settings.get().lang } });
+  await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), searches: list, lang: settings.get().lang } }).catch(failed);
+  pushState.set({ status: 'ok', error: '' });
   return true;
 }
 

@@ -3,7 +3,7 @@
 A peer-to-peer marketplace paid in **Bitcoin BLAKE2b** (XBT / BTCB2), the chain that split from Bitcoin at block 961,640 (Bitcoin Knots `v29.4.1.knots20260508`).
 
 - **No app store, almost no server.** It is a static web app (PWA) you can install on phone or desktop from any URL. Listings, profiles, follows, reviews and encrypted trade chat live on **Nostr** relays. A small optional service (a free Cloudflare Worker, see *Service*) adds @usernames, live shipping rates with prepaid labels, and importing from a pasted link.
-- **Chat first, like Marktplaats and Vinted.** A buyer sends a no-obligation message, and orders from the chat when ready: only the payment method, the price and the delivery country and carrier. Address, arbiter and refund address are asked once the seller accepts. Either side can ask to switch the payment method (say Lightning → on chain) until something is paid.
+- **Chat first, like Marktplaats and Vinted.** A buyer sends a no-obligation message, and orders from the chat when ready: the payment method, the price, the delivery country and carrier and, with escrow, one of the seller's arbiters and a refund address. The delivery address from the account goes along, but reaches the seller only once they accept. Either side can ask to switch the payment method (say Lightning → on chain) until something is paid.
 - **Bisq-style escrow.** Every trade uses a **2-of-3 P2WSH multisig** between buyer, seller and a community **arbiter**. Both sides post a deposit. Buyer and seller release together; in a dispute the arbiter signs with one of them. Nobody can move the coins alone.
 - **Or pay directly.** For smaller items the buyer can skip escrow and pay the seller straight away, on chain or over **Lightning**. The app recommends escrow above €50. The seller sends a payment request in the chat; with a connected wallet the buyer pays with one tap, and the Lightning preimage proves the payment to both sides.
 - **Your own Lightning wallet.** Connect any wallet that supports **Nostr Wallet Connect** (NWC): Alby Hub, Zeus, Primal, Coinos and others. A Lightning address works too for receiving.
@@ -26,10 +26,10 @@ A peer-to-peer marketplace paid in **Bitcoin BLAKE2b** (XBT / BTCB2), the chain 
 ## How a trade works
 
 1. **Message and order.** The buyer starts a conversation about a listing, and orders from the chat: an XBT amount (suggested from the SafeTrade XBT/USDT rate, item + shipping), the payment method and the delivery. Everything is NIP-17 encrypted.
-2. **Accept, then details.** The seller accepts. The buyer then sends the delivery address and, with escrow, picks an approved arbiter and a refund address. The arbiter receives the trade so far, and all three derive the same escrow address. The seller's app warns not to pay into an escrow whose arbiter is not approved.
+2. **Accept.** The seller accepts (with escrow: with a payout address). The escrow address exists for all three at once: the order already named the arbiter, who received the trade so far. The buyer's app then sends the delivery and refund address by itself. The seller's app refuses an order whose arbiter is not one it accepts.
 3. **Fund.** The buyer pays price + the deposit; the seller pays the same deposit. The seller sets it on the listing (5–50% of the price, default 15%). The app waits for the configured number of confirmations.
 4. **Ship.** The seller ships and adds the carrier and tracking code.
-5. **Release.** The buyer signs a payout (seller: price + deposit, buyer: deposit back). The seller co-signs and broadcasts. The network fee is shared in proportion.
+5. **Release.** When shipping, the seller already signs the normal release (seller: price + deposit, buyer: deposit back). The buyer has 10 days for the parcel to arrive and 4 more to confirm or open a dispute; "Everything OK" adds the buyer's signature and broadcasts at once. The network fee is shared in proportion.
 6. **Dispute.** Either side opens a dispute. The arbiter reads the chat and proposes a split, and one party co-signs it. Buyer and seller can also agree on any split themselves at any time.
 7. **Review.** Both parties publish a review that names the payout txid. Reviews from both sides with the same txid count as a *verified trade*. Trade limits for new accounts grow with verified trades.
 

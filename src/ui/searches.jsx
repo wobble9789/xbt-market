@@ -11,7 +11,7 @@ import { privateData, setPrivate, liveEntries } from '../lib/nostr/private.js';
 import { settings } from '../lib/settings.js';
 import { apiEnabled } from '../lib/api.js';
 import { cleanSearch, matchesSearch, searchHash } from '../lib/search.js';
-import { pushSupported, notificationsAllowed, notificationsBlocked, enableNotifications, syncPush, showNotification } from '../lib/push.js';
+import { pushSupported, pushState, notificationsAllowed, notificationsBlocked, enableNotifications, syncPush, showNotification } from '../lib/push.js';
 import { T, CATEGORY_LABELS, CONDITION_LABELS, label, countryName, fmtDate } from './i18n.js';
 import { Action, Empty, toast, useRates } from './components.jsx';
 
@@ -69,6 +69,7 @@ export function useMatcher() {
 // Notification settings of this device, with the one button that matters.
 export function DeviceNotifications() {
   const [, redraw] = useState(0);
+  const push = useStore(pushState);
   if (!pushSupported() && typeof Notification === 'undefined') {
     return <p class="notice small">{T('This browser cannot show notifications. On an iPhone or iPad: add XBT Market to your home screen first, then open it from there.', 'Este navegador no puede mostrar notificaciones. En iPhone o iPad: añade antes XBT Market a tu pantalla de inicio y ábrelo desde allí.')}</p>;
   }
@@ -80,7 +81,14 @@ export function DeviceNotifications() {
       </div>
     );
   }
-  return <p class="small ok-text">✓ {apiEnabled() ? T('Notifications are on for this device, also when XBT Market is closed.', 'Las notificaciones están activadas en este dispositivo, también con XBT Market cerrado.') : T('Notifications are on for this device, while XBT Market is open.', 'Las notificaciones están activadas en este dispositivo, mientras XBT Market esté abierto.')}</p>;
+  // With the service, the device is registered for notifications while the app
+  // is closed; only say so once that registration really succeeded.
+  if (!apiEnabled()) return <p class="small ok-text">✓ {T('Notifications are on for this device, while XBT Market is open.', 'Las notificaciones están activadas en este dispositivo, mientras XBT Market esté abierto.')}</p>;
+  if (push.status === 'failed') {
+    return <p class="notice warn small">{T('Notifications work on this device only while XBT Market is open: this browser could not register for notifications with the app closed (usual on an Android without Google services). Firefox can; on an iPhone, the app on your home screen can.', 'Las notificaciones funcionan en este dispositivo solo mientras XBT Market esté abierto: este navegador no pudo registrarse para avisos con la app cerrada (habitual en un Android sin servicios de Google). Firefox sí puede; en un iPhone, la app de tu pantalla de inicio sí puede.')}</p>;
+  }
+  if (push.status === 'ok') return <p class="small ok-text">✓ {T('Notifications are on for this device, also when XBT Market is closed.', 'Las notificaciones están activadas en este dispositivo, también con XBT Market cerrado.')}</p>;
+  return <p class="small ok-text">✓ {T('Notifications are on for this device. Registering for notifications when XBT Market is closed…', 'Las notificaciones están activadas en este dispositivo. Registrando los avisos con XBT Market cerrado…')}</p>;
 }
 
 // Account → Saved searches.

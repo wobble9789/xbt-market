@@ -67,7 +67,7 @@ Rules:
 | An outdated saved bookmark is warned about | `ui/pages/Import.jsx` | `test:import` e2e |
 | The whole trade and dispute flow works in a browser | everything | `test:e2e` (Firefox, Knots regtest, local relay) |
 | v2: a conversation has no offer; only its opener can order | `trade/protocol.js` | `test/protocol.test.js` |
-| v2: the arbiter is fixed by the buyer's first details after the accept, never the buyer or seller | `trade/protocol.js` | `test/protocol.test.js`, `test:e2e` (arbiter rules a dispute after joining late) |
+| v2: the arbiter is fixed by the order (or else by the buyer's first details after the accept), never the buyer or seller | `trade/protocol.js` | `test/protocol.test.js`, `test:e2e` (arbiter rules a dispute after joining late) |
 | A payment method changes only when the other side agrees, and never after paying | `trade/protocol.js` | `test/protocol.test.js`, `test:direct` |
 | Labels come from the seller only, with http(s) links | `trade/protocol.js` | `test/protocol.test.js` |
 | Usernames are unique and only claimable with a valid NIP-98 signature | `server/service.js` | `test/server.test.js`, test plan USR-1 |
