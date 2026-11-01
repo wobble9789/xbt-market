@@ -12,6 +12,7 @@ import { SWITCHED } from '../lib/session.js';
 import { startInbox, stopInbox, inbox, tradeIds } from '../lib/nostr/inbox.js';
 import { startMarket } from '../lib/market.js';
 import { loadDirectory, refreshDirectory, directory } from '../lib/nostr/directory.js';
+// (the directory also depends on the account: its trusted arbiters are personal)
 import { settings } from '../lib/settings.js';
 import { APP_NAME } from '../config.js';
 import { useRoute } from './router.js';
@@ -162,6 +163,7 @@ export function App() {
     else stopInbox();
     loadFollows(acc.pubkey).catch(() => {});
     loadBlocks(acc.pubkey).catch(() => {});
+    loadDirectory().catch(() => {}); // this account's trusted arbiters
     if (acc.pubkey && !acc.locked) loadPrivate().catch(() => {});
     return stopInbox;
   }, [acc.pubkey, acc.locked, relaysKey]);

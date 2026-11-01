@@ -51,7 +51,7 @@
 <body>
 <header>
   <div class="wrap">
-    <h1>XBT Market — testplan ronde 4</h1>
+    <h1>XBT Market — testplan</h1>
     <div class="bar">
       <div class="progress"><i id="bar"></i></div>
       <span class="stats" id="stats"></span>
@@ -62,88 +62,100 @@
 </header>
 <main class="wrap">
   <p class="intro">
-    Alles wat objectief moet werken, testen de automatische tests bij elke wijziging (85 stappen, als computer en als telefoon, in Chrome en Firefox). Hier staat alleen wat <b>jouw oordeel</b> nodig heeft, of <b>echte sites, accounts of geld</b>.
+    Alles wat objectief moet werken, testen de automatische tests bij elke wijziging (86 stappen, als computer en als telefoon, in Chrome en Firefox). Hier staat alleen wat <b>jouw oordeel</b> nodig heeft, of <b>echte sites, accounts of geld</b>. Wat je eerder goedkeurde en niet veranderd is, staat er niet meer in.
     Onderaan, gestippeld, wat iets nodig heeft dat je nog niet hebt: daar staat bij wat. Dat kun je overslaan tot het zover is.
     Vink per test <b>✓ Werkt</b>, <b>✗ Fout</b> of <b>—</b> aan; bij een fout opent een notitieveld. Klaar of halverwege? <b>Kopieer resultaten</b> en plak ze in de chat.
-    Accounts: <b>Admin</b>, <b>Seller</b>, <b>Buyer</b>, <b>Arbiter</b> en <b>Dummy</b>.
+    Accounts: <b>Admin</b>, <b>Seller</b>, <b>Buyer</b>, <b>Arbiter</b> (de standaard-arbiter, npub184c…) en <b>Dummy</b>. Begin elke sessie met een harde verversing (Ctrl+Shift+R; op de telefoon de app wegvegen en opnieuw openen).
   </p>
   <div id="plan"></div>
 </main>
 <script>
 const PLAN = [
-  ['XBT Market-dienst (Cloudflare) — eerst doen', 'Admin, op je computer', [
-    ['SVC-1', 'XBT Market-dienst staat live', [
-      'Heb je in Cloudflare je GitHub-repo gekoppeld? Dat is niet nodig: de deploy gaat via GitHub. Verwijder dat project: dash.cloudflare.com → links "Workers & Pages" → klik het project → "Settings" → helemaal onderaan "Delete". Anders probeert Cloudflare bij elke wijziging zelf te bouwen, en dat mislukt.',
-      'Je workers.dev-adres: Cloudflare geeft elk account een gratis webadres dat eindigt op .workers.dev, bijvoorbeeld jouwnaam.workers.dev. Je vult het nergens in; de deploy vindt het zelf. Kijk alleen of je er een hebt: "Workers & Pages" → rechts in de kolom staat "Subdomain: ….workers.dev". Vraagt Cloudflare je er een te kiezen, kies dan een naam.',
-      'Token maken: rechtsboven op je profielicoon → "Profile" → links "API Tokens" → "Create Token" → bij "Edit Cloudflare Workers" op "Use template" → bij Account Resources: Include + jouw account; bij Zone Resources: Include + All zones → "Continue to summary" → "Create Token" → kopieer de token (je ziet hem maar één keer).',
-      'Account ID: "Workers & Pages" → rechts in de kolom "Account ID" → kopieer.',
-      'Ga naar github.com/wobble9789/xbt-market/settings/secrets/actions → "New repository secret" → Name: CLOUDFLARE_API_TOKEN, Secret: de token → "Add secret". Nog een keer: Name: CLOUDFLARE_ACCOUNT_ID, Secret: het Account ID.',
-      'Ga naar github.com/wobble9789/xbt-market/actions → links "Test and deploy" → rechts "Run workflow" → branch main → groene "Run workflow". Wacht tot alles groen is (±2 min: de tests zijn al gedaan en worden overgeslagen). Wordt iets rood: screenshot van die stap.',
-      'Klik in die run op "build" → open de stap "Deploy the XBT Market service" → onderaan staat https://xbt-market.<jouw-naam>.workers.dev → open die link.',
-    ], 'De link toont {"service":"xbt-market","usernames":true,…,"push":true}. In XBT Market (ververs met Ctrl+Shift+R): Sell → Import toont "Paste a link"; Account → "🔔 Saved searches" zegt na het aanzetten van meldingen "…also when XBT Market is closed".'],
-    ['SVC-2', 'Verzending aan', ['Secrets SENDCLOUD_PUBLIC_KEY, SENDCLOUD_SECRET_KEY en PLATFORM_LN_ADDRESS, opnieuw deployen.'], '"shipping":true.'],
-    ['SVC-3', 'Bugmeldingen per mail', ['resend.com: gratis account met steenh819@gmail.com → API Keys → Create. Secrets RESEND_API_KEY en BUG_REPORT_EMAIL, opnieuw deployen.'], '"bugReports":true.'],
-    ['SVC-4', 'Bugs naar GitHub (+ Claude)', ['Fine-grained token (alleen deze repo, Issues: Read and write) → secret ISSUES_TOKEN. Voor Claude: in Claude Code /install-github-app. Opnieuw deployen.'], '"issues":true.'],
-    ['BUG-2', 'Echte bugmelding', ['Seller: Account → Report a problem met screenshot. Admin: Bug reports → Publish as GitHub issue.'], 'Mail met bijlage in je inbox; issue op GitHub zonder naam van de melder.'],
-    ['IMP-9', 'Link plakken', ['Marktplaats-app: één advertentie → Delen → Link kopiëren. Import → "Paste a link" → Read. Ook met het adres van je profiel uit de browser.'], 'Advertentie(s) met foto\'s verschijnen.'],
-    ['SHP-2', 'Echt verzendlabel', ['Na betaling: Seller → Get the label price → Buy label → betaal.'], 'Echte PostNL/DHL-QR en label in de chat.'],
-  ], 'SVC-1 kan nu al: de site staat al live, de dienst komt ernaast. De rest wanneer je die accounts hebt: SHP-2 Sendcloud + een Lightning-adres, BUG-2 Resend en een GitHub-token.'],
-  ['Echt geld: on-chain met Shrike (hertest)', 'Drie browsers: [Buyer], [Seller] en [Arbiter]. Shrike: #0 = buyer, #1 = seller. Ververs eerst met Ctrl+Shift+R. Wat je goedkeurde en niet veranderd is, staat hier niet meer. Bij een fout: screenshot + txid in je notitie.', [
+  ['De dienst staat live: nu te testen', 'Admin, Seller en Buyer, elk in een eigen browser', [
+    ['SVC-1', 'De XBT Market-dienst werkt', [
+      'Open https://xbt-market.steenh819.workers.dev in je browser.',
+      'Open XBT Market, ververs hard, en ga naar Sell → "⇪ Import from Marktplaats, Vinted…".',
+    ], 'Stap 1: een regel tekst met onder andere "service":"xbt-market", "push":true en "ai":true. Stap 2: bovenaan het blok "🔗 Paste a link".'],
+    ['USR-1', 'Unieke @gebruikersnaam', [
+      '[Seller] Account → "👤 Profile": vul bij Username een naam in (bijv. seller_test) → "Save profile".',
+      '[Buyer] Account → "👤 Profile": vul precies dezelfde naam in.',
+      '[Buyer] Browse: typ in het zoekveld "@" plus de eerste letters van die naam.',
+    ], 'Stap 1: tijdens het typen "✓ @seller_test is available"; na opslaan staat bovenaan Account "@seller_test". Stap 2: "✗ @seller_test is already taken" en "Save profile" is uitgeschakeld. Stap 3: Seller staat in de lijst; tikken opent het profiel.'],
+    ['IMP-9', 'Importeren via een geplakte link', [
+      '[Seller] Sell → Import → bij "🔗 Paste a link": plak het adres van je Marktplaats-profiel (marktplaats.nl/u/…) → "Read".',
+      'Nog eens met de link van één advertentie (Marktplaats-app: advertentie → Delen → Link kopiëren).',
+    ], 'Je advertenties met foto\'s (📷 aantal) en prijs; wat al op XBT Market staat is herkend ("Already on your profile"). Krijg je "marktplaats.nl answered 403"? Dan blokkeert Marktplaats de dienst: noteer dat; de importknop blijft dan de weg.'],
+    ['AI-1', 'Een AI-dienst naar keuze koppelen', [
+      '[Seller] Account → "✨ AI listing assistant" → "Disconnect" (als er nog een staat).',
+      'Plak je API-sleutel, en (als de app hem niet herkent) het "API address" en het model van je dienst → "Test".',
+      'Werkt het: "Connect AI service". Daarna nog eens "Test".',
+    ], '"✓ Works." of "✓ Works. Your AI service refuses requests from websites, so XBT Market sends them through its service." Een fout zegt precies wat er mis is (sleutel, adres, model of tegoed): stuur me die tekst en welke AI-dienst je gebruikt.'],
+    ['AI-2', 'Kwaliteit van de AI', ['Nieuwe advertentie → 2–3 foto\'s → "✨ Write listing from photos". Doe het voor een paar verschillende spullen.'], 'Titel, beschrijving, categorie en prijs zijn bruikbaar.'],
+  ]],
+  ['Opgeslagen zoekopdrachten met meldingen', '[Buyer] op je telefoon (de app op je beginscherm), [Seller] op je computer', [
+    ['SRCH-1', 'Melding bij een nieuwe advertentie, ook met de app dicht', [
+      '[Buyer] Account → "🔔 Saved searches": lees de regel onder de uitleg.',
+      '[Buyer] Zoek op "fiets" → "🔔 Save search" → sta meldingen toe als dat gevraagd wordt.',
+      '[Buyer] Sluit de app helemaal (wegvegen). [Seller] plaatst een advertentie "Test fiets", prijs 5.',
+      '[Buyer] Wacht tot hoogstens 10 minuten op de melding en tik erop.',
+      '[Buyer] Account → "🔔 Saved searches" → tik op de naam van de zoekopdracht. Verwijder hem daarna met 🗑.',
+    ], 'Stap 1: "✓ Notifications are on for this device, also when XBT Market is closed." Staat er in plaats daarvan een oranje melding dat deze browser zich niet kon aanmelden voor meldingen met de app dicht? Dan kan het op dit toestel in deze browser niet (Chrome-achtige browsers op Android zonder Google-diensten): probeer dezelfde stappen in Firefox. Stap 4: melding "New for “fiets”: Test fiets", die opent XBT Market met alleen de nieuwe advertentie ("1 new since …"). Stap 5: alle "fiets"-advertenties; daarna is de zoekopdracht weg.'],
+  ]],
+  ['Eén account per browser', 'Eén Firefox (geen privévenster), twee tabbladen', [
+    ['ACC-8', 'Een tweede tabblad logt in met een ander account', [
+      'Tabblad 1: log in als Buyer en open Account.',
+      'Open een tweede tabblad in dezelfde browser: Account → "Log out" → log in met de nsec van Seller.',
+      'Ga terug naar tabblad 1 en kijk wat het doet.',
+      'In tabblad 2: Account → "Log out". Kijk weer naar tabblad 1.',
+    ], 'Stap 3: tabblad 1 is vanzelf herladen, toont Seller en een melding "Another tab logged in with a different account…". Stap 4: tabblad 1 toont het inlogscherm met "You logged out in another tab, so here too." Twee accounts lopen nooit naast elkaar; voor twee tegelijk gebruik je een privévenster of een andere browser.'],
+  ]],
+  ['Echt geld: on-chain met Shrike', 'Drie browsers: [Buyer], [Seller] en [Arbiter]. Shrike: #0 = buyer, #1 = seller, #2 = arbiter (als je die hebt). Bij een fout: screenshot + txid in je notitie.', [
     ['CNL-1', 'Annuleren zonder betaling en gesprek verwijderen', [
-      '[Buyer] open "Test escrow" → "🛒 Order now" → "Send order". [Seller] "✓ Accept". [Seller] "Cancel trade (nothing paid yet)".',
+      '[Buyer] open "Test escrow" → "🛒 Order now" → "Send order". [Seller] "✓ Accept" → "Cancel trade (nothing paid yet)".',
       '[Seller] Kijk naar de status bovenaan en in Messages.',
       '[Seller] Messages → onder "Finished" bij deze trade op 🗑 → bevestigen. Open Messages ook op je telefoon met hetzelfde account.',
     ], 'Status "Cancelled", niet "refund needed". Na 🗑 is het gesprek weg, ook op je telefoon. Bij [Buyer] staat het er nog (die heeft een eigen kopie).'],
     ['REAL-1', 'Escrow-aankoop: betalen, termijnen en uitbetalen in één stap', [
       '[Buyer] open "Test escrow" → "🛒 Order now" → Escrow, PostNL. Lees de tekst onder je terugbetaaladres → "Send order". [Seller] "✓ Accept".',
-      'Onder "Escrow": betaal beide uit Shrike (#0 en #1). [Seller] plakt de txid van zijn betaling bij "Payment txid" → "I paid".',
+      'Onder "Escrow": betaal beide uit Shrike (#0 en #1). [Seller] plakt de txid van zijn betaling bij "Payment txid (optional)" → "I paid".',
       '[Buyer] In de chat staat "💸 Paid into escrow · txid … ↗": tik erop. Tik daarna op "Refresh".',
       'Na "Fully paid": [Seller] ziet boven het verzendformulier de 📸-waarschuwing → trackingcode → "Mark as shipped".',
-      'Bekijk bij beiden de twee balken; [Seller] "📬 Delivered, per the tracking"; bekijk bij [Buyer] de tekst.',
+      'Bekijk bij beiden de twee balken en de chat; [Seller] "📬 Delivered, per the tracking"; bekijk bij [Buyer] de tekst.',
       '[Buyer] "Everything OK: release payment".',
-    ], 'Stap 1: "Your personal info to make the trade is only shared after the seller accepts your order". Stap 3: de link opent de transactie in de explorer; na Refresh even een draaiend icoon en dan "✓ Checked [tijd]". Stap 5: balken "Delivery time" (10 dagen) en "Time to confirm or open a dispute" (4 dagen); [Seller] ziet "You signed the release in advance"; na Delivered heeft [Buyer] 4 dagen. Stap 6: direct uitbetaald ("✅ Broadcast"), [Seller] hoeft niets te tekenen; daarna "⭐ Leave a review for your trading partner". In Shrike: #1 prijs + verzending + borg, #0 zijn borg terug.'],
-    ['REAL-2', 'Directe on-chain betaling', [
+    ], 'Stap 1: "Your personal info to make the trade is only shared after the seller accepts your order". Stap 3: de link opent de transactie in de explorer; na Refresh een draaiend icoon en dan "✓ Checked [tijd]". Stap 5: balken "Delivery time" (10 dagen) en "Time to confirm or open a dispute" (4 dagen); in de chat "✍️ Release signed in advance by the seller…"; [Seller] ziet "You signed the release in advance"; na Delivered heeft [Buyer] 4 dagen. Stap 6: direct uitbetaald ("✅ Broadcast"), [Seller] hoeft niets te tekenen; daarna "⭐ Leave a review for your trading partner". In Shrike: #1 prijs + verzending + borg, #0 zijn borg terug.'],
+    ['REAL-2', 'Directe on-chain betaling, afgerond met ophalen', [
       '[Seller] "+ New listing": titel "Test direct", prijs 5, alleen "On-chain", alleen "🤝 Pick-up" → "Publish".',
       '[Buyer] open "Test direct" → "🛒 Order now" → "On-chain" en "🤝 Pick up" → "Send order".',
       '[Seller] "✓ Accept" → onder "Send a payment request" staat je adres al (✓ nieuw) → "Request …".',
       '[Buyer] betaal vanuit Shrike #0 naar dat adres, precies dat bedrag. Kopieer in Shrike → Transactions de txid, plak bij "Payment txid" → "I paid".',
-    ], '[Seller] ziet "✓ …, N confirmations"; het geld staat in Shrike #1 op weer een nieuw adres.'],
+      '[Seller] na de bevestiging: "🤝 Handed over". [Buyer] "Yes, received". Beiden: een review.',
+    ], 'Stap 4: beiden zien "✓ …, N confirmations"; het geld staat in Shrike #1 op weer een nieuw adres. Stap 5: status "Completed" en bij beiden "⭐ Leave a review for your trading partner".'],
+    ['REAL-3', 'Geschil: de arbiter geeft alles aan de eerlijke partij', [
+      '[Seller] "+ New listing": titel "Test dispute", prijs 5, Escrow aangevinkt, alleen "🤝 Pick-up" → "Publish". [Buyer] bestelt met Escrow en Pick up; [Seller] "✓ Accept"; beiden betalen (#0 en #1); wacht op "Fully paid".',
+      '[Seller] doet niets (levert niet). [Buyer] "Open a dispute" → "Not arrived" → leg het uit → "Open dispute".',
+      '[Seller] Lees de disputeregel en het blok "📎 Answer the dispute"; stuur een antwoord.',
+      '[Arbiter] Arbiter → "Open disputes" → open de trade. Lees wat je ziet. "Propose a ruling" → "Seller at fault: everything to the buyer" → "Sign and propose".',
+      '[Buyer] onder "Payout proposals": "Agree and sign".',
+    ], 'Stap 2: de disputeregel toont "⚖️ Dispute opened by the buyer" met de reden, en tot wanneer de verkoper mag antwoorden (3 dagen). Stap 4: de arbiter ziet de hele chat en de disputeregel; in het voorstel staat "Buyer receives" het hele saldo min je fee (bijv. "Your fee (3%)", alleen met een wallet-sleutel bij Arbiter onder Account → Getting paid). Stap 5: "✅ Broadcast"; status "Paid out". In Shrike: #0 ontvangt prijs + beide borgen min fee en netwerkkosten; de fee komt bij #2.'],
   ]],
-  ['Eén account per browser', '[Buyer] en [Seller] in dezelfde Firefox, twee tabbladen (niet privé)', [
-    ['ACC-8', 'Inloggen in een tweede tabblad', [
-      'Tabblad 1: log in als Buyer. Tabblad 2 (zelfde browser): log in als Seller.',
-      'Ga terug naar tabblad 1.',
-      'Account → "📦 Shipping address" in beide accounts: elk ziet alleen zijn eigen adres.',
-    ], 'Tabblad 1 wisselt meteen mee naar Seller en zegt "Another tab logged in with a different account…". Er lopen nooit twee accounts door elkaar. Voor twee accounts tegelijk: een privévenster of een andere browser.'],
-  ]],
-  ['Opgeslagen zoekopdrachten met meldingen', '[Buyer] op je telefoon (de app op je beginscherm), [Seller] op je computer. Eerst SVC-1, anders komen meldingen alleen als de app open is.', [
-    ['SRCH-1', 'Melding bij een nieuwe advertentie', [
-      '[Buyer] Zoek op "fiets" → "🔔 Save search" → sta meldingen toe.',
-      '[Buyer] Account → "🔔 Saved searches": de zoekopdracht staat erbij, met "🔔 Notify" aan.',
-      '[Buyer] Sluit de app helemaal. [Seller] plaatst een advertentie "Test fiets", prijs 5.',
-      '[Buyer] Wacht op de melding (binnen ±10 minuten) en tik erop.',
-      '[Buyer] Account → "🔔 Saved searches" → tik op de naam van de zoekopdracht. Verwijder hem daarna met 🗑.',
-    ], 'Stap 2: "✓ Notifications are on for this device, also when XBT Market is closed." Stap 4: melding "New for “fiets”: Test fiets"; die opent XBT Market met alleen de nieuwe advertentie ("1 new since …"). Stap 5: alle advertenties voor "fiets"; daarna is de zoekopdracht weg.'],
-  ], 'Eerst SVC-1: zonder de dienst komt een melding alleen als XBT Market open is (dat zag je). Op een iPhone werken meldingen alleen in de app op je beginscherm.'],
-  ['AI-assistent', '[Seller]', [
-    ['AI-1', 'Een AI-dienst naar keuze koppelen', [
-      'Account → "✨ AI listing assistant" → "Disconnect" (als er nog een staat).',
-      'Plak je API-sleutel, en (als de app hem niet herkent) het "API address" en het model van je dienst → "Test".',
-      'Werkt het: "Connect AI service". Daarna nog eens "Test".',
-    ], '"✓ Works." of "✓ Works. Your AI service refuses requests from websites, so XBT Market sends them through its service." (dat laatste kan pas na SVC-1). Een fout zegt nu precies wat er mis is (sleutel, adres, model of tegoed): stuur me die tekst en welke AI-dienst je gebruikt.'],
-    ['AI-2', 'Kwaliteit van de AI', ['Nieuwe advertentie → 2–3 foto\'s → "✨ Write listing from photos". Doe het voor een paar verschillende spullen.'], 'Titel, beschrijving, categorie en prijs zijn bruikbaar.'],
-  ], 'Nodig: een API-sleutel van een AI-dienst naar keuze, of een model op je eigen computer.'],
+  ['Later: met accounts en sleutels', 'Admin, op je computer', [
+    ['SVC-2', 'Verzending aan', ['GitHub → Settings → Secrets and variables → Actions: SENDCLOUD_PUBLIC_KEY, SENDCLOUD_SECRET_KEY en PLATFORM_LN_ADDRESS. Daarna Actions → "Test and deploy" → "Run workflow".'], 'De dienst toont "shipping":true. In een trade met verzending krijgt [Seller] "Get the label price".'],
+    ['SVC-3', 'Bugmeldingen per mail', ['resend.com: gratis account met je e-mailadres → API Keys → Create. Secrets RESEND_API_KEY en BUG_REPORT_EMAIL (je adres), opnieuw deployen.'], '"bugReports":true.'],
+    ['SVC-4', 'Bugs naar GitHub (+ Claude)', ['GitHub fine-grained token (alleen deze repo, Issues: Read and write) → secret ISSUES_TOKEN. Voor Claude: in Claude Code /install-github-app. Opnieuw deployen.'], '"issues":true.'],
+    ['BUG-2', 'Echte bugmelding', ['[Seller] Account → "🐞 Report a problem" met een screenshot. [Admin] Admin → Bug reports → "Publish as GitHub issue".'], 'Mail met bijlage in je inbox; issue op GitHub zonder naam van de melder.'],
+    ['SHP-2', 'Echt verzendlabel', ['Na een escrow-betaling met verzending: [Seller] "Get the label price" → "Buy label" → betaal over Lightning.'], 'Echte PostNL/DHL-QR en label in de chat; [Buyer] krijgt de trackinglink.'],
+  ], 'Nodig: SVC-2 een Sendcloud-account en een Lightning-adres; SVC-3 een Resend-account; SVC-4 een GitHub-token. SHP-2 heeft SVC-2 nodig, BUG-2 SVC-3 en SVC-4.'],
   ['Later: met XBT-Lightning', 'Seller verkoopt, Buyer koopt', [
     ['WAL-2', 'Lightning Fork', ['Marketplace → Change registry → start9.paulscode.com → installeer Lightning Fork. Select Node → knots-blake2b. Initialize Wallet → Start Fresh; seed op papier. Configure Channel Backups.'], 'Lightning Fork draait.'],
     ['WAL-3', 'Laguz Hub + kanaal', ['Registry start9.pyblock.xyz → Laguz Hub. Kanaal openen (peers: forum paulscode.com). Twee NWC-koppelingen: "seller" en "buyer".'], 'Twee connection strings.'],
-    ['LN-1', 'Echte wallet koppelen', ['Account → Lightning wallet → plak de Laguz-koppeling → Connect (Seller en Buyer).'], '"✓ Connected" en het juiste saldo.'],
-    ['LN-7', 'Echt betalen met één tik', ['Buyer bestelt met Lightning; Seller: Create invoice with my wallet; Buyer: "⚡ Pay with my wallet".'], 'Factuur toont "⚡ XBT Lightning"; "Paid" bij beide; sats bij Seller.'],
-    ['LN-8', 'Andere wallet', ['Buyer scant de QR met een andere XBT-Lightning-wallet → "I have paid".'], 'Status Paid.'],
+    ['LN-1', 'Echte wallet koppelen', ['Account → "⚡ Lightning wallet" → plak de Laguz-koppeling → Connect (Seller en Buyer).'], '"✓ Connected" en het juiste saldo.'],
+    ['LN-7', 'Echt betalen met één tik', ['Buyer bestelt met Lightning; Seller: "Create invoice with my wallet"; Buyer: "⚡ Pay with my wallet".'], 'Factuur toont "⚡ XBT Lightning"; "Paid" bij beide; sats bij Seller.'],
+    ['LN-8', 'Andere wallet', ['Buyer scant de QR met een andere XBT-Lightning-wallet → "I paid".'], 'Status Paid.'],
     ['LN-3', 'Lightning-adres', ['Seller: vul je echte Lightning-adres in, ontkoppel de wallet en laat een factuur maken.'], 'Factuur komt van je Lightning-adres.'],
   ], 'Nodig: Lightning Fork + Laguz Hub met een kanaal (WAL-2, WAL-3), en voor LN-3 een Lightning-adres. Overslaan tot je dat hebt.'],
 ];
 
-const KEY = 'xbt-testplan-v15';
+const KEY = 'xbt-testplan-v16';
 let state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { state = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} render(); };
@@ -161,7 +173,7 @@ for (const [section, who, tests, needs] of PLAN) {
       </div>
       <div class="body">
         <ol>${steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
-        <div class="expect">Verwacht: ${expect}</div>
+        <div class="expect">Verwacht: ${esc(expect)}</div>
         <button class="note-toggle">notitie</button>
         <textarea placeholder="Wat zag je?"></textarea>
       </div>
