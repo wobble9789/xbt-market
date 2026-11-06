@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { saveProfile } from '../../lib/nostr/profiles.js';
 import { uploadImage } from '../../lib/nostr/blossom.js';
-import { useUsername, usernamesEnabled, claimUsername, checkUsername, cleanUsername, USERNAME_RE } from '../../lib/nostr/names.js';
+import { useUsername, usernamesEnabled, claimUsername, releaseUsername, checkUsername, cleanUsername, USERNAME_RE } from '../../lib/nostr/names.js';
 import { apiDomain } from '../../lib/api.js';
 import { updateSettings } from '../../lib/settings.js';
 import { T } from '../i18n.js';
@@ -56,8 +56,10 @@ export function ProfileForm({ pk, profile, onDone }) {
         <label class="btn small">{uploading ? <Spinner /> : '📷'} {T('Change photo', 'Cambiar foto')}<input type="file" accept="image/*" hidden onChange={onFile} /></label>
       </div>
       {claimed && !renaming ? (
-        <Field label={T('Username', 'Nombre de usuario')} hint={online ? T(`Your Nostr address (NIP-05): ${n}@${apiDomain()}. Other Nostr apps show it as verified.`, `Tu dirección Nostr (NIP-05): ${n}@${apiDomain()}. Otras apps de Nostr la muestran como verificada.`) : undefined}>
-          <div class="row nomargin"><b class="handle">@{n}</b> <span class="hint ok-text">✓ {T('Your username', 'Tu nombre de usuario')}</span> <button type="button" class="btn small ghost" onClick={() => setRenaming(true)}>{T('Change', 'Cambiar')}</button></div>
+        <Field label={T('Username', 'Nombre de usuario')} hint={online ? T(`Your Nostr address (NIP-05): ${n}@${apiDomain()}, in your public profile. Other Nostr apps show it as verified.`, `Tu dirección Nostr (NIP-05): ${n}@${apiDomain()}, en tu perfil público. Otras apps de Nostr la muestran como verificada.`) : undefined}>
+          <div class="row nomargin"><b class="handle">@{n}</b> <span class="hint ok-text">✓ {T('Your username', 'Tu nombre de usuario')}</span> <button type="button" class="btn small ghost" onClick={() => setRenaming(true)}>{T('Change', 'Cambiar')}</button>
+            <Action class="small ghost danger" confirm={T('Remove your username? It is released, and your profile is published again without the Nostr address. People can no longer find you with @' + n + '.', '¿Quitar tu nombre de usuario? Se libera y tu perfil se publica de nuevo sin la dirección Nostr. Ya no te encontrarán con @' + n + '.')} onClick={async () => { await releaseUsername(pk, profile.nip05); setTouched(false); toast(T('Username removed; your profile no longer carries the Nostr address.', 'Nombre de usuario quitado; tu perfil ya no lleva la dirección Nostr.'), 'ok'); }}>{T('Remove', 'Quitar')}</Action>
+          </div>
         </Field>
       ) : (
         <>
@@ -67,6 +69,7 @@ export function ProfileForm({ pk, profile, onDone }) {
             <div class="row nomargin username-input"><span class="at">@</span><input value={f.username} onInput={(e) => { setTouched(true); const v = cleanUsername(e.target.value); setF((cur) => ({ ...cur, username: v })); }} autocapitalize="off" autocomplete="off" spellcheck={false} maxLength={20} class={f.username && (!valid || taken) ? 'invalid' : ''} /></div>
           </Field>
           {f.username && !valid && <span class="hint error">{T('3 to 20 characters: letters a-z, numbers and _', 'De 3 a 20 caracteres: letras a-z, números y _')}</span>}
+          {online && user && !user.ours && user.name === n && <span class="hint">{T(`Your profile still names the old address ${user.domain}. "Save profile" moves it to ${n}@${apiDomain()}.`, `Tu perfil aún lleva la dirección antigua ${user.domain}. «Guardar perfil» la cambia a ${n}@${apiDomain()}.`)}</span>}
           {claimed && <span class="hint ok-text">✓ {T('Your username', 'Tu nombre de usuario')} <button type="button" class="btn small ghost" onClick={() => setRenaming(false)}>{T('Keep it', 'Mantenerlo')}</button></span>}
           {check?.error && <span class="hint error">{check.error}</span>}
           {valid && check && !check.error && (taken

@@ -234,15 +234,25 @@ jobs:
           ISSUES_TOKEN: ${{ secrets.ISSUES_TOKEN }}
           ISSUES_REPO: ${{ github.repository }}
           ADMIN_NPUB: ${{ vars.VITE_ADMIN_NPUB }}
+          # Your own domain for the service (a repository variable, e.g. api.example.com; the
+          # domain must be on your Cloudflare account). The workers.dev address, which carries
+          # your Cloudflare account name, is then switched off: usernames read name@your-domain.
+          SERVICE_DOMAIN: ${{ vars.SERVICE_DOMAIN }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "No CLOUDFLARE_API_TOKEN secret: service not deployed"; exit 0; fi
           cd server
+          if [ -n "$SERVICE_DOMAIN" ]; then
+            # Top-level keys go before the first [table] of the file.
+            { printf 'workers_dev = false\nroutes = [{ pattern = "%s", custom_domain = true }]\n' "$SERVICE_DOMAIN"; cat wrangler.toml; } > wrangler.domain.toml
+            mv wrangler.domain.toml wrangler.toml
+          fi
           npx --yes wrangler@4 deploy | tee deploy.log
           for k in SENDCLOUD_PUBLIC_KEY SENDCLOUD_SECRET_KEY PLATFORM_LN_ADDRESS RESEND_API_KEY BUG_REPORT_EMAIL ISSUES_TOKEN ISSUES_REPO ADMIN_NPUB; do
             if [ -n "${!k}" ]; then printf '%s' "${!k}" | npx --yes wrangler@4 secret put $k; fi
           done
-          url=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)
+          if [ -n "$SERVICE_DOMAIN" ]; then url="https://$SERVICE_DOMAIN"; else url=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1); fi
           echo "url=$url" >> $GITHUB_OUTPUT
+          echo "The XBT Market service answers at $url"
       - run: npm run build
         env:
           VITE_ADMIN_NPUB: ${{ vars.VITE_ADMIN_NPUB }}

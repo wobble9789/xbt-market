@@ -75,7 +75,7 @@ const PLAN = [
     ['USR-1', 'Gebruikersnaam: vast, wijzigen is een bewuste stap', [
       '[Seller] Account → "👤 Profile": kijk naar het veld Username (je hebt er al een).',
       'Tik op "Change" → typ een naam die al bestaat (bijv. die van Buyer) → lees de melding → "Keep it".',
-    ], 'Stap 1: je @naam staat als tekst met "✓ Your username" en een knop "Change"; geen invulveld. Stap 2: "✗ @naam is taken by another account (maybe another of yours). Choose a different name."; na "Keep it" staat je eigen naam er weer. De regel "Your Nostr address (NIP-05): naam@xbt-market.steenh819.workers.dev" is je Nostr-adres bij de dienst; andere Nostr-apps tonen die als geverifieerd.'],
+    ], 'Stap 1: je @naam staat als tekst met "✓ Your username" en een knop "Change"; geen invulveld. Stap 2: "✗ @naam is taken by another account (maybe another of yours). Choose a different name."; na "Keep it" staat je eigen naam er weer. De regel "Your Nostr address (NIP-05): naam@<adres van de dienst>" is je Nostr-adres bij de dienst; andere Nostr-apps tonen die als geverifieerd.'],
     ['ZOEK-1', 'Zoeken vindt ook op categorie', [
       '[Buyer] Browse: zoek op "shoes" (of een ander woord dat alleen in de categorienaam staat, zoals "boots" of "schoenen").',
     ], 'Ook advertenties zonder dat woord in de titel verschijnen als ze in een schoenen-subcategorie staan (hakken, laarzen, ballerina\'s). Zoeken kijkt nu naar titel, tekst, categorienamen (NL/EN/ES) en hun synoniemen.'],
@@ -126,20 +126,20 @@ const PLAN = [
       'GitHub: github.com/wobble9789/xbt-market/settings/secrets/actions → "New repository secret": Name SENDCLOUD_PUBLIC_KEY, Secret: de public key → Add. Nog eens: SENDCLOUD_SECRET_KEY met de secret key.',
       'Labels betalen gaat over XBT-Lightning naar jouw Lightning-adres (dat heb je pas na WAL-2/WAL-3). Heb je het: secret PLATFORM_LN_ADDRESS = dat adres (bijv. naam@jouw-hub). Zonder dit werken de prijzen wel, de labels nog niet.',
       'github.com/wobble9789/xbt-market/actions → links "Test and deploy" → rechts "Run workflow" → branch main → "Run workflow". Wacht tot het groen is (±2 min).',
-      'Open https://xbt-market.steenh819.workers.dev en kijk naar "shipping". Ververs XBT Market hard; [Buyer] bestelt iets met PostNL.',
+      'Open het adres van de dienst (Account → Profile toont het achter de @) en kijk naar "shipping". Ververs XBT Market hard; [Buyer] bestelt iets met PostNL.',
     ], 'Stap 7: "shipping":true (en "labelPayments":true als je stap 5 deed). Bij [Buyer] staat de PostNL-prijs zonder "≈" (de echte Sendcloud-prijs). [Seller] krijgt na de betaling "Get the label price".'],
     ['SVC-3', 'Bugmeldingen per mail (Resend)', [
       'Ga naar resend.com → "Sign up" met het e-mailadres waarop je bugmeldingen wilt ontvangen (gratis). Bevestig je e-mail.',
       'In Resend: links "API Keys" → "Create API Key" → naam "xbt market", Permission "Sending access" → "Add" → kopieer de sleutel (één keer zichtbaar).',
       'GitHub → Secrets → "New repository secret": RESEND_API_KEY = de sleutel. Nog eens: BUG_REPORT_EMAIL = je e-mailadres (precies dat van je Resend-account; zonder eigen domein levert Resend alleen daaraan).',
-      'Actions → "Test and deploy" → "Run workflow" → main. Open daarna https://xbt-market.steenh819.workers.dev.',
+      'Actions → "Test and deploy" → "Run workflow" → main. Open daarna het adres van de dienst (Account → Profile toont het achter de @).',
     ], '"bugReports":true.'],
     ['SVC-4', 'Bugs naar GitHub (+ Claude)', [
       'GitHub: rechtsboven je profiel → Settings → links onderaan "Developer settings" → "Personal access tokens" → "Fine-grained tokens" → "Generate new token".',
       'Naam "xbt market issues"; Expiration bijv. 1 jaar; Repository access: "Only select repositories" → xbt-market; Permissions → Repository permissions → "Issues": Read and write → "Generate token" → kopieer.',
       'GitHub → Secrets → "New repository secret": ISSUES_TOKEN = de token.',
       'Wil je dat Claude een gepubliceerde issue oppakt: in Claude Code (op je pc) /install-github-app → volg de stappen; dat zet de secret CLAUDE_CODE_OAUTH_TOKEN.',
-      'Actions → "Test and deploy" → "Run workflow" → main. Open daarna https://xbt-market.steenh819.workers.dev.',
+      'Actions → "Test and deploy" → "Run workflow" → main. Open daarna het adres van de dienst (Account → Profile toont het achter de @).',
     ], '"issues":true.'],
     ['BUG-2', 'Echte bugmelding', [
       '[Seller] Account → "🐞 Report a problem": beschrijf iets, voeg een screenshot toe → "Send report".',

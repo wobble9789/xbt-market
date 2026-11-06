@@ -61,4 +61,13 @@ export async function claimUsername(pk, name) {
   return nip05;
 }
 
+// Gives the username up: released at the service, and the profile is
+// published again without the Nostr address, which replaces the old profile
+// on the relays (kind 0 is replaceable).
+export async function releaseUsername(pk, nip05) {
+  await api('/api/names', { method: 'POST', body: { name: '' }, auth: true });
+  if (nip05) verified.delete(nip05);
+  await saveProfile(pk, { nip05: undefined });
+}
+
 export const searchUsernames = (q) => api(`/api/names?q=${encodeURIComponent(cleanUsername(q))}`).then((r) => r.names || []);
