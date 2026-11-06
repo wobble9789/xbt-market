@@ -6,7 +6,7 @@ import { T, lang } from './i18n.js';
 // level) and the category search, which load with it.
 let extras = null;
 const loadExtras = () => (extras ||= Promise.all([import('../lib/category-models.js'), import('../lib/category-search.js'), import('../lib/category-synonyms/index.js')])
-  .then(([m, s, syn]) => ({ MODELS: m.MODELS, searchCategories: (q, tree, l) => s.searchCategories(q, tree, l, syn.SYNONYMS) })));
+  .then(([m, s, syn]) => ({ MODELS: m.MODELS, SYNONYMS: syn.SYNONYMS, searchCategories: (q, tree, l) => s.searchCategories(q, tree, l, syn.SYNONYMS) })));
 
 export function useCategoryTree() {
   const [tree, setTree] = useState(null);

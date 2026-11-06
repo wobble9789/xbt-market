@@ -71,47 +71,27 @@
 </main>
 <script>
 const PLAN = [
-  ['De dienst staat live: nu te testen', 'Admin, Seller en Buyer, elk in een eigen browser', [
-    ['SVC-1', 'De XBT Market-dienst werkt', [
-      'Open https://xbt-market.steenh819.workers.dev in je browser.',
-      'Open XBT Market, ververs hard, en ga naar Sell → "⇪ Import from Marktplaats, Vinted…".',
-    ], 'Stap 1: een regel tekst met onder andere "service":"xbt-market", "push":true en "ai":true. Stap 2: bovenaan het blok "🔗 Paste a link".'],
-    ['USR-1', 'Unieke @gebruikersnaam', [
-      '[Seller] Account → "👤 Profile": vul bij Username een naam in (bijv. seller_test) → "Save profile".',
-      '[Buyer] Account → "👤 Profile": vul precies dezelfde naam in.',
-      '[Buyer] Browse: typ in het zoekveld "@" plus de eerste letters van die naam.',
-    ], 'Stap 1: tijdens het typen "✓ @seller_test is available"; na opslaan staat bovenaan Account "@seller_test". Stap 2: "✗ @seller_test is already taken" en "Save profile" is uitgeschakeld. Stap 3: Seller staat in de lijst; tikken opent het profiel.'],
-    ['IMP-9', 'Importeren via een geplakte link', [
-      '[Seller] Sell → Import → bij "🔗 Paste a link": plak het adres van je Marktplaats-profiel (marktplaats.nl/u/…) → "Read".',
-      'Nog eens met de link van één advertentie (Marktplaats-app: advertentie → Delen → Link kopiëren).',
-    ], 'Je advertenties met foto\'s (📷 aantal) en prijs; wat al op XBT Market staat is herkend ("Already on your profile"). Krijg je "marktplaats.nl answered 403"? Dan blokkeert Marktplaats de dienst: noteer dat; de importknop blijft dan de weg.'],
-    ['AI-1', 'Een AI-dienst naar keuze koppelen', [
-      '[Seller] Account → "✨ AI listing assistant" → "Disconnect" (als er nog een staat). Lees de drie punten (sleutel, adres, model): is duidelijk waar je die vindt?',
-      'Plak je API-sleutel en het "API address" van je dienst (eindigt meestal op /v1) → "Show the available models" → kies een model dat foto\'s kan lezen.',
-      '"Test". Werkt het: "Connect AI service". Daarna nog eens "Test".',
-    ], 'Stap 2: de lijst met modellen van je dienst verschijnt (vergat je /v1, dan zet de app het er zelf bij). Stap 3: "✓ Works." of "✓ Works. Your AI service refuses requests from websites, so XBT Market sends them through its service." Een fout zegt precies wat er mis is (sleutel, adres, model of tegoed): stuur me die tekst.'],
-    ['AI-2', 'Kwaliteit van de AI', ['Nieuwe advertentie → 2–3 foto\'s → "✨ Write listing from photos". Doe het voor een paar verschillende spullen.'], 'Titel, beschrijving, categorie en prijs zijn bruikbaar.'],
-  ]],
-  ['Opgeslagen zoekopdrachten met meldingen', '[Buyer] op je telefoon (de app op je beginscherm), [Seller] op je computer', [
-    ['SRCH-1', 'Melding bij een nieuwe advertentie, ook met de app dicht', [
-      '[Buyer] Account → "🔔 Saved searches": lees de regel onder de uitleg.',
-      '[Buyer] Zoek op "fiets" → "🔔 Save search" → sta meldingen toe als dat gevraagd wordt.',
-      '[Buyer] Sluit de app helemaal (wegvegen). [Seller] plaatst een advertentie "Test fiets", prijs 5.',
-      '[Buyer] Wacht tot hoogstens 10 minuten op de melding en tik erop.',
-      '[Buyer] Account → "🔔 Saved searches" → tik op de naam van de zoekopdracht. Verwijder hem daarna met 🗑.',
-    ], 'Stap 1: "✓ Notifications are on for this device, also when XBT Market is closed." Staat er in plaats daarvan een oranje melding dat deze browser zich niet kon aanmelden voor meldingen met de app dicht? Dan kan het op dit toestel in deze browser niet (Chrome-achtige browsers op Android zonder Google-diensten): probeer dezelfde stappen in Firefox. Stap 4: melding "New for “fiets”: Test fiets", die opent XBT Market met alleen de nieuwe advertentie ("1 new since …"). Stap 5: alle "fiets"-advertenties; daarna is de zoekopdracht weg.'],
-  ]],
-  ['Eén account per browser', 'Eén Firefox (geen privévenster), twee tabbladen', [
-    ['ACC-8', 'Een tweede tabblad logt in met een ander account', [
-      'Tabblad 1: log in als Buyer en open Account.',
-      'Open een tweede tabblad in dezelfde browser: Account → "Log out" → log in met de nsec van Seller.',
-      'Ga terug naar tabblad 1 en kijk wat het doet.',
-      'In tabblad 2: Account → "Log out". Kijk weer naar tabblad 1.',
-    ], 'Stap 3: tabblad 1 is vanzelf herladen, toont Seller en een melding "Another tab logged in with a different account…". Stap 4: tabblad 1 toont het inlogscherm met "You logged out in another tab, so here too." Twee accounts lopen nooit naast elkaar; voor twee tegelijk gebruik je een privévenster of een andere browser.'],
+  ['Hertest na je laatste ronde', 'Seller en Buyer, elk in een eigen browser', [
+    ['USR-1', 'Gebruikersnaam: vast, wijzigen is een bewuste stap', [
+      '[Seller] Account → "👤 Profile": kijk naar het veld Username (je hebt er al een).',
+      'Tik op "Change" → typ een naam die al bestaat (bijv. die van Buyer) → lees de melding → "Keep it".',
+    ], 'Stap 1: je @naam staat als tekst met "✓ Your username" en een knop "Change"; geen invulveld. Stap 2: "✗ @naam is taken by another account (maybe another of yours). Choose a different name."; na "Keep it" staat je eigen naam er weer. De regel "Your Nostr address (NIP-05): naam@xbt-market.steenh819.workers.dev" is je Nostr-adres bij de dienst; andere Nostr-apps tonen die als geverifieerd.'],
+    ['ZOEK-1', 'Zoeken vindt ook op categorie', [
+      '[Buyer] Browse: zoek op "shoes" (of een ander woord dat alleen in de categorienaam staat, zoals "boots" of "schoenen").',
+    ], 'Ook advertenties zonder dat woord in de titel verschijnen als ze in een schoenen-subcategorie staan (hakken, laarzen, ballerina\'s). Zoeken kijkt nu naar titel, tekst, categorienamen (NL/EN/ES) en hun synoniemen.'],
+    ['IMP-12', 'eBay: de hele winkel via de importknop', [
+      '[Seller] Open in je browser je eBay-artikelenpagina: ebay.nl/sch/i.html?_ssn=jouw-naam (zonder verdere parameters) → klik de bladwijzer.',
+      'Kijk onderaan de eBay-pagina naar de gele notitie, en in het XBT Market-tabblad.',
+    ], 'De notitie telt op: "… listings so far, reading page 3…", daarna "reading their photos…". Het XBT Market-tabblad zegt intussen "Reading your listings in the tab of your shop… With hundreds of ads this takes a few minutes". Daarna de lijst. Het aantal is je hele inventaris (alle pagina\'s), niet wat één pagina toont. Onder "Other ways" staat alleen nog de eBay-CSV.'],
+    ['AI-2', 'Kwaliteit van de AI', [
+      '[Seller] Account → "✨ AI listing assistant" → "Disconnect" → plak sleutel en adres: de modellenlijst verschijnt nu vanzelf (zonder op de knop te tikken) → kies een model → "Connect AI service".',
+      'Nieuwe advertentie → 2–3 foto\'s van een echt voorwerp → vul "Tell the AI about the item" in (merk, leeftijd, wat erbij zit, gebreken) → "✨ Write listing from photos".',
+      'Doe het ook een keer zonder dat veld, en voor een paar verschillende spullen.',
+    ], 'Titel is specifiek en zoekbaar; beschrijving leest als een echte, verkopende advertentie (wat het is, waarom leuk, staat, wat erbij zit, wat jij opgaf); geen "details needed" of "photo only" in titel of tekst: vragen aan jou staan alleen in de 💡-tip. Categorie en prijs bruikbaar.'],
   ]],
   ['Echt geld: on-chain met Shrike', 'Drie browsers: [Buyer], [Seller] en [Arbiter]. Shrike: #0 = buyer, #1 = seller, #2 = arbiter (als je die hebt). Bij een fout: screenshot + txid in je notitie.', [
     ['CNL-1', 'Annuleren zonder betaling en gesprek verwijderen', [
-      '[Buyer] open "Test escrow" → "🛒 Order now" → "Send order". [Seller] "✓ Accept" → "Cancel trade (nothing paid yet)".',
+      '[Buyer] open "Test escrow" → "🛒 Order now" → kies PostNL: er staat nu een geschatte prijs ("≈ €6.95"), geen foutmelding meer → "Send order". [Seller] "✓ Accept" → "Cancel trade (nothing paid yet)".',
       '[Seller] Kijk naar de status bovenaan en in Messages.',
       '[Seller] Messages → onder "Finished" bij deze trade op 🗑 → bevestigen. Open Messages ook op je telefoon met hetzelfde account.',
     ], 'Status "Cancelled", niet "refund needed". Na 🗑 is het gesprek weg, ook op je telefoon. Bij [Buyer] staat het er nog (die heeft een eigen kopie).'],
@@ -119,7 +99,7 @@ const PLAN = [
       '[Buyer] open "Test escrow" → "🛒 Order now" → Escrow, PostNL. Lees de tekst onder je terugbetaaladres → "Send order". [Seller] "✓ Accept".',
       'Onder "Escrow": betaal beide uit Shrike (#0 en #1). [Seller] plakt de txid van zijn betaling bij "Payment txid (optional)" → "I paid".',
       '[Buyer] In de chat staat "💸 Paid into escrow · txid … ↗": tik erop. Tik daarna op "Refresh".',
-      'Na "Fully paid": [Seller] ziet boven het verzendformulier de 📸-waarschuwing → trackingcode → "Mark as shipped".',
+      'Na "Fully paid": [Seller] ziet boven het verzendformulier de 📸-waarschuwing; probeer "Mark as shipped" zonder trackingcode (moet niet kunnen) → trackingcode → "Mark as shipped".',
       'Bekijk bij beiden de twee balken en de chat; [Seller] "📬 Delivered, per the tracking"; bekijk bij [Buyer] de tekst.',
       '[Buyer] "Everything OK: release payment".',
     ], 'Stap 1: "Your personal info to make the trade is only shared after the seller accepts your order". Stap 3: de link opent de transactie in de explorer; na Refresh een draaiend icoon en dan "✓ Checked [tijd]". Stap 5: balken "Delivery time" (10 dagen) en "Time to confirm or open a dispute" (4 dagen); in de chat "✍️ Release signed in advance by the seller…"; [Seller] ziet "You signed the release in advance"; na Delivered heeft [Buyer] 4 dagen. Stap 6: direct uitbetaald ("✅ Broadcast"), [Seller] hoeft niets te tekenen; daarna "⭐ Leave a review for your trading partner". In Shrike: #1 prijs + verzending + borg, #0 zijn borg terug.'],
@@ -138,13 +118,38 @@ const PLAN = [
       '[Buyer] onder "Payout proposals": "Agree and sign".',
     ], 'Stap 2: de disputeregel toont "⚖️ Dispute opened by the buyer" met de reden, en tot wanneer de verkoper mag antwoorden (3 dagen). Stap 4: de arbiter ziet de hele chat en de disputeregel; in het voorstel staat "Buyer receives" het hele saldo min je fee (bijv. "Your fee (3%)", alleen met een wallet-sleutel bij Arbiter onder Account → Getting paid). Stap 5: "✅ Broadcast"; status "Paid out". In Shrike: #0 ontvangt prijs + beide borgen min fee en netwerkkosten; de fee komt bij #2.'],
   ]],
-  ['Later: met accounts en sleutels', 'Admin, op je computer', [
-    ['SVC-2', 'Verzending aan', ['GitHub → Settings → Secrets and variables → Actions: SENDCLOUD_PUBLIC_KEY, SENDCLOUD_SECRET_KEY en PLATFORM_LN_ADDRESS. Daarna Actions → "Test and deploy" → "Run workflow".'], 'De dienst toont "shipping":true. In een trade met verzending krijgt [Seller] "Get the label price".'],
-    ['SVC-3', 'Bugmeldingen per mail', ['resend.com: gratis account met je e-mailadres → API Keys → Create. Secrets RESEND_API_KEY en BUG_REPORT_EMAIL (je adres), opnieuw deployen.'], '"bugReports":true.'],
-    ['SVC-4', 'Bugs naar GitHub (+ Claude)', ['GitHub fine-grained token (alleen deze repo, Issues: Read and write) → secret ISSUES_TOKEN. Voor Claude: in Claude Code /install-github-app. Opnieuw deployen.'], '"issues":true.'],
-    ['BUG-2', 'Echte bugmelding', ['[Seller] Account → "🐞 Report a problem" met een screenshot. [Admin] Admin → Bug reports → "Publish as GitHub issue".'], 'Mail met bijlage in je inbox; issue op GitHub zonder naam van de melder.'],
-    ['SHP-2', 'Echt verzendlabel', ['Na een escrow-betaling met verzending: [Seller] "Get the label price" → "Buy label" → betaal over Lightning.'], 'Echte PostNL/DHL-QR en label in de chat; [Buyer] krijgt de trackinglink.'],
-  ], 'Nodig: SVC-2 een Sendcloud-account en een Lightning-adres; SVC-3 een Resend-account; SVC-4 een GitHub-token. SHP-2 heeft SVC-2 nodig, BUG-2 SVC-3 en SVC-4.'],
+  ['Later: met accounts en sleutels', 'Admin (jij), op je computer', [
+    ['SVC-2', 'Verzending aan: echte prijzen en labels via Sendcloud', [
+      'Wat is wat: Cloudflare draait de XBT Market-dienst (dat staat al). Sendcloud is het verzendbedrijf dat de echte PostNL/DHL-prijzen en labels levert; daarvoor heeft de dienst jouw Sendcloud-sleutels nodig.',
+      'Ga naar sendcloud.com → maak een gratis account (Start-abonnement). Koppel in Sendcloud minstens één vervoerder (Settings → Carriers → PostNL) en vul je afzenderadres in.',
+      'In Sendcloud: Settings → Integrations → "Sendcloud API" → "Add" → je ziet een Public key en een Secret key → kopieer beide.',
+      'GitHub: github.com/wobble9789/xbt-market/settings/secrets/actions → "New repository secret": Name SENDCLOUD_PUBLIC_KEY, Secret: de public key → Add. Nog eens: SENDCLOUD_SECRET_KEY met de secret key.',
+      'Labels betalen gaat over XBT-Lightning naar jouw Lightning-adres (dat heb je pas na WAL-2/WAL-3). Heb je het: secret PLATFORM_LN_ADDRESS = dat adres (bijv. naam@jouw-hub). Zonder dit werken de prijzen wel, de labels nog niet.',
+      'github.com/wobble9789/xbt-market/actions → links "Test and deploy" → rechts "Run workflow" → branch main → "Run workflow". Wacht tot het groen is (±2 min).',
+      'Open https://xbt-market.steenh819.workers.dev en kijk naar "shipping". Ververs XBT Market hard; [Buyer] bestelt iets met PostNL.',
+    ], 'Stap 7: "shipping":true (en "labelPayments":true als je stap 5 deed). Bij [Buyer] staat de PostNL-prijs zonder "≈" (de echte Sendcloud-prijs). [Seller] krijgt na de betaling "Get the label price".'],
+    ['SVC-3', 'Bugmeldingen per mail (Resend)', [
+      'Ga naar resend.com → "Sign up" met het e-mailadres waarop je bugmeldingen wilt ontvangen (gratis). Bevestig je e-mail.',
+      'In Resend: links "API Keys" → "Create API Key" → naam "xbt market", Permission "Sending access" → "Add" → kopieer de sleutel (één keer zichtbaar).',
+      'GitHub → Secrets → "New repository secret": RESEND_API_KEY = de sleutel. Nog eens: BUG_REPORT_EMAIL = je e-mailadres (precies dat van je Resend-account; zonder eigen domein levert Resend alleen daaraan).',
+      'Actions → "Test and deploy" → "Run workflow" → main. Open daarna https://xbt-market.steenh819.workers.dev.',
+    ], '"bugReports":true.'],
+    ['SVC-4', 'Bugs naar GitHub (+ Claude)', [
+      'GitHub: rechtsboven je profiel → Settings → links onderaan "Developer settings" → "Personal access tokens" → "Fine-grained tokens" → "Generate new token".',
+      'Naam "xbt market issues"; Expiration bijv. 1 jaar; Repository access: "Only select repositories" → xbt-market; Permissions → Repository permissions → "Issues": Read and write → "Generate token" → kopieer.',
+      'GitHub → Secrets → "New repository secret": ISSUES_TOKEN = de token.',
+      'Wil je dat Claude een gepubliceerde issue oppakt: in Claude Code (op je pc) /install-github-app → volg de stappen; dat zet de secret CLAUDE_CODE_OAUTH_TOKEN.',
+      'Actions → "Test and deploy" → "Run workflow" → main. Open daarna https://xbt-market.steenh819.workers.dev.',
+    ], '"issues":true.'],
+    ['BUG-2', 'Echte bugmelding', [
+      '[Seller] Account → "🐞 Report a problem": beschrijf iets, voeg een screenshot toe → "Send report".',
+      '[Admin] Admin → tab "Bug reports": de melding staat er met "✉ e-mailed with attachments" → "Publish as GitHub issue" → tekst nakijken → "Publish on GitHub".',
+    ], 'Mail met bijlage in je inbox; op github.com/wobble9789/xbt-market/issues een issue zonder naam van de melder en zonder screenshot. (Nodig: SVC-3 en SVC-4.)'],
+    ['SHP-2', 'Echt verzendlabel', [
+      'Doe REAL-1 tot en met "Fully paid" met een PostNL-verzending.',
+      '[Seller] in het verzendformulier: "Get the label price" → "Buy label €…" → betaal de Lightning-factuur met je XBT-Lightning-wallet → "I paid".',
+    ], 'Een echte PostNL-QR-code (of label-PDF) en de trackingcode in de chat; [Buyer] krijgt de trackinglink; "Mark as shipped" heeft de code al ingevuld. (Nodig: SVC-2 met PLATFORM_LN_ADDRESS, en een XBT-Lightning-wallet.)'],
+  ], 'Nodig: SVC-2 een Sendcloud-account (gratis) en, voor labels, een XBT-Lightning-adres; SVC-3 een Resend-account (gratis); SVC-4 een GitHub-token. BUG-2 heeft SVC-3 en SVC-4 nodig, SHP-2 heeft SVC-2 nodig. Cloudflare (de twee secrets die je al hebt) draait alleen de dienst zelf.'],
   ['Later: met XBT-Lightning', 'Seller verkoopt, Buyer koopt', [
     ['WAL-2', 'Lightning Fork', ['Marketplace → Change registry → start9.paulscode.com → installeer Lightning Fork. Select Node → knots-blake2b. Initialize Wallet → Start Fresh; seed op papier. Configure Channel Backups.'], 'Lightning Fork draait.'],
     ['WAL-3', 'Laguz Hub + kanaal', ['Registry start9.pyblock.xyz → Laguz Hub. Kanaal openen (peers: forum paulscode.com). Twee NWC-koppelingen: "seller" en "buyer".'], 'Twee connection strings.'],
@@ -155,7 +160,7 @@ const PLAN = [
   ], 'Nodig: Lightning Fork + Laguz Hub met een kanaal (WAL-2, WAL-3), en voor LN-3 een Lightning-adres. Overslaan tot je dat hebt.'],
 ];
 
-const KEY = 'xbt-testplan-v16';
+const KEY = 'xbt-testplan-v17';
 let state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { state = {}; }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} render(); };

@@ -18,6 +18,7 @@ import { secretNames } from '../../lib/secrets.js';
 import { CARRIERS, carrier, trackingUrl } from '../../lib/shipping.js';
 import { labelsEnabled, labelQuote, createLabel, labelStatus, servicePoints } from '../../lib/shipping-api.js';
 import { API_URL } from '../../config.js';
+import { serviceInfo } from '../../lib/api.js';
 import { isValidAddress } from '../../lib/btc/address.js';
 import { formatCoin, parseCoin, formatFiat } from '../../lib/btc/units.js';
 import { explorerFor } from '../../config.js';
@@ -661,6 +662,7 @@ function ServicePointPicker({ state, value, onChange, postalCode }) {
 function DetailsForm({ state, role }) {
   const s = settings.get();
   const dir = useStore(directory);
+  useStore(serviceInfo);
   // Buyer and seller cannot be the arbiter of their own trade.
   const others = (a) => a.pubkey !== state.participants?.buyer && a.pubkey !== state.participants?.seller;
   const allArbiters = [...dir.arbiters.values()];
@@ -864,6 +866,7 @@ async function shipAndPresign(state, info) {
 }
 
 function ShipForm({ state }) {
+  useStore(serviceInfo); // labels appear once the service says shipping is set up
   const label = state.labels[state.labels.length - 1];
   const [carrierId, setCarrier] = useState(label?.carrier || shipCarrierOf(state) || '');
   const [tracking, setTracking] = useState(label?.tracking || '');
@@ -892,7 +895,7 @@ function ShipForm({ state }) {
   return (
     <div class="card">
       <h3>📦 {T('Ship the item', 'Envía el artículo')}</h3>
-      <p class="notice warn">📸 {T('Before you ship: take a photo of the item in the box with the label visible. If there is a dispute, it is your proof.', 'Antes de enviarlo: haz una foto del artículo en la caja con la etiqueta visible. Si hay una disputa, es tu prueba.')}</p>
+      <p class="notice warn">📸 {T('Before you ship: take a photo of the item in the box with the label visible. In a dispute it helps you show what you sent.', 'Antes de enviarlo: haz una foto del artículo en la caja con la etiqueta visible. En una disputa te ayuda a demostrar qué enviaste.')}</p>
       {to ? <pre class="address">{formatAddress(to)}</pre> : <p class="notice small">{T('Waiting for the buyer\'s address: their app sends it by itself after your accept.', 'Esperando la dirección del comprador: su app la envía sola después de que aceptes.')}</p>}
       {state.servicePointId && <p class="small">{T('To pick-up point', 'Al punto de recogida')} #{state.servicePointId}</p>}
       {labelsEnabled() && !label && to && <LabelMaker state={state} />}
@@ -904,10 +907,10 @@ function ShipForm({ state }) {
             {CARRIERS.filter((c) => !c.pickup).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </Field>
-        <Field label={T('Tracking code', 'Código de seguimiento')}><input value={tracking} onInput={(e) => setTracking(e.target.value)} /></Field>
+        <Field label={T('Tracking code', 'Código de seguimiento')} hint={T('Required: the buyer follows the parcel with it, and it shows you shipped.', 'Obligatorio: el comprador sigue el paquete con él, y demuestra que enviaste.')}><input value={tracking} onInput={(e) => setTracking(e.target.value)} class={tracking.trim() ? '' : 'invalid'} /></Field>
       </div>
       <Field label={T('Note', 'Nota')}><input value={note} onInput={(e) => setNote(e.target.value)} /></Field>
-      <Action class="primary" disabled={!carrierId} onClick={() => shipAndPresign(state, { carrier: carrierId, tracking, note })}>{T('Mark as shipped', 'Marcar como enviado')}</Action>
+      <Action class="primary" disabled={!carrierId || !tracking.trim()} onClick={() => shipAndPresign(state, { carrier: carrierId, tracking: tracking.trim(), note })}>{T('Mark as shipped', 'Marcar como enviado')}</Action>
     </div>
   );
 }

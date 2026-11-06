@@ -162,7 +162,13 @@ const SCHEMA = {
   },
 };
 
-const SYSTEM = 'You write listings for a second-hand marketplace. Describe only what the photos show or the seller states; never invent brands, sizes or specs. Mention visible wear. Plain text, no emoji, no hype.';
+const SYSTEM = [
+  'You write listings for a second-hand marketplace, the way a good seller would: they should make a buyer want the item.',
+  'Title: specific and searchable (brand, model, type, size or the key feature), like a real ad title.',
+  'Description: a friendly, convincing text in a few short paragraphs: what it is, what makes it nice or useful, the condition with any visible wear, what is included, and anything the seller states (age, size, reason for selling).',
+  'Describe only what the photos show or the seller states; never invent brands, sizes or specs. Never put placeholders or remarks for the seller in the title or description (no "details needed", "photo only", "unknown brand"): questions and tips for the seller go in notes only.',
+  'Plain text, no emoji, no exaggeration.',
+].join(' ');
 
 const subcategorySchema = (subs) => ({ type: 'object', additionalProperties: false, required: ['subcategory'], properties: { subcategory: { type: 'string', enum: subs.map((c) => c[0]) } } });
 const subcategoryPrompt = (out, subs) => `Pick the best subcategory for this listing.\nTitle: ${out.title}\nDescription: ${out.description}\nSubcategories (id: name): ${subs.map((c) => `${c[0]}: ${c[2]}`).join('; ')}`;
@@ -260,7 +266,7 @@ export async function draftListing({ images, lang = 'en', currency = 'EUR', hint
   const language = lang === 'es' ? 'Spanish' : 'English';
   const out = clean(await ask(c, {
     images: images.slice(0, 8), schema: SCHEMA, maxTokens: 4000, fetchImpl, relay,
-    text: `Write the listing in ${language}. Price in ${currency}.${hint ? `\nThe seller adds: ${hint}` : ''}`,
+    text: `Write the listing in ${language}. Price in ${currency}.${hint ? `\nThe seller says about the item (use it; it is true): ${hint}` : ''}`,
   }));
   if (!out?.title) throw new Error('The AI returned no usable listing. Try again.');
   out.subcategory = '';

@@ -361,6 +361,19 @@ function AiKey() {
   const testLine = tested && <p class={`small ${tested.ok ? 'ok-text' : tested.ok === false ? 'error' : ''}`}>{tested.text}</p>;
   const anthropic = isAnthropicKey(key);
   const ready = anthropic || (validBase(base) && model.trim());
+  // The models appear by themselves once the address (and key) are there.
+  const showModels = async () => {
+    const found = await findModels({ base, key });
+    if (found.base !== normalizeBase(base)) { setBase(found.base); toast(T('Added /v1 to the address: that is where your service answers.', 'Añadido /v1 a la dirección: ahí responde tu servicio.'), 'ok'); }
+    setModels(found.models);
+    return found.models;
+  };
+  const [triedFor, setTriedFor] = useState('');
+  useEffect(() => {
+    if (anthropic || !validBase(base) || models || triedFor === `${normalizeBase(base)}|${key}`) return;
+    const t = setTimeout(() => { setTriedFor(`${normalizeBase(base)}|${key}`); showModels().catch(() => {}); }, 700);
+    return () => clearTimeout(t);
+  }, [base, key, anthropic, models]);
   return (
     <>
       <p class="hint">{T('Fills in the title, description, category, condition and a price suggestion from your photos. You check and adjust everything before publishing.', 'Rellena el título, la descripción, la categoría, el estado y un precio sugerido a partir de tus fotos. Tú lo revisas y ajustas todo antes de publicar.')}</p>
@@ -391,16 +404,14 @@ function AiKey() {
             <Field label={T('API address', 'Dirección de la API')} hint={base && !validBase(base) ? T('Starts with https:// (or http://localhost for your own computer).', 'Empieza por https:// (o http://localhost para tu propio ordenador).') : T('Usually ends in /v1.', 'Suele terminar en /v1.')}>
               <input value={base} onInput={(e) => { setBase(e.target.value); setModels(null); }} placeholder="https://…/v1" class={base && !validBase(base) ? 'invalid' : ''} />
             </Field>
-            <Field label={T('Model', 'Modelo')} hint={T('Pick one that can read photos (vision).', 'Elige uno que pueda leer fotos (visión).')}>
+            <Field label={T('Model', 'Modelo')} hint={models?.length ? T('The models your service offers. Pick one that can read photos (vision); models made only for code or text cannot.', 'Los modelos que ofrece tu servicio. Elige uno que pueda leer fotos (visión); los modelos solo para código o texto no pueden.') : T('Pick one that can read photos (vision). The list appears once the address and key are filled in.', 'Elige uno que pueda leer fotos (visión). La lista aparece cuando la dirección y la clave están rellenadas.')}>
               {models?.length
                 ? <select value={model} onChange={(e) => setModel(e.target.value)}><option value="">{T('Choose…', 'Elige…')}</option>{models.map((m) => <option key={m} value={m}>{m}</option>)}</select>
                 : <input value={model} onInput={(e) => setModel(e.target.value)} />}
             </Field>
             <Action class="small ghost" disabled={!validBase(base)} onClick={async () => {
-              const found = await findModels({ base, key });
-              if (found.base !== normalizeBase(base)) { setBase(found.base); toast(T('Added /v1 to the address: that is where your service answers.', 'Añadido /v1 a la dirección: ahí responde tu servicio.'), 'ok'); }
-              setModels(found.models);
-              if (!found.models.length) toast(T('The service lists no models: type the name yourself.', 'El servicio no muestra modelos: escribe el nombre tú.'));
+              const list = await showModels();
+              if (!list.length) toast(T('The service lists no models: type the name yourself.', 'El servicio no muestra modelos: escribe el nombre tú.'));
             }}>{T('Show the available models', 'Ver los modelos disponibles')}</Action>
           </>}
           <p class="hint">{T('Stored encrypted on this device only, never published. Your photos go only to the service you connect.', 'Se guarda cifrado solo en este dispositivo y nunca se publica. Tus fotos solo van al servicio que conectes.')}</p>

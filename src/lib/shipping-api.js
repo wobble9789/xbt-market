@@ -1,6 +1,6 @@
 // Shipping prices for a listing and labels, from the XBT Market service when it
 // is configured, otherwise estimates (see shipping.js).
-import { api, apiEnabled } from './api.js';
+import { api, apiEnabled, serviceInfo, loadServiceInfo } from './api.js';
 import { shipCarriers, estimatePrice } from './shipping.js';
 
 // -> [{ carrier, price, currency, quoteId?, service?, servicePoint?, labelless?, estimate? }]
@@ -10,14 +10,21 @@ export async function shippingQuotes(listing, toCountry, toPostalCode = '') {
   // Older listings: the seller set a price per carrier.
   if (opts.every((o) => o.price != null)) return opts.map((o) => ({ carrier: o.id, price: o.price, currency: o.currency, fixed: true }));
   const size = listing.packageSize || 'M';
-  if (apiEnabled() && listing.country) {
+  const estimates = () => opts.map((o) => ({ carrier: o.id, price: estimatePrice(size, listing.country, toCountry, o.id), currency: 'EUR', estimate: true }));
+  // Live prices only when the service has shipping set up; otherwise (or when
+  // it does not answer) the estimates, so an order is always possible.
+  if (!apiEnabled() || !listing.country || !(await loadServiceInfo()).shipping) return estimates();
+  try {
     const res = await api('/api/shipping/quote', { method: 'POST', body: { from: { country: listing.country }, to: { country: toCountry, ...(toPostalCode ? { postalCode: toPostalCode } : {}) }, size, carriers: opts.map((o) => o.id) } });
     return res.options.map((o) => ({ carrier: o.carrier, price: o.price, currency: o.currency, quoteId: o.id, service: o.name, servicePoint: o.servicePoint, labelless: o.labelless }));
+  } catch (e) {
+    console.warn('shipping quote', e);
+    return estimates();
   }
-  return opts.map((o) => ({ carrier: o.id, price: estimatePrice(size, listing.country, toCountry, o.id), currency: 'EUR', estimate: true }));
 }
 
-export const labelsEnabled = apiEnabled;
+// Prepaid labels: the service with Sendcloud set up.
+export const labelsEnabled = () => apiEnabled() && !!serviceInfo.get().shipping;
 
 export const servicePoints = (carrier, country, postalCode) =>
   api(`/api/shipping/points?carrier=${encodeURIComponent(carrier)}&country=${country}&postalCode=${encodeURIComponent(postalCode || '')}`).then((r) => r.points);

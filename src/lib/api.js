@@ -5,8 +5,21 @@ import { base64 } from '@scure/base';
 import { bytesToHex } from './btc/bytes.js';
 import { sign } from './nostr/account.js';
 import { API_URL } from '../config.js';
+import { createStore } from './store.js';
 
 export const apiEnabled = () => !!API_URL;
+
+// What the service has set up (its "/" answer): shipping needs Sendcloud keys
+// on the service, bug e-mails a Resend key, and so on. Loaded once at start;
+// until then nothing is assumed to be on.
+export const serviceInfo = createStore({ loaded: false, shipping: false, labelPayments: false, bugReports: false, issues: false, push: false, ai: false });
+let infoPromise = null;
+export function loadServiceInfo() {
+  if (!API_URL) return Promise.resolve(serviceInfo.get());
+  infoPromise ||= api('/').then((i) => { serviceInfo.set({ ...i, loaded: true }); return serviceInfo.get(); })
+    .catch(() => { infoPromise = null; return serviceInfo.get(); });
+  return infoPromise;
+}
 export const apiDomain = () => (API_URL ? new URL(API_URL).host : '');
 
 export async function api(path, { method = 'GET', body, auth = false } = {}) {

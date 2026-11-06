@@ -21,6 +21,8 @@ export function ProfileForm({ pk, profile, onDone }) {
   const [touched, setTouched] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [check, setCheck] = useState(null);
+  // A claimed username is shown as it is; changing it is a deliberate step.
+  const [renaming, setRenaming] = useState(false);
   // The profile arrives from relays after the first render: fill in what is still empty.
   useEffect(() => {
     if (touched) return;
@@ -53,15 +55,25 @@ export function ProfileForm({ pk, profile, onDone }) {
         {f.picture ? <img class="avatar" src={f.picture} width="56" height="56" alt="" referrerpolicy="no-referrer" /> : <Avatar pk={pk} size={56} />}
         <label class="btn small">{uploading ? <Spinner /> : '📷'} {T('Change photo', 'Cambiar foto')}<input type="file" accept="image/*" hidden onChange={onFile} /></label>
       </div>
-      <Field label={T('Username', 'Nombre de usuario')} hint={online
-        ? T(`Unique: people find you with @${n || 'name'}. Also your Nostr address ${n || 'name'}@${apiDomain()}.`, `Único: te encuentran con @${n || 'nombre'}. También es tu dirección Nostr ${n || 'nombre'}@${apiDomain()}.`)
-        : T('People find you with @name in the search. 3 to 20 characters: a-z, 0-9 and _.', 'Te encuentran con @nombre en la búsqueda. De 3 a 20 caracteres: a-z, 0-9 y _.')}>
-        <div class="row nomargin username-input"><span class="at">@</span><input value={f.username} onInput={(e) => { setTouched(true); const v = cleanUsername(e.target.value); setF((cur) => ({ ...cur, username: v })); }} autocapitalize="off" autocomplete="off" spellcheck={false} maxLength={20} class={f.username && (!valid || taken) ? 'invalid' : ''} /></div>
-      </Field>
-      {f.username && !valid && <span class="hint error">{T('3 to 20 characters: letters a-z, numbers and _', 'De 3 a 20 caracteres: letras a-z, números y _')}</span>}
-      {claimed && <span class="hint ok-text">✓ {T('Your username', 'Tu nombre de usuario')}</span>}
-      {check?.error && <span class="hint error">{check.error}</span>}
-      {valid && check && !check.error && (taken ? <span class="hint error">✗ @{n} {T('is already taken', 'ya está en uso')}</span> : <span class="hint ok-text">✓ @{n} {T('is available', 'está disponible')}</span>)}
+      {claimed && !renaming ? (
+        <Field label={T('Username', 'Nombre de usuario')} hint={online ? T(`Your Nostr address (NIP-05): ${n}@${apiDomain()}. Other Nostr apps show it as verified.`, `Tu dirección Nostr (NIP-05): ${n}@${apiDomain()}. Otras apps de Nostr la muestran como verificada.`) : undefined}>
+          <div class="row nomargin"><b class="handle">@{n}</b> <span class="hint ok-text">✓ {T('Your username', 'Tu nombre de usuario')}</span> <button type="button" class="btn small ghost" onClick={() => setRenaming(true)}>{T('Change', 'Cambiar')}</button></div>
+        </Field>
+      ) : (
+        <>
+          <Field label={T('Username', 'Nombre de usuario')} hint={online
+            ? T(`Unique: people find you with @${n || 'name'}. It is also your Nostr address (NIP-05) ${n || 'name'}@${apiDomain()}, which other Nostr apps show as verified.`, `Único: te encuentran con @${n || 'nombre'}. También es tu dirección Nostr (NIP-05) ${n || 'nombre'}@${apiDomain()}, que otras apps de Nostr muestran como verificada.`)
+            : T('People find you with @name in the search. 3 to 20 characters: a-z, 0-9 and _.', 'Te encuentran con @nombre en la búsqueda. De 3 a 20 caracteres: a-z, 0-9 y _.')}>
+            <div class="row nomargin username-input"><span class="at">@</span><input value={f.username} onInput={(e) => { setTouched(true); const v = cleanUsername(e.target.value); setF((cur) => ({ ...cur, username: v })); }} autocapitalize="off" autocomplete="off" spellcheck={false} maxLength={20} class={f.username && (!valid || taken) ? 'invalid' : ''} /></div>
+          </Field>
+          {f.username && !valid && <span class="hint error">{T('3 to 20 characters: letters a-z, numbers and _', 'De 3 a 20 caracteres: letras a-z, números y _')}</span>}
+          {claimed && <span class="hint ok-text">✓ {T('Your username', 'Tu nombre de usuario')} <button type="button" class="btn small ghost" onClick={() => setRenaming(false)}>{T('Keep it', 'Mantenerlo')}</button></span>}
+          {check?.error && <span class="hint error">{check.error}</span>}
+          {valid && check && !check.error && (taken
+            ? <span class="hint error">✗ @{n} {T('is taken by another account (maybe another of yours). Choose a different name.', 'lo usa otra cuenta (quizá otra tuya). Elige otro nombre.')}</span>
+            : <span class="hint ok-text">✓ @{n} {T('is available', 'está disponible')}</span>)}
+        </>
+      )}
       <Field label={T('Country', 'País')} hint={T('Required. Buyers filter on it and it sets where you ship from.', 'Obligatorio. Los compradores filtran por él y determina desde dónde envías.')}>
         <CountrySelect value={f.country} onChange={(country) => { setTouched(true); setF((cur) => ({ ...cur, country })); }} required />
       </Field>
@@ -82,6 +94,7 @@ export function ProfileForm({ pk, profile, onDone }) {
           await saveProfile(pk, { name: n, display_name: n, about: f.about, picture: f.picture, xbt_market: { ...m, vinted: f.vinted, ebay: f.ebay, marktplaats: f.marktplaats, other: f.other, country: f.country } });
           updateSettings({ country: f.country });
           setTouched(false);
+          setRenaming(false);
           toast(T('Profile saved', 'Perfil guardado'), 'ok');
           onDone?.();
         }}>{T('Save profile', 'Guardar perfil')}</Action>
