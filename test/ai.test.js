@@ -1,7 +1,7 @@
 // The AI listing draft: request shape and response handling, against a fake API.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { draftListing, normalizeBase, validBase, listModels } from '../src/lib/ai/listing.js';
+import { draftListing, normalizeBase, validBase, listModels, findModels, testAi } from '../src/lib/ai/listing.js';
 
 const ANT = { key: 'sk-ant-test', base: '', model: '', anthropic: true };
 
@@ -117,4 +117,31 @@ test('AI service that refuses websites: the request goes through the XBT Market 
   // The service's own error text is shown.
   const err = async () => ({ status: 404, body: JSON.stringify({ error: { message: 'model vision-9 not found' } }) });
   await assert.rejects(draftListing({ images: ['https://blossom.example/a.jpg'], config: OAI, fetchImpl: blocked, relay: err }), /model vision-9 not found/);
+});
+
+test('AI: a service that wants max_completion_tokens gets the request again; model and vision errors are named', async () => {
+  const seen = [];
+  const fetchImpl = async (url, init) => {
+    const body = JSON.parse(init.body);
+    seen.push(body);
+    if (body.max_tokens != null) return new Response(JSON.stringify({ error: { message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead." } }), { status: 400 });
+    return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: 'OK' } }] }), { status: 200 });
+  };
+  assert.deepEqual(await testAi(OAI, { fetchImpl }), { ok: true, via: 'direct' });
+  assert.equal(seen.length, 2);
+  assert.equal(seen[1].max_tokens, undefined);
+  assert.equal(seen[1].max_completion_tokens, 16);
+  const says = (message) => async () => new Response(JSON.stringify({ error: { message } }), { status: 400 });
+  await assert.rejects(testAi(OAI, { fetchImpl: says('The model `vision-1` does not exist') }), /does not know this model/);
+  await assert.rejects(testAi(OAI, { fetchImpl: says('Invalid content type. image_url is only supported by certain models.') }), /cannot read photos/);
+});
+
+test('AI: an address pasted without /v1 is tried with /v1 when the models are listed', async () => {
+  const fetchImpl = async (url) => (String(url) === 'https://ai.example/v1/models'
+    ? new Response(JSON.stringify({ data: [{ id: 'vision-1' }] }), { status: 200 })
+    : new Response('{}', { status: 404 }));
+  assert.deepEqual(await findModels({ base: 'https://ai.example', key: 'k', fetchImpl }), { models: ['vision-1'], base: 'https://ai.example/v1' });
+  assert.deepEqual(await findModels({ base: 'https://ai.example/v1/', key: 'k', fetchImpl }), { models: ['vision-1'], base: 'https://ai.example/v1' });
+  // A wrong address stays a clear "not found", with the original address.
+  await assert.rejects(findModels({ base: 'https://ai.example/other', key: 'k', fetchImpl }), /Not found at your AI service/);
 });

@@ -12,7 +12,7 @@ import { DEFAULTS, ESPLORA_PRESETS, DEFAULT_ARBITERS } from '../../config.js';
 import { Esplora, normalizeNodeUrl } from '../../lib/btc/esplora.js';
 import { secretNames } from '../../lib/secrets.js';
 import { connectWallet, disconnectWallet, walletConnected, walletBalance, walletLud16 } from '../../lib/ln/wallet.js';
-import { aiConfigured, loadAi, saveAi, aiHost, isAnthropicKey, validBase, normalizeBase, listModels, testAi } from '../../lib/ai/listing.js';
+import { aiConfigured, loadAi, saveAi, aiHost, isAnthropicKey, validBase, normalizeBase, findModels, testAi } from '../../lib/ai/listing.js';
 import { T, LANGS } from '../i18n.js';
 import { Action, Field, Copy, Avatar, Name, ArbiterName, AddressForm, addressComplete, toast, toastError } from '../components.jsx';
 import { InstallGuide } from '../install.jsx';
@@ -376,11 +376,14 @@ function AiKey() {
         </>
       ) : (
         <>
-          <p class="small">{T('Works with any AI service that can read photos: one you have an account with, or a model on your own computer. You pay your service directly, usually a few cents per listing.', 'Funciona con cualquier servicio de IA que pueda leer fotos: uno en el que tengas cuenta o un modelo en tu propio ordenador. Pagas directamente a tu servicio, normalmente unos céntimos por anuncio.')}</p>
+          <p class="small">{T('Works with any AI service that can read photos: one you have an account with, or a model on your own computer. You pay your service directly, usually a few cents per listing. You need three things from your service:', 'Funciona con cualquier servicio de IA que pueda leer fotos: uno en el que tengas cuenta o un modelo en tu propio ordenador. Pagas directamente a tu servicio, normalmente unos céntimos por anuncio. Necesitas tres cosas de tu servicio:')}</p>
           <ol class="small">
-            <li>{T('In your AI service\'s account, create an API key. Set a low monthly spending limit there: a key cannot be limited otherwise.', 'En la cuenta de tu servicio de IA, crea una clave de API. Pon allí un límite de gasto mensual bajo: una clave no se puede limitar de otra forma.')}</li>
-            <li>{T('Paste it below, with the API address and model your service gives (in its documentation, often under "OpenAI-compatible API").', 'Pégala abajo, con la dirección de la API y el modelo que indica tu servicio (en su documentación, a menudo en "API compatible con OpenAI").')}</li>
+            <li><b>{T('API key.', 'Clave de API.')}</b> {T('On your service\'s website (not in its chat or app), log in and look for "API keys", usually under Settings, Dashboard or Developers. Create a key, copy it right away (it is shown only once) and set a low monthly spending limit there.', 'En la web de tu servicio (no en su chat ni en su app), inicia sesión y busca «API keys», normalmente en Settings, Dashboard o Developers. Crea una clave, cópiala enseguida (solo se muestra una vez) y pon allí un límite de gasto mensual bajo.')}</li>
+            <li><b>{T('API address.', 'Dirección de la API.')}</b> {T('In your service\'s documentation under "API", "OpenAI-compatible" or "base URL": a web address that usually ends in /v1, like https://api.example.com/v1. Not the address of the chat page. Found one ending in /chat/completions? Paste it as it is. Forgot the /v1? "Show the available models" adds it for you.', 'En la documentación de tu servicio, en «API», «OpenAI-compatible» o «base URL»: una dirección web que suele terminar en /v1, como https://api.example.com/v1. No es la dirección de la página del chat. ¿Encontraste una que termina en /chat/completions? Pégala tal cual. ¿Olvidaste el /v1? «Ver los modelos disponibles» lo añade por ti.')}</li>
+            <li><b>{T('Model.', 'Modelo.')}</b> {T('Tap "Show the available models" and pick one that can read photos ("vision"; models made only for code or text cannot). Or type the exact model name from the documentation.', 'Toca «Ver los modelos disponibles» y elige uno que pueda leer fotos («vision»; los modelos solo para código o texto no pueden). O escribe el nombre exacto del modelo de la documentación.')}</li>
+            <li>{T('Tap "Test". If something is wrong, it says exactly what: the key, the address, the model or your credit.', 'Toca «Probar». Si algo falla, dice exactamente qué: la clave, la dirección, el modelo o tu saldo.')}</li>
           </ol>
+          <p class="hint">{T('A model on your own computer: address http://localhost:…/v1 as its program shows it, no key.', 'Un modelo en tu propio ordenador: dirección http://localhost:…/v1 tal como la muestra su programa, sin clave.')}</p>
           <Field label={T('API key', 'Clave de API')} hint={anthropic ? T('✓ Recognised: everything else is filled in for you.', '✓ Reconocida: lo demás se rellena solo.') : T('Not needed for a model on your own computer.', 'No hace falta para un modelo en tu propio ordenador.')}>
             <input type="password" value={key} onInput={(e) => setKey(e.target.value)} autocomplete="off" aria-label={T('API key', 'Clave de API')} />
           </Field>
@@ -393,7 +396,12 @@ function AiKey() {
                 ? <select value={model} onChange={(e) => setModel(e.target.value)}><option value="">{T('Choose…', 'Elige…')}</option>{models.map((m) => <option key={m} value={m}>{m}</option>)}</select>
                 : <input value={model} onInput={(e) => setModel(e.target.value)} />}
             </Field>
-            <Action class="small ghost" disabled={!validBase(base)} onClick={async () => { const list = await listModels({ base, key }); setModels(list); if (!list.length) toast(T('The service lists no models: type the name yourself.', 'El servicio no muestra modelos: escribe el nombre tú.')); }}>{T('Show the available models', 'Ver los modelos disponibles')}</Action>
+            <Action class="small ghost" disabled={!validBase(base)} onClick={async () => {
+              const found = await findModels({ base, key });
+              if (found.base !== normalizeBase(base)) { setBase(found.base); toast(T('Added /v1 to the address: that is where your service answers.', 'Añadido /v1 a la dirección: ahí responde tu servicio.'), 'ok'); }
+              setModels(found.models);
+              if (!found.models.length) toast(T('The service lists no models: type the name yourself.', 'El servicio no muestra modelos: escribe el nombre tú.'));
+            }}>{T('Show the available models', 'Ver los modelos disponibles')}</Action>
           </>}
           <p class="hint">{T('Stored encrypted on this device only, never published. Your photos go only to the service you connect.', 'Se guarda cifrado solo en este dispositivo y nunca se publica. Tus fotos solo van al servicio que conectes.')}</p>
           <div class="row">

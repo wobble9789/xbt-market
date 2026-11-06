@@ -85,6 +85,17 @@ export async function aiRequest(c, path, request, { fetchImpl = fetch, relay } =
   }
 }
 
+// A chat completion. Newer services want max_completion_tokens instead of
+// max_tokens and refuse the old name: then the same request goes again.
+async function chatRequest(c, request, opts) {
+  let res = await aiRequest(c, 'chat/completions', request, opts);
+  if (res.status === 400 && request.max_tokens != null && /max_tokens/.test(res.text || '')) {
+    const { max_tokens: n, ...rest } = request;
+    res = await aiRequest(c, 'chat/completions', { ...rest, max_completion_tokens: n }, opts);
+  }
+  return res;
+}
+
 // What went wrong, in words the user can act on, with the service's own message.
 function aiError(res) {
   let detail = '';
@@ -93,6 +104,8 @@ function aiError(res) {
   if (res.status === 401 || res.status === 403) return new Error(`Your AI service did not accept the API key${tail}.`);
   if (res.status === 404) return new Error(`Not found at your AI service: check the API address (it usually ends in /v1) and the model${tail}.`);
   if (res.status === 429) return new Error(`Your AI service says: too many requests or no credit left${tail}.`);
+  if (/image|multimodal/i.test(detail)) return new Error(`This model cannot read photos: pick a model with vision under "Show the available models"${tail}.`);
+  if (/model/i.test(detail)) return new Error(`Your AI service does not know this model: pick one under "Show the available models"${tail}.`);
   return new Error(`Your AI service answered with error ${res.status}${tail}.`);
 }
 
@@ -114,9 +127,25 @@ export async function testAi(c, { fetchImpl, relay } = {}) {
     await client.models.list({ limit: 1 });
     return { ok: true, via: 'direct' };
   }
-  const res = await aiRequest(c, 'chat/completions', { model: c.model, max_tokens: 5, messages: [{ role: 'user', content: 'Reply with: OK' }] }, { fetchImpl, relay });
+  const res = await chatRequest(c, { model: c.model, max_tokens: 16, messages: [{ role: 'user', content: 'Reply with: OK' }] }, { fetchImpl, relay });
   if (res.status < 200 || res.status >= 300) throw aiError(res);
   return { ok: true, via: res.via };
+}
+
+// The models of a service, trying the address with /v1 added when the one
+// given is not found: people often paste the address without it. Returns
+// { models, base } with the address that worked.
+export async function findModels({ base, key, fetchImpl, relay }) {
+  try {
+    return { models: await listModels({ base, key, fetchImpl, relay }), base: normalizeBase(base) };
+  } catch (e) {
+    const b = normalizeBase(base);
+    if (/\/v\d+$/.test(b) || !/Not found/.test(e.message)) throw e;
+    const withV1 = b + '/v1';
+    let models;
+    try { models = await listModels({ base: withV1, key, fetchImpl, relay }); } catch { throw e; }
+    return { models, base: withV1 };
+  }
 }
 
 const SCHEMA = {
@@ -192,7 +221,7 @@ async function chatJson(c, { images = [], text, schema, maxTokens, fetchImpl = f
     { role: 'system', content: `${SYSTEM}\nAnswer with only a JSON object that matches this JSON schema:\n${JSON.stringify(schema)}` },
     { role: 'user', content },
   ];
-  const ask = (format) => aiRequest(c, 'chat/completions', { model: c.model, max_tokens: maxTokens, messages, ...(format ? { response_format: format } : {}) }, { fetchImpl, relay });
+  const ask = (format) => chatRequest(c, { model: c.model, max_tokens: maxTokens, messages, ...(format ? { response_format: format } : {}) }, { fetchImpl, relay });
   let res = await ask({ type: 'json_schema', json_schema: { name: 'answer', strict: true, schema } });
   // Not every service supports a schema; the prompt carries it too.
   if (res.status === 400 || res.status === 422) res = await ask(null);
