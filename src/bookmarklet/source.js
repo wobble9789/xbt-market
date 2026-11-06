@@ -142,6 +142,7 @@ function note(text) {
     if (items.length && /ebay\./.test(host) && (/[?&]_ssn=/.test(location.search) || /^\/str\//.test(location.pathname))) {
       try {
         for (let page = 2; page <= 30; page++) {
+          note(`XBT Market: ${dedupeItems(items).length} listings so far, reading page ${page}…`);
           const u = new URL(here);
           u.searchParams.set('_pgn', String(page));
           const r = await fetch(u, { credentials: 'include' });
@@ -154,7 +155,7 @@ function note(text) {
       } catch (e) { console.warn('xbt import: ebay pages', e); }
       platform = 'ebay';
     }
-    if (/ebay\./.test(host) && items.length > 1) await addAllPhotos(items);
+    if (/ebay\./.test(host) && items.length > 1) { note(`XBT Market: ${dedupeItems(items).length} listings found, reading their photos…`); await addAllPhotos(items); }
   }
   // A single item page without structured data: its share tags (og:title, og:image…).
   if (!items.length) items.push(...itemFromMeta(document, here));

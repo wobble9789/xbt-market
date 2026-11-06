@@ -14,7 +14,8 @@ import { settings } from '../../lib/settings.js';
 import { T, CONDITION_LABELS, label, timeAgo, countryName } from '../i18n.js';
 import { ListingPrice, Name, Img, Empty, Spinner, Avatar, useRates } from '../components.jsx';
 import { CountrySelect } from '../countries.jsx';
-import { CategoryPicker } from '../categories.jsx';
+import { CategoryPicker, useCategoryTree } from '../categories.jsx';
+import { categoryText } from '../../lib/category-text.js';
 
 export function ListingCard({ l }) {
   return (
@@ -105,16 +106,18 @@ export function Browse({ query }) {
     return rates[l.currency] && rates[display] ? (l.price / rates[l.currency]) * rates[display] : null;
   };
 
+  // A search word also hits the listing's category names and their synonyms.
+  const tree = useCategoryTree();
   const shown = useMemo(() => {
     let list = all;
     if (tab === 'following') list = list.filter((l) => f.set.has(l.pubkey));
     if (since) list = list.filter((l) => l.createdAt > since);
     const search = { q, ...flt };
-    list = list.filter((l) => matchesSearch(l, search, { priceIn: inDisplay, sharedArbiters: (x) => sharedArbiters(x, dir, me) }));
+    list = list.filter((l) => matchesSearch(l, search, { priceIn: inDisplay, sharedArbiters: (x) => sharedArbiters(x, dir, me), extraText: (x) => categoryText(x, tree, tree?.extras?.SYNONYMS) }));
     const price = (l) => inDisplay(l) ?? Infinity;
     const cmp = { new: (a, b) => b.createdAt - a.createdAt, old: (a, b) => a.createdAt - b.createdAt, price: (a, b) => price(a) - price(b), '-price': (a, b) => price(b) - price(a) }[sort];
     return [...list].sort(cmp);
-  }, [listings, q, flt, sort, tab, f, rates, blocked, dir, counts, since]);
+  }, [listings, q, flt, sort, tab, f, rates, blocked, dir, counts, since, tree]);
 
   // "@name" searches people; anything else searches listings.
   const userSearch = q.trim().startsWith('@');

@@ -14,7 +14,14 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { parseListing, LISTING_KIND } from '../src/lib/nostr/listings.js';
 import { cleanSearch, matchesSearch, searchHash } from '../src/lib/search.js';
+import { categoryText } from '../src/lib/category-text.js';
+import { CATEGORY_TREE } from '../src/lib/category-tree.js';
+import { SYNONYMS } from '../src/lib/category-synonyms/index.js';
 import { DEFAULTS, MARKET_TAG } from '../src/config.js';
+
+// A search word also hits the category names, as in the app.
+const TREE = new Map(CATEGORY_TREE.map(([id, , , , children = []]) => [id, children]));
+const extraText = (l) => categoryText(l, TREE, SYNONYMS);
 
 const enc = (s) => new TextEncoder().encode(s);
 const concat = (...parts) => {
@@ -185,7 +192,7 @@ export async function runPush(env, store, fetchImpl = globalThis.fetch.bind(glob
       const from = Math.max(s.since || 0, s.sent || 0);
       // The service has no exchange rates: a price range only counts for listings in its currency.
       const priceIn = (l) => (l.currency === (s.query.cur || l.currency) ? l.price : null);
-      const hits = fresh.filter((l) => l.createdAt > from && matchesSearch(l, s.query, { priceIn }));
+      const hits = fresh.filter((l) => l.createdAt > from && matchesSearch(l, s.query, { priceIn, extraText }));
       if (!hits.length) continue;
       const es = rec.lang === 'es';
       const payload = {

@@ -16,10 +16,11 @@ const CLI = process.env.KNOTS_CLI;
 if (!CLI) { console.log('KNOTS_CLI not set, skipping'); process.exit(0); }
 const cli = (...a) => execSync(`${CLI} ${a.map((x) => `'${x}'`).join(' ')}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 const json = (...a) => JSON.parse(cli(...a));
-// The node's txindex can lag a block it just mined for a moment.
+// The node's txindex can lag a block it just mined: on a slow CI runner right
+// after the node started, up to a minute.
 function rawTx(txid) {
   for (let i = 0; ; i++) {
-    try { return json('getrawtransaction', txid, 'true'); } catch (e) { if (i >= 20) throw e; execSync('sleep 0.5'); }
+    try { return json('getrawtransaction', txid, 'true'); } catch (e) { if (i >= 120) throw e; execSync('sleep 0.5'); }
   }
 }
 

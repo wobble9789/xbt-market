@@ -65,3 +65,18 @@ test('category search knows what people type, in English, Spanish and Dutch', ()
   assert.equal(top('ssd', 'en').subcategory, 'harde-schijven');
   assert.equal(top('sofa', 'en').category, 'huis-en-inrichting');
 });
+
+// A search word also hits the names of the listing's category (and their synonyms).
+import { matchesSearch } from '../src/lib/search.js';
+import { categoryText } from '../src/lib/category-text.js';
+test('search: "shoes" finds a listing in a shoe subcategory whose title does not say shoes', () => {
+  const tree = new Map([['kleding-dames', [['schoenen-pumps', 'Schoenen | Pumps', 'Shoes | Heels', 'Zapatos | Tacones']]]]);
+  const synonyms = { 'kleding-dames/schoenen-pumps': ['high heels', 'stiletto'] };
+  const l = { title: 'Red stilettos size 38', summary: '', content: '', location: '', category: 'kleding-dames', subcategory: 'schoenen-pumps', payments: ['lightning'], shippingOptions: [], shipsTo: [], price: 20, currency: 'EUR' };
+  const extraText = (x) => categoryText(x, tree, synonyms);
+  assert.ok(matchesSearch(l, { q: 'shoes' }, { extraText }));
+  assert.ok(matchesSearch(l, { q: 'tacones' }, { extraText }));
+  assert.ok(matchesSearch(l, { q: 'high heels' }, { extraText }));
+  assert.ok(!matchesSearch(l, { q: 'shoes' }, {}));
+  assert.ok(!matchesSearch(l, { q: 'bicycle' }, { extraText }));
+});

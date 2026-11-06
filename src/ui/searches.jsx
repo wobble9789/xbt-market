@@ -14,6 +14,8 @@ import { cleanSearch, matchesSearch, searchHash } from '../lib/search.js';
 import { pushSupported, pushState, notificationsAllowed, notificationsBlocked, enableNotifications, syncPush, showNotification } from '../lib/push.js';
 import { T, CATEGORY_LABELS, CONDITION_LABELS, label, countryName, fmtDate } from './i18n.js';
 import { Action, Empty, toast, useRates } from './components.jsx';
+import { useCategoryTree } from './categories.jsx';
+import { categoryText } from '../lib/category-text.js';
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -63,7 +65,8 @@ export function useMatcher() {
     const xbtIn = (c) => (coin(c) ? 1 : rates[c]);
     return xbtIn(l.currency) && xbtIn(to) ? (l.price / xbtIn(l.currency)) * xbtIn(to) : null;
   };
-  return (s, since = 0) => all.filter((l) => l.pubkey !== me && l.createdAt > since && matchesSearch(l, s.query, { priceIn: priceIn(s.query.cur), sharedArbiters: (x) => sharedArbiters(x, dir, me) }));
+  const tree = useCategoryTree();
+  return (s, since = 0) => all.filter((l) => l.pubkey !== me && l.createdAt > since && matchesSearch(l, s.query, { priceIn: priceIn(s.query.cur), sharedArbiters: (x) => sharedArbiters(x, dir, me), extraText: (x) => categoryText(x, tree, tree?.extras?.SYNONYMS) }));
 }
 
 // Notification settings of this device, with the one button that matters.

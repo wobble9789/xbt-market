@@ -51,7 +51,6 @@ export function ImportPage({ query: q }) {
   const [raw, setRaw] = useState(null); // { items, complete }
   const [mine, setMine] = useState(null);
   const [items, setItems] = useState([]);
-  const [paste, setPaste] = useState('');
   const [progress, setProgress] = useState(null);
   const bookmarklet = useMemo(() => 'javascript:' + encodeURIComponent(BOOKMARKLET_SOURCE.replace('__XBT_APP__', appUrl())), []);
 
@@ -161,6 +160,9 @@ export function ImportPage({ query: q }) {
   return (
     <div>
       <h2>{T('Import your listings from Marktplaats, Vinted, eBay…', 'Importa tus anuncios de Marktplaats, Vinted, eBay…')}</h2>
+      {!raw && q.from === 'bookmarklet' && !q.data && !q.z && (
+        <div class="card notice"><Spinner /> {T('Reading your listings in the tab of your shop… With hundreds of ads this takes a few minutes: keep both tabs open. They appear here by themselves.', 'Leyendo tus anuncios en la pestaña de tu tienda… Con cientos de anuncios tarda unos minutos: mantén las dos pestañas abiertas. Aparecen aquí solos.')}</div>
+      )}
       {!raw && (
         <>
           {apiEnabled() && (
@@ -185,7 +187,8 @@ export function ImportPage({ query: q }) {
             <ol class="small">
               <li>{T('Delete any old "To XBT Market" bookmark.', 'Borra cualquier marcador antiguo «A XBT Market».')}</li>
               <li>{T('Drag this button to your bookmarks bar:', 'Arrastra este botón a tu barra de marcadores:')} <BookmarkButton /></li>
-              <li>{T('Open your profile on Marktplaats (marktplaats.nl/u/…) or Vinted (vinted.nl/member/…), or a single ad, and click the bookmark.', 'Abre tu perfil en Marktplaats (marktplaats.nl/u/…) o Vinted (vinted.es/member/…), o un solo anuncio, y pulsa el marcador.')}</li>
+              <li>{T('Open your profile on Marktplaats (marktplaats.nl/u/…) or Vinted (vinted.nl/member/…), your eBay items page (ebay.xx/sch/i.html?_ssn=your-name) or shop (ebay.xx/str/…), or a single ad, and click the bookmark.', 'Abre tu perfil en Marktplaats (marktplaats.nl/u/…) o Vinted (vinted.es/member/…), tu página de artículos de eBay (ebay.xx/sch/i.html?_ssn=tu-nombre) o tienda (ebay.xx/str/…), o un solo anuncio, y pulsa el marcador.')}</li>
+              <li>{T('The bookmark reads all pages of your profile or shop, so the total can be more than one page shows. With hundreds of ads this takes a few minutes: the note at the bottom of your shop page shows the progress.', 'El marcador lee todas las páginas de tu perfil o tienda, así que el total puede ser mayor de lo que muestra una página. Con cientos de anuncios tarda unos minutos: la nota al pie de tu página muestra el progreso.')}</li>
             </ol>
             <h4>{T('On a phone', 'En el móvil')}</h4>
             <p class="notice warn small">{T('Does not work with Chrome-based browsers on a phone.', 'No funciona con navegadores basados en Chrome en el móvil.')}</p>
@@ -205,16 +208,10 @@ export function ImportPage({ query: q }) {
             <p class="hint">{T('Run it again whenever you like: listings that are already here are recognised and not added twice.', 'Úsalo cuando quieras: los anuncios que ya están aquí se reconocen y no se duplican.')}</p>
           </details>
           <details class="card collapsible">
-            <summary><h3>{T('Other ways', 'Otras formas')}</h3><span class="muted small">{T('eBay CSV, pasted data', 'CSV de eBay, datos pegados')}</span></summary>
-            <div class="cols">
-              <Field label={T('eBay Seller Hub CSV (Reports → Downloads → Active listings)', 'CSV de eBay Seller Hub (Informes → Descargas → Anuncios activos)')}>
-                <input type="file" accept=".csv,text/csv" onChange={onCsv} />
-              </Field>
-              <Field label={T('Paste copied data', 'Pega los datos copiados')}>
-                <textarea rows="3" value={paste} onInput={(e) => setPaste(e.target.value)} placeholder='{"items":[…]}' />
-                <button class="btn small" disabled={!paste} onClick={() => { try { load(paste.trim().startsWith('{') || paste.trim().startsWith('[') ? fromPayload(paste) : fromCsv(paste)); setPaste(''); } catch (e) { toastError(e); } }}>{T('Read', 'Leer')}</button>
-              </Field>
-            </div>
+            <summary><h3>{T('Other ways', 'Otras formas')}</h3><span class="muted small">{T('eBay CSV', 'CSV de eBay')}</span></summary>
+            <Field label={T('eBay Seller Hub CSV (Reports → Downloads → Active listings)', 'CSV de eBay Seller Hub (Informes → Descargas → Anuncios activos)')}>
+              <input type="file" accept=".csv,text/csv" onChange={onCsv} />
+            </Field>
           </details>
         </>
       )}
@@ -226,7 +223,7 @@ export function ImportPage({ query: q }) {
             <div class="row">
               <button class="btn small ghost" onClick={() => setItems((cur) => cur.map((i) => ({ ...i, selected: i.status !== 'same' && Number(i.price) > 0 })))}>{T('All new + changed', 'Todos los nuevos + cambiados')}</button>
               <button class="btn small ghost" onClick={() => setItems((cur) => cur.map((i) => ({ ...i, selected: false })))}>{T('None', 'Ninguno')}</button>
-              <button class="btn small ghost" onClick={() => { setRaw(null); setItems([]); setGone([]); }}>{T('Start over', 'Empezar de nuevo')}</button>
+              <button class="btn small ghost" onClick={() => { setRaw(null); setItems([]); }}>{T('Start over', 'Empezar de nuevo')}</button>
             </div>
           </div>
           <p class="import-summary">

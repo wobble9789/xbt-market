@@ -124,6 +124,8 @@ export function EditListing({ d }) {
   useStore(secretNames);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiNote, setAiNote] = useState('');
+  // What the photos cannot show: brand, age, size, flaws. Goes to the AI with the photos.
+  const [aiHint, setAiHint] = useState('');
   const [uploading, setUploading] = useState(false);
   // Functional updates: quick successive edits must never overwrite each other.
   const set = (k) => (e) => { const v = e.target.value; setF((cur) => ({ ...cur, [k]: v })); };
@@ -176,7 +178,7 @@ export function EditListing({ d }) {
   const runAi = async () => {
     setAiBusy(true);
     try {
-      const d = await draftListing({ images: f.images, lang: s.lang, currency: f.currency === 'XBT' ? 'EUR' : f.currency, hint: [f.title, f.content].filter(Boolean).join('\n'), tree: await loadCategoryTree() });
+      const d = await draftListing({ images: f.images, lang: s.lang, currency: f.currency === 'XBT' ? 'EUR' : f.currency, hint: [aiHint, f.title, f.content].map((x) => x.trim()).filter(Boolean).join('\n'), tree: await loadCategoryTree() });
       setF((cur) => ({ ...cur, title: d.title, content: d.description, category: normalizeCategory(d.category), subcategory: d.subcategory || '', condition: d.condition, price: d.price > 0 && cur.currency !== 'XBT' ? String(d.price) : cur.price }));
       setAiNote(d.notes || '');
       toast(T('Draft filled in. Check it before publishing.', 'Borrador rellenado. Revísalo antes de publicar.'), 'ok');
@@ -199,6 +201,11 @@ export function EditListing({ d }) {
           <label class="photo add" aria-label={T('Add photos', 'Añadir fotos')}>{uploading ? <Spinner /> : '+'}<input type="file" accept="image/*" multiple onChange={onFiles} hidden /></label>
         </div>
       </Field>
+      {aiConfigured() && (
+        <Field label={T('Tell the AI about the item (optional)', 'Cuéntale a la IA sobre el artículo (opcional)')} hint={T('What the photos cannot show: brand and model, age, size, what is included, any flaws. The AI uses it to write a better ad.', 'Lo que las fotos no muestran: marca y modelo, antigüedad, talla, qué incluye, defectos. La IA lo usa para escribir un anuncio mejor.')}>
+          <textarea rows="2" value={aiHint} onInput={(e) => setAiHint(e.target.value)} placeholder={T('e.g. Trek road bike from 2019, size 56, new tyres, small scratch on the frame', 'p. ej. Bici de carretera Trek de 2019, talla 56, cubiertas nuevas, pequeño arañazo en el cuadro')} />
+        </Field>
+      )}
       <div class="row">
         {aiConfigured()
           ? <button type="button" class="btn" disabled={aiBusy || !f.images.length} onClick={runAi}>{aiBusy ? <Spinner /> : '✨'} {T('Write listing from photos', 'Escribir anuncio a partir de las fotos')}</button>

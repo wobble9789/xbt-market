@@ -26,6 +26,8 @@ export const isEmptySearch = (s) => !Object.keys(cleanSearch(s)).filter((k) => k
 //   (unknown prices are left out when a price range is set).
 // ctx.sharedArbiters(listing): arbiters both sides trust (for `arb`); without
 //   it `arb` is not checked (the service cannot know whom the user trusts).
+// ctx.extraText(listing): more words the search may hit, such as the names of
+//   the listing's category (see category-text.js).
 export function matchesSearch(l, s, ctx = {}) {
   if (s.c && l.category !== s.c) return false;
   if (s.sub && l.subcategory !== s.sub) return false;
@@ -45,7 +47,7 @@ export function matchesSearch(l, s, ctx = {}) {
   }
   const words = String(s.q || '').toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length) {
-    const hay = `${l.title} ${l.summary} ${l.content} ${l.location}`.toLowerCase();
+    const hay = `${l.title} ${l.summary} ${l.content} ${l.location} ${ctx.extraText ? ctx.extraText(l) : ''}`.toLowerCase();
     if (!words.every((w) => hay.includes(w))) return false;
   }
   return true;

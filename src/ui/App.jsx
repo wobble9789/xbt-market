@@ -15,6 +15,7 @@ import { loadDirectory, refreshDirectory, directory } from '../lib/nostr/directo
 // (the directory also depends on the account: its trusted arbiters are personal)
 import { settings } from '../lib/settings.js';
 import { APP_NAME } from '../config.js';
+import { loadServiceInfo } from '../lib/api.js';
 import { useRoute } from './router.js';
 import { T } from './i18n.js';
 import { Toasts, Action, Field, Avatar, Spinner, toast, toastError } from './components.jsx';
@@ -154,6 +155,7 @@ export function App() {
   }, []);
   useEffect(() => {
     startMarket();
+    loadServiceInfo();
     loadDirectory().catch(toastError);
     const t = setInterval(() => refreshDirectory().catch(() => {}), 5 * 60_000);
     return () => clearInterval(t);
