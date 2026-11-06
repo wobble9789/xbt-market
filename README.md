@@ -110,6 +110,11 @@ Without it, the app hides usernames and link import, shows estimated shipping pr
 5. To publish bug reports as GitHub issues (Admin → Bug reports → *Publish as GitHub issue*): a fine-grained token at github.com → *Settings → Developer settings → Fine-grained tokens*, only this repository, permission *Issues: Read and write*. Save it as the secret `ISSUES_TOKEN`; the repository variable `VITE_ADMIN_NPUB` already says who the admin is. The admin edits the text first; the reporter's name and screenshots are never published. To let Claude pick up such an issue (it carries `@claude`) and open a pull request, add the secret `CLAUDE_CODE_OAUTH_TOKEN` (in Claude Code: `/install-github-app`); see `.github/workflows/claude.yml`.
 6. Re-run the *Test and deploy* workflow. It deploys the Worker, then builds the app with its address (`VITE_API_URL`, or set that repository variable to use your own domain).
 
+**The service's address is public, and so is your username's.** The app's code names the service it talks to, and a claimed @username is published in the user's Nostr profile as `name@<service address>` (NIP-05). The free `….workers.dev` address contains your Cloudflare account's subdomain, which Cloudflare derives from your account name. Two ways to keep that out of sight:
+- *Change the workers.dev subdomain*: Cloudflare dashboard → *Workers & Pages* → right column *Subdomain* → *Change*; pick something neutral. Then re-run the workflow (it picks up the new address) and have users save their profile once (the app offers to move the username to the new address).
+- *Your own domain* (nicer): put a domain on your Cloudflare account, set the repository variable `SERVICE_DOMAIN` (e.g. `api.example.com`; *Settings → Secrets and variables → Actions → Variables*) and re-run the workflow. The Worker then answers on that domain only (the workers.dev address is switched off) and usernames read `name@api.example.com`.
+A username can be removed again under *Account → Profile → Remove*: it is released and the profile is published without the address, which replaces the old profile on the relays.
+
 Locally: `npm run sendcloud` (a Sendcloud mock), `npm run wallets` (includes the platform's mock Lightning address) and `npm run service:dev`, then build with `VITE_API_URL=http://127.0.0.1:8787`.
 
 ## Configuration
