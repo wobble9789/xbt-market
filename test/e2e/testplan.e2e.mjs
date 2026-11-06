@@ -450,9 +450,17 @@ try {
     if (nj.names[name] !== people.B.pk) throw new Error('not in nostr.json');
     const c = await go('C', '#/settings');
     await fill(c, 'Username', name);
-    await waitText(c, `@${name} is already taken`);
+    await waitText(c, `@${name} is taken by another account`);
     if (!(await (await el(c, btnX('Save profile'))).evaluate((b) => b.disabled))) throw new Error('C could take a taken name');
-    return `B is @${name} (NIP-05 ${name}@…), set in the profile; C gets "already taken"`;
+    // B's own claimed name is shown as text, changed only through "Change".
+    const b = await go('B', '#/settings');
+    await waitText(b, 'Your username', 30000);
+    if (await b.$('.username-input input')) throw new Error('a claimed username is still a free input');
+    await click(b, 'Change');
+    await b.waitForSelector('.username-input input', { timeout: 10000 });
+    await click(b, 'Keep it');
+    await waitText(b, 'Your username');
+    return `B is @${name} (NIP-05 ${name}@…), shown as text with "Change"; C gets "taken by another account"`;
   });
   await step('USR-2', 'Search by username', async () => {
     const c = await go('C', '#/');
