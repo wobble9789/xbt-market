@@ -40,6 +40,11 @@ export function ProfileForm({ pk, profile, onDone }) {
     return () => clearTimeout(t);
   }, [n, claimed]);
   const taken = check && !check.error && !check.available && check.pubkey !== pk;
+  const mine = check && !check.error && check.pubkey === pk;
+  // The Nostr address in the profile names another service address than the
+  // one this app uses (the service moved): "Save profile" moves the username.
+  const address = String(profile.nip05 || '').toLowerCase();
+  const stale = online && !!address && address.split('@')[1] !== apiDomain();
   // Functional updates: quick successive edits must never overwrite each other.
   const set = (k) => (e) => { const v = e.target.value; setTouched(true); setF((cur) => ({ ...cur, [k]: v })); };
   const onFile = async (e) => {
@@ -69,11 +74,17 @@ export function ProfileForm({ pk, profile, onDone }) {
             <div class="row nomargin username-input"><span class="at">@</span><input value={f.username} onInput={(e) => { setTouched(true); const v = cleanUsername(e.target.value); setF((cur) => ({ ...cur, username: v })); }} autocapitalize="off" autocomplete="off" spellcheck={false} maxLength={20} class={f.username && (!valid || taken) ? 'invalid' : ''} /></div>
           </Field>
           {f.username && !valid && <span class="hint error">{T('3 to 20 characters: letters a-z, numbers and _', 'De 3 a 20 caracteres: letras a-z, números y _')}</span>}
-          {online && user && !user.ours && user.name === n && <span class="hint">{T(`Your profile still names the old address ${user.domain}. "Save profile" moves it to ${n}@${apiDomain()}.`, `Tu perfil aún lleva la dirección antigua ${user.domain}. «Guardar perfil» la cambia a ${n}@${apiDomain()}.`)}</span>}
+          {stale && (
+            <div class="notice warn small">
+              {T(`Your public profile still carries the old address ${address}. "Save profile" replaces it with ${n || 'name'}@${apiDomain()}; or remove it altogether:`, `Tu perfil público aún lleva la dirección antigua ${address}. «Guardar perfil» la sustituye por ${n || 'nombre'}@${apiDomain()}; o quítala del todo:`)}{' '}
+              <Action class="small ghost danger" onClick={async () => { await releaseUsername(pk, address); setTouched(false); toast(T('Removed: your profile no longer carries a Nostr address.', 'Quitada: tu perfil ya no lleva ninguna dirección Nostr.'), 'ok'); }}>{T('Remove the old address', 'Quitar la dirección antigua')}</Action>
+            </div>
+          )}
           {claimed && <span class="hint ok-text">✓ {T('Your username', 'Tu nombre de usuario')} <button type="button" class="btn small ghost" onClick={() => setRenaming(false)}>{T('Keep it', 'Mantenerlo')}</button></span>}
           {check?.error && <span class="hint error">{check.error}</span>}
           {valid && check && !check.error && (taken
             ? <span class="hint error">✗ @{n} {T('is taken by another account (maybe another of yours). Choose a different name.', 'lo usa otra cuenta (quizá otra tuya). Elige otro nombre.')}</span>
+            : mine ? <span class="hint ok-text">✓ @{n} {T('is yours', 'es tuyo')}</span>
             : <span class="hint ok-text">✓ @{n} {T('is available', 'está disponible')}</span>)}
         </>
       )}
